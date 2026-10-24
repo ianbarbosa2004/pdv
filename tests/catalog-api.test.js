@@ -8,10 +8,19 @@ const baseUrl = `http://127.0.0.1:${port}`;
 const startApi = () => {
   const child = spawn(
     process.execPath,
-    ["--env-file=.env", "src/server/server.js"],
+    ["src/server/server.js"],
     {
       cwd: process.cwd(),
-      env: { ...process.env, PDV_API_HOST: "127.0.0.1", PDV_API_PORT: String(port) },
+      env: {
+        ...process.env,
+        PDV_API_HOST: "127.0.0.1",
+        PDV_API_PORT: String(port),
+        PDV_DB_HOST: "127.0.0.1",
+        PDV_DB_PORT: "3306",
+        PDV_DB_NAME: "pdv",
+        PDV_DB_USER: "pdv_app",
+        PDV_DB_PASSWORD: "test"
+      },
       stdio: ["ignore", "pipe", "pipe"]
     }
   );
