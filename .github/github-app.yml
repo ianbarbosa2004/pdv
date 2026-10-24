@@ -1,0 +1,16 @@
+instructions: |
+  O projeto PDV usa Node.js, Vite, Tauri, Rust, MariaDB e uma API na rede local.
+  Nunca versione ou envie .env, credenciais, chaves privadas, dados reais,
+  dumps, backups, node_modules, dist ou src-tauri/target.
+  Os terminais não acessam o MariaDB diretamente; somente a API usa as credenciais.
+  Não execute deploy, push, merge ou comandos destrutivos sem autorização.
+
+scripts:
+  - name: Instalar dependências
+    command: npm.cmd ci
+    triggers:
+      - session.create
+
+automation:
+  auto_issue_session: true
+  remote_control: false
