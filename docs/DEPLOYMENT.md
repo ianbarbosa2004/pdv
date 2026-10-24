@@ -149,6 +149,21 @@ Quando houver alteração no schema ou na persistência:
 6. confirme que vendas, estoque, pagamentos e produtos existentes foram
    preservados.
 
+As versões que incluem o cadastro fiscal também criam ou atualizam a tabela
+`fiscal_catalog_items`. A inicialização da API faz a criação não destrutiva da
+tabela e insere somente códigos fiscais ausentes. Depois da atualização,
+confirme:
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:3000/api/fiscal-catalogs?catalog=cfops"
+Invoke-RestMethod "http://127.0.0.1:3000/api/fiscal-catalogs?catalog=tax-situations"
+Invoke-RestMethod "http://127.0.0.1:3000/api/fiscal-catalogs?catalog=icms-rates"
+```
+
+Não substitua os dados existentes por uma carga inicial. Os códigos inseridos
+automaticamente usam `INSERT IGNORE` e os cadastros mantidos pela loja devem
+ser preservados.
+
 Não execute `DROP`, `TRUNCATE` ou migrações destrutivas em produção sem uma
 estratégia explícita de recuperação e autorização do usuário.
 

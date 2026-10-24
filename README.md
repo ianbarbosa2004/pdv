@@ -30,6 +30,8 @@ A fundação inicial já está criada:
 - tela administrativa independente para classes;
 - tela administrativa independente para grupos;
 - tela administrativa independente para produtos;
+- cadastro de operações fiscais com CFOP, CST, ICMS, IPI, PIS, COFINS e FCP;
+- cadastros fiscais separados e persistidos para CFOP, CST/CSOSN, alíquotas de ICMS e demais listas das operações;
 - busca e filtro por categoria;
 - carrinho com quantidades;
 - subtotal e total da venda;
@@ -40,6 +42,7 @@ A fundação inicial já está criada:
 - endpoint transacional `POST /api/sales` com baixa de estoque;
 - schema MariaDB para categorias, produtos, vendas, itens, pagamentos e formas
   de pagamento;
+- schema MariaDB para operações fiscais, com contextos estaduais e IBS/CBS;
 - projeto Tauri 2 compilável no Windows;
 - preparação para impressão ESC/POS em 80 mm.
 
@@ -238,9 +241,13 @@ auxiliares ao projeto.
 | `GET` | `/api/classes` | Lista classes ativas |
 | `GET` | `/api/groups` | Lista grupos ativos com sua classe |
 | `GET` | `/api/payment-methods` | Lista formas de pagamento ativas |
+| `GET` | `/api/fiscal-operations` | Lista operações fiscais |
+| `GET` | `/api/fiscal-catalogs?catalog=...` | Lista itens de um cadastro fiscal |
 | `POST` | `/api/classes` | Cria uma classe |
 | `POST` | `/api/groups` | Cria um grupo vinculado a uma classe |
 | `POST` | `/api/products` | Cadastra um produto |
+| `POST` | `/api/fiscal-operations` | Cadastra uma operação fiscal |
+| `POST` | `/api/fiscal-catalogs` | Cadastra um item de catálogo fiscal |
 | `POST` | `/api/sales` | Registra uma venda, pagamentos e baixa o estoque |
 
 Na frente de caixa, use **Retaguarda** para abrir a tela
@@ -251,6 +258,12 @@ Na retaguarda, o controle de Status inativa ou reativa classes, grupos e
 produtos. A lixeira faz a exclusão definitiva quando não há produtos ou vendas
 vinculados que impeçam a remoção. Use o Status para preservar registros que
 precisam permanecer no histórico.
+
+Em **Operações fiscais**, cada lista possui seu próprio cadastro persistido no
+MariaDB. CFOP, CST/CSOSN, alíquotas de ICMS, regimes, contextos, origens,
+situações tributárias de IPI/PIS/COFINS, modalidades de base e motivos de
+desoneração são administrados em telas separadas e consumidos pela tela da
+operação fiscal.
 
 Exemplo de fechamento de venda:
 

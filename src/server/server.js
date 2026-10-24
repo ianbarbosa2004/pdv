@@ -49,6 +49,57 @@ const parseNonNegativeQuantity = (value) => {
   return String(value);
 };
 
+const fiscalCatalogDefinitions = {
+  "tax-regimes": { label: "Regimes tributários", values: [["Simples Nacional", "Simples Nacional"], ["Regime normal", "Regime normal"], ["MEI", "MEI"]] },
+  "operation-types": { label: "Tipos de operação", values: [["entry", "Entrada"], ["exit", "Saída"]] },
+  contexts: { label: "Contextos fiscais", values: [["within_state", "Dentro do estado"], ["within_state_cfop", "Dentro do estado CFOP"], ["outside_state", "Fora do estado"], ["outside_state_cfop", "Fora do estado CFOP"], ["foreign", "Fora do país"], ["cfe", "CF-e"], ["coupons", "Cupons emitidos"], ["ibs_cbs", "IBS e CBS"]] },
+  origins: { label: "Origens da mercadoria", values: [["0", "0 - Nacional"], ["1", "1 - Estrangeira, importação direta"], ["2", "2 - Estrangeira, mercado interno"], ["3", "3 - Nacional, conteúdo de importação superior a 40%"], ["4", "4 - Nacional, processos produtivos básicos"], ["5", "5 - Nacional, conteúdo de importação até 40%"], ["6", "6 - Estrangeira, importação direta, sem similar nacional"], ["7", "7 - Estrangeira, mercado interno, sem similar nacional"], ["8", "8 - Nacional, conteúdo de importação superior a 70%"]] },
+  "tax-situations": { label: "CST / CSOSN", values: [["00", "00 - Tributada integralmente"], ["10", "10 - Tributada com ICMS-ST"], ["20", "20 - Com redução de base de cálculo"], ["30", "30 - Isenta ou não tributada com ICMS-ST"], ["40", "40 - Isenta"], ["41", "41 - Não tributada"], ["50", "50 - Suspensão"], ["51", "51 - Diferimento"], ["60", "60 - ICMS cobrado anteriormente por ST"], ["70", "70 - Redução de base e ICMS-ST"], ["90", "90 - Outras"], ["101", "101 - Simples Nacional com crédito"], ["102", "102 - Simples Nacional sem crédito"], ["103", "103 - Isenção do Simples Nacional"], ["201", "201 - Simples Nacional com crédito e ICMS-ST"], ["202", "202 - Simples Nacional sem crédito e ICMS-ST"], ["203", "203 - Isenção do Simples Nacional e ICMS-ST"], ["300", "300 - Imune"], ["400", "400 - Não tributada pelo Simples Nacional"], ["500", "500 - ICMS cobrado anteriormente por ST"], ["900", "900 - Outros"]] },
+  "ipi-situations": { label: "Situações tributárias do IPI", values: [["00", "00 - Entrada com recuperação de crédito"], ["01", "01 - Entrada tributada com alíquota zero"], ["02", "02 - Entrada isenta"], ["03", "03 - Entrada não tributada"], ["04", "04 - Entrada imune"], ["05", "05 - Entrada com suspensão"], ["49", "49 - Outras entradas"], ["50", "50 - Saída tributada"], ["51", "51 - Saída tributada com alíquota zero"], ["52", "52 - Saída isenta"], ["53", "53 - Saída não tributada"], ["54", "54 - Saída imune"], ["55", "55 - Saída com suspensão"], ["99", "99 - Outras saídas"]] },
+  "contribution-situations": { label: "Situações tributárias PIS/COFINS", values: [["01", "01 - Operação tributável com alíquota básica"], ["02", "02 - Operação tributável com alíquota diferenciada"], ["03", "03 - Operação tributável por unidade de medida"], ["04", "04 - Operação tributável monofásica"], ["05", "05 - Operação tributável por ST"], ["06", "06 - Operação tributável a alíquota zero"], ["07", "07 - Operação isenta"], ["08", "08 - Sem incidência"], ["09", "09 - Com suspensão"], ["49", "49 - Outras saídas"], ["50", "50 - Com direito a crédito"], ["51", "51 - Alíquota básica"], ["52", "52 - Alíquota diferenciada"], ["53", "53 - Alíquota por unidade de medida"], ["54", "54 - Monofásica"], ["55", "55 - Por substituição tributária"], ["98", "98 - Outras entradas"], ["99", "99 - Outras operações"]] },
+  "base-modes": { label: "Modalidades de base de cálculo", values: [["value", "Pauta (valor)"], ["margin", "Margem de valor agregado"], ["price", "Preço tabelado ou máximo sugerido"]] },
+  "exemption-reasons": { label: "Motivos de desoneração do ICMS", values: [["1", "1 - Táxi"], ["3", "3 - Produtor agropecuário"], ["4", "4 - Fomentar / Proterra"], ["5", "5 - Aquisição de ativo permanente"], ["6", "6 - Transporte ferroviário"], ["7", "7 - Comunicação"], ["8", "8 - Remessa para exposição ou feira"], ["9", "9 - Remessa para industrialização"], ["10", "10 - Operação com medicamento"], ["11", "11 - Aquisição de bem para produção"], ["12", "12 - Programa de alimentação do trabalhador"], ["16", "16 - Bens destinados à pesquisa"], ["90", "90 - Outros"]] },
+  cfops: { label: "CFOP", values: [["5.102", "Venda de mercadoria adquirida ou recebida de terceiros"]] },
+  "icms-rates": { label: "Alíquotas de ICMS", values: [["7", "Alíquota interna de 7%", 7], ["12", "Alíquota interna de 12%", 12], ["17", "Alíquota interna de 17%", 17], ["18", "Alíquota interna de 18%", 18], ["25", "Alíquota interna de 25%", 25]] }
+};
+
+const fiscalCatalogNames = new Set(Object.keys(fiscalCatalogDefinitions));
+
+const ensureFiscalCatalogSchema = async () => {
+  await pool.query(`CREATE TABLE IF NOT EXISTS fiscal_catalog_items (
+    idFiscalCatalogItem BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    catalogFiscalCatalogItem VARCHAR(50) NOT NULL,
+    codeFiscalCatalogItem VARCHAR(30) NOT NULL,
+    descriptionFiscalCatalogItem VARCHAR(255) NOT NULL,
+    valueFiscalCatalogItem DECIMAL(10,4) NULL,
+    isActiveFiscalCatalogItem TINYINT(1) NOT NULL DEFAULT 1,
+    createdAtFiscalCatalogItem TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updatedAtFiscalCatalogItem TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (idFiscalCatalogItem),
+    UNIQUE KEY uqFiscalCatalogItemsCatalogCode (catalogFiscalCatalogItem, codeFiscalCatalogItem),
+    KEY idxFiscalCatalogItemsCatalogActive (catalogFiscalCatalogItem, isActiveFiscalCatalogItem, descriptionFiscalCatalogItem)
+  ) ENGINE=InnoDB`);
+  for (const [catalog, definition] of Object.entries(fiscalCatalogDefinitions)) {
+    for (const [code, description, value] of definition.values) {
+      await pool.query(
+        `INSERT IGNORE INTO fiscal_catalog_items
+          (catalogFiscalCatalogItem, codeFiscalCatalogItem, descriptionFiscalCatalogItem, valueFiscalCatalogItem)
+         VALUES (?, ?, ?, ?)`,
+        [catalog, code, description, value ?? null]
+      );
+    }
+  }
+};
+
+const catalogValues = async (catalog) => {
+  const [rows] = await pool.query(
+    `SELECT codeFiscalCatalogItem FROM fiscal_catalog_items
+     WHERE catalogFiscalCatalogItem = ? AND isActiveFiscalCatalogItem = 1`,
+    [catalog]
+  );
+  return new Set(rows.map(({ codeFiscalCatalogItem }) => codeFiscalCatalogItem));
+};
+
 const handleError = (response, error, fallback) => {
   if (error instanceof SaleValidationError) {
     json(response, error.status, { error: error.message });
@@ -375,6 +426,232 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "GET" && request.url.startsWith("/api/fiscal-catalogs")) {
+    try {
+      const catalog = new URL(request.url, "http://localhost").searchParams.get("catalog");
+      if (!catalog || !fiscalCatalogNames.has(catalog)) throw new SaleValidationError("Catálogo fiscal inválido.");
+      const includeInactive = new URL(request.url, "http://localhost").searchParams.get("includeInactive") === "1";
+      const [items] = await pool.query(
+        `SELECT idFiscalCatalogItem, catalogFiscalCatalogItem,
+                codeFiscalCatalogItem, descriptionFiscalCatalogItem,
+                valueFiscalCatalogItem, isActiveFiscalCatalogItem
+         FROM fiscal_catalog_items
+         WHERE catalogFiscalCatalogItem = ? AND (? OR isActiveFiscalCatalogItem = 1)
+         ORDER BY codeFiscalCatalogItem, descriptionFiscalCatalogItem`,
+        [catalog, includeInactive]
+      );
+      json(response, 200, { catalog, label: fiscalCatalogDefinitions[catalog].label, items });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao listar catálogo fiscal:", message: "Não foi possível consultar o catálogo fiscal.", duplicate: "" });
+    }
+    return;
+  }
+
+  if ((request.method === "POST" || request.method === "PUT") && request.url === "/api/fiscal-catalogs") {
+    try {
+      const payload = await readJsonBody(request);
+      const catalog = typeof payload.catalogFiscalCatalogItem === "string" ? payload.catalogFiscalCatalogItem.trim() : "";
+      const idFiscalCatalogItem = request.method === "PUT" ? parsePositiveId(payload.idFiscalCatalogItem) : null;
+      const codeFiscalCatalogItem = typeof payload.codeFiscalCatalogItem === "string" ? payload.codeFiscalCatalogItem.trim() : "";
+      const descriptionFiscalCatalogItem = typeof payload.descriptionFiscalCatalogItem === "string" ? payload.descriptionFiscalCatalogItem.trim() : "";
+      const valueFiscalCatalogItem = payload.valueFiscalCatalogItem === "" || payload.valueFiscalCatalogItem == null
+        ? null
+        : Number(payload.valueFiscalCatalogItem);
+      if (
+        !fiscalCatalogNames.has(catalog) ||
+        (request.method === "PUT" && !idFiscalCatalogItem) ||
+        !codeFiscalCatalogItem ||
+        codeFiscalCatalogItem.length > 30 ||
+        !descriptionFiscalCatalogItem ||
+        descriptionFiscalCatalogItem.length > 255 ||
+        (valueFiscalCatalogItem !== null && (!Number.isFinite(valueFiscalCatalogItem) || valueFiscalCatalogItem < 0))
+      ) {
+        throw new SaleValidationError("Catálogo, código ou descrição fiscal inválidos.");
+      }
+      const fields = [catalog, codeFiscalCatalogItem, descriptionFiscalCatalogItem, valueFiscalCatalogItem];
+      if (request.method === "POST") {
+        const [result] = await pool.query(
+          `INSERT INTO fiscal_catalog_items
+            (catalogFiscalCatalogItem, codeFiscalCatalogItem, descriptionFiscalCatalogItem, valueFiscalCatalogItem)
+           VALUES (?, ?, ?, ?)`,
+          fields
+        );
+        json(response, 201, { idFiscalCatalogItem: result.insertId });
+      } else {
+        const [result] = await pool.query(
+          `UPDATE fiscal_catalog_items
+           SET catalogFiscalCatalogItem = ?, codeFiscalCatalogItem = ?,
+               descriptionFiscalCatalogItem = ?, valueFiscalCatalogItem = ?
+           WHERE idFiscalCatalogItem = ?`,
+          [...fields, idFiscalCatalogItem]
+        );
+        if (!result.affectedRows) throw new SaleValidationError("Item do catálogo fiscal não encontrado.", 404);
+        json(response, 200, { idFiscalCatalogItem });
+      }
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao salvar item do catálogo fiscal:", message: "Não foi possível salvar o item do catálogo fiscal.", duplicate: "O código já está cadastrado neste catálogo fiscal." });
+    }
+    return;
+  }
+
+  if (request.method === "DELETE" && request.url === "/api/fiscal-catalogs") {
+    try {
+      const payload = await readJsonBody(request);
+      const idFiscalCatalogItem = parsePositiveId(payload.idFiscalCatalogItem);
+      if (!idFiscalCatalogItem) throw new SaleValidationError("Item do catálogo fiscal inválido.");
+      const [result] = await pool.query("DELETE FROM fiscal_catalog_items WHERE idFiscalCatalogItem = ?", [idFiscalCatalogItem]);
+      if (!result.affectedRows) throw new SaleValidationError("Item do catálogo fiscal não encontrado.", 404);
+      json(response, 200, { ok: true, idFiscalCatalogItem });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao excluir item do catálogo fiscal:", message: "Não foi possível excluir o item do catálogo fiscal.", duplicate: "" });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && request.url.startsWith("/api/fiscal-operations")) {
+    try {
+      const includeInactive = request.url.includes("includeInactive=1");
+      const [fiscalOperations] = await pool.query(
+        `SELECT idFiscalOperation, descriptionFiscalOperation,
+                taxRegimeFiscalOperation, typeFiscalOperation, contextFiscalOperation,
+                taxSituationFiscalOperation, originFiscalOperation, cfopFiscalOperation,
+                operationNatureFiscalOperation, ipiSituationFiscalOperation,
+                icmsBaseModeFiscalOperation, icmsStBaseModeFiscalOperation,
+                icmsExemptionReasonFiscalOperation, cofinsSituationFiscalOperation,
+                pisSituationFiscalOperation, fcpEnabledFiscalOperation,
+                fcpStEnabledFiscalOperation, fiscalBenefitCodeFiscalOperation,
+                legalBasisFiscalOperation, isActiveFiscalOperation
+         FROM fiscal_operations
+         WHERE (? OR isActiveFiscalOperation = 1)
+         ORDER BY COALESCE(cfopFiscalOperation, ''), descriptionFiscalOperation`,
+        [includeInactive]
+      );
+      json(response, 200, { fiscalOperations });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao listar operações fiscais:", message: "Não foi possível consultar as operações fiscais.", duplicate: "" });
+    }
+    return;
+  }
+
+  if ((request.method === "POST" || request.method === "PUT") && request.url === "/api/fiscal-operations") {
+    try {
+      const payload = await readJsonBody(request);
+      const idFiscalOperation = request.method === "PUT" ? parsePositiveId(payload.idFiscalOperation) : null;
+      const descriptionFiscalOperation = typeof payload.descriptionFiscalOperation === "string" ? payload.descriptionFiscalOperation.trim() : "";
+      const taxRegimeFiscalOperation = typeof payload.taxRegimeFiscalOperation === "string" ? payload.taxRegimeFiscalOperation.trim() : "";
+      const typeFiscalOperation = payload.typeFiscalOperation;
+      const contextFiscalOperation = payload.contextFiscalOperation;
+      if (
+        (request.method === "PUT" && !idFiscalOperation) ||
+        !descriptionFiscalOperation ||
+        descriptionFiscalOperation.length > 180 ||
+        !taxRegimeFiscalOperation ||
+        !["entry", "exit"].includes(typeFiscalOperation) ||
+        typeof contextFiscalOperation !== "string"
+      ) {
+        throw new SaleValidationError("Descrição, regime, tipo ou contexto fiscal inválido.");
+      }
+      const [
+        taxRegimesFiscalOperation,
+        typesFiscalOperation,
+        contextsFiscalOperation,
+        taxSituationsFiscalOperation,
+        originsFiscalOperation,
+        ipiSituationsFiscalOperation,
+        contributionSituationsFiscalOperation,
+        baseModesFiscalOperation,
+        exemptionReasonsFiscalOperation
+      ] = await Promise.all([
+        catalogValues("tax-regimes"),
+        catalogValues("operation-types"),
+        catalogValues("contexts"),
+        catalogValues("tax-situations"),
+        catalogValues("origins"),
+        catalogValues("ipi-situations"),
+        catalogValues("contribution-situations"),
+        catalogValues("base-modes"),
+        catalogValues("exemption-reasons")
+      ]);
+      if (
+        (request.method === "PUT" && !idFiscalOperation) ||
+        !descriptionFiscalOperation ||
+        descriptionFiscalOperation.length > 180 ||
+        !taxRegimesFiscalOperation.has(taxRegimeFiscalOperation) ||
+        !typesFiscalOperation.has(typeFiscalOperation) ||
+        !contextsFiscalOperation.has(contextFiscalOperation) ||
+        (payload.taxSituationFiscalOperation && !taxSituationsFiscalOperation.has(String(payload.taxSituationFiscalOperation))) ||
+        (payload.originFiscalOperation && !originsFiscalOperation.has(String(payload.originFiscalOperation))) ||
+        (payload.ipiSituationFiscalOperation && !ipiSituationsFiscalOperation.has(String(payload.ipiSituationFiscalOperation))) ||
+        (payload.cofinsSituationFiscalOperation && !contributionSituationsFiscalOperation.has(String(payload.cofinsSituationFiscalOperation))) ||
+        (payload.pisSituationFiscalOperation && !contributionSituationsFiscalOperation.has(String(payload.pisSituationFiscalOperation))) ||
+        (payload.icmsBaseModeFiscalOperation && !baseModesFiscalOperation.has(String(payload.icmsBaseModeFiscalOperation))) ||
+        (payload.icmsStBaseModeFiscalOperation && !baseModesFiscalOperation.has(String(payload.icmsStBaseModeFiscalOperation))) ||
+        (payload.icmsExemptionReasonFiscalOperation && !exemptionReasonsFiscalOperation.has(String(payload.icmsExemptionReasonFiscalOperation)))
+      ) {
+        throw new SaleValidationError("Descrição, regime, tipo ou contexto fiscal inválido.");
+      }
+      const fields = [
+        descriptionFiscalOperation, taxRegimeFiscalOperation, typeFiscalOperation, contextFiscalOperation,
+        payload.taxSituationFiscalOperation || null, payload.originFiscalOperation || null, payload.cfopFiscalOperation || null,
+        payload.operationNatureFiscalOperation || null, payload.ipiSituationFiscalOperation || null,
+        payload.icmsBaseModeFiscalOperation || null, payload.icmsStBaseModeFiscalOperation || null,
+        payload.icmsExemptionReasonFiscalOperation || null, payload.cofinsSituationFiscalOperation || null,
+        payload.pisSituationFiscalOperation || null, payload.fcpEnabledFiscalOperation ? 1 : 0,
+        payload.fcpStEnabledFiscalOperation ? 1 : 0, payload.fiscalBenefitCodeFiscalOperation || null,
+        payload.legalBasisFiscalOperation || null
+      ];
+      if (request.method === "POST") {
+        const [result] = await pool.query(
+          `INSERT INTO fiscal_operations
+            (descriptionFiscalOperation, taxRegimeFiscalOperation,
+             typeFiscalOperation, contextFiscalOperation, taxSituationFiscalOperation,
+             originFiscalOperation, cfopFiscalOperation, operationNatureFiscalOperation,
+             ipiSituationFiscalOperation, icmsBaseModeFiscalOperation,
+             icmsStBaseModeFiscalOperation, icmsExemptionReasonFiscalOperation,
+             cofinsSituationFiscalOperation, pisSituationFiscalOperation,
+             fcpEnabledFiscalOperation, fcpStEnabledFiscalOperation,
+             fiscalBenefitCodeFiscalOperation, legalBasisFiscalOperation)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          fields
+        );
+        json(response, 201, { idFiscalOperation: result.insertId });
+      } else {
+        const [result] = await pool.query(
+          `UPDATE fiscal_operations SET
+             descriptionFiscalOperation = ?, taxRegimeFiscalOperation = ?,
+             typeFiscalOperation = ?, contextFiscalOperation = ?, taxSituationFiscalOperation = ?,
+             originFiscalOperation = ?, cfopFiscalOperation = ?, operationNatureFiscalOperation = ?,
+             ipiSituationFiscalOperation = ?, icmsBaseModeFiscalOperation = ?,
+             icmsStBaseModeFiscalOperation = ?, icmsExemptionReasonFiscalOperation = ?,
+             cofinsSituationFiscalOperation = ?, pisSituationFiscalOperation = ?,
+             fcpEnabledFiscalOperation = ?, fcpStEnabledFiscalOperation = ?,
+             fiscalBenefitCodeFiscalOperation = ?, legalBasisFiscalOperation = ?
+           WHERE idFiscalOperation = ?`,
+          [...fields, idFiscalOperation]
+        );
+        if (!result.affectedRows) throw new SaleValidationError("Operação fiscal não encontrada.", 404);
+        json(response, 200, { idFiscalOperation });
+      }
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao salvar operação fiscal:", message: "Não foi possível salvar a operação fiscal.", duplicate: "O código da operação fiscal já existe." });
+    }
+    return;
+  }
+
+  if (request.method === "DELETE" && request.url === "/api/fiscal-operations") {
+    try {
+      const payload = await readJsonBody(request);
+      const idFiscalOperation = parsePositiveId(payload.idFiscalOperation);
+      if (!idFiscalOperation) throw new SaleValidationError("Operação fiscal inválida.");
+      const [result] = await pool.query("DELETE FROM fiscal_operations WHERE idFiscalOperation = ?", [idFiscalOperation]);
+      if (!result.affectedRows) throw new SaleValidationError("Operação fiscal não encontrada.", 404);
+      json(response, 200, { ok: true, idFiscalOperation });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao excluir operação fiscal:", message: "Não foi possível excluir a operação fiscal.", duplicate: "" });
+    }
+    return;
+  }
+
   if (request.method === "POST" && request.url === "/api/sales") {
     let connection;
     try {
@@ -395,4 +672,7 @@ const server = createServer(async (request, response) => {
 
 server.listen(config.apiPort, config.apiHost, () => {
   console.log(`API PDV ouvindo em http://${config.apiHost}:${config.apiPort}`);
+  void ensureFiscalCatalogSchema().catch((error) => {
+    console.error("Falha ao preparar os cadastros fiscais:", error);
+  });
 });

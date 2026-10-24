@@ -1,3 +1,5 @@
+import { renderLucideIcons } from "../ui/icons.js";
+
 const escapeHtml = (value) =>
   String(value)
     .replaceAll("&", "&amp;")
@@ -8,9 +10,6 @@ const escapeHtml = (value) =>
 
 const getApiUrl = () =>
   window.__PDV_API_URL__ || `http://${window.location.hostname}:3000`;
-
-const editIcon = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m11.7 1.3 3 3-8.8 8.8-3.5.5.5-3.5 8.8-8.8Z"/><path d="m9.8 3.2 3 3"/></svg>';
-const deleteIcon = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.5h10M6 4.5V2.8h4v1.7M4.5 4.5l.6 9h5.8l.6-9M6.8 7v4.2M9.2 7v4.2"/></svg>';
 
 export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts }) {
   const root = document.createElement("main");
@@ -143,8 +142,8 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts })
                             </button>
                           </td>
                           <td class="actions-column">
-                            <button class="icon-button edit" type="button" title="Editar produto" aria-label="Editar produto" data-edit="${product.idProduct}">${editIcon}</button>
-                            <button class="icon-button delete" type="button" title="Excluir produto definitivamente" aria-label="Excluir produto definitivamente" data-delete="${product.idProduct}">${deleteIcon}</button>
+                            <button class="icon-button edit" type="button" title="Editar produto" aria-label="Editar produto" data-edit="${product.idProduct}"><i data-lucide="pencil"></i></button>
+                            <button class="icon-button delete" type="button" title="Excluir produto definitivamente" aria-label="Excluir produto definitivamente" data-delete="${product.idProduct}"><i data-lucide="trash-2"></i></button>
                           </td>
                         </tr>
                       `).join("")}</tbody>
@@ -185,6 +184,7 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts })
         </div>
       ` : ""}
     `;
+    renderLucideIcons(root);
     root.querySelector("[data-back]")?.addEventListener("click", onBack);
     root.querySelector("[data-classes]")?.addEventListener("click", onClasses);
     root.querySelector("[data-groups]")?.addEventListener("click", onGroups);

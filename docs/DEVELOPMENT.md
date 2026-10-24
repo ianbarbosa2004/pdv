@@ -47,6 +47,18 @@ Quando uma mudança alterar API, banco ou fluxo de cadastro, inclua cobertura
 para sucesso, entradas inválidas, erros explícitos e efeitos relevantes no
 estado persistido.
 
+O cadastro de operações fiscais é uma camada de parametrização. Ele armazena
+CFOP, regime, tipo de entrada/saída, contexto fiscal, situações tributárias,
+modalidades de base, PIS, COFINS, IPI, FCP, benefício fiscal e base legal.
+Esses dados ainda não significam emissão de NFC-e/NF-e nem cálculo tributário
+automático; a integração fiscal deverá consumir essa configuração em etapa
+posterior.
+
+As listas usadas pelas operações fiscais são persistidas em `fiscal_catalog_items`
+e possuem telas CRUD separadas. O campo `catalogFiscalCatalogItem` identifica
+cada catálogo, permitindo administrar CFOP, CST/CSOSN, alíquotas de ICMS e as
+demais tabelas sem manter opções fiscais somente no frontend.
+
 ## Reinício da API
 
 Sempre que `src/server/` for alterado, encerre o processo da API que estiver

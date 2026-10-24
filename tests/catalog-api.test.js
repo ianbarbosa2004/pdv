@@ -70,7 +70,13 @@ test("libera CORS e expõe rotas de edição e exclusão dos cadastros", async (
     ["DELETE", "/api/groups"],
     ["PUT", "/api/products"],
     ["PUT", "/api/products/status"],
-    ["DELETE", "/api/products"]
+    ["DELETE", "/api/products"],
+    ["POST", "/api/fiscal-operations"],
+    ["PUT", "/api/fiscal-operations"],
+    ["DELETE", "/api/fiscal-operations"],
+    ["POST", "/api/fiscal-catalogs"],
+    ["PUT", "/api/fiscal-catalogs"],
+    ["DELETE", "/api/fiscal-catalogs"]
   ]) {
     const response = await fetch(`${baseUrl}${path}`, {
       method,

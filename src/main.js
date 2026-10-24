@@ -4,6 +4,8 @@ import { createGroupScreen } from "./catalog/group-screen.js";
 import { createCatalogScreen } from "./catalog/catalog-screen.js";
 import { createSaleScreen } from "./sales/sale-screen.js";
 import { createBackofficeScreen } from "./backoffice/backoffice-screen.js";
+import { createFiscalOperationScreen } from "./catalog/fiscal-operation-screen.js";
+import { createFiscalCatalogScreen } from "./catalog/fiscal-catalog-screen.js";
 
 const app = document.querySelector("#app");
 
@@ -18,7 +20,28 @@ const showBackoffice = () =>
       onBack: showSales,
       onClasses: showClasses,
       onGroups: showGroups,
-      onProducts: showCatalog
+      onProducts: showCatalog,
+      onFiscalOperations: showFiscalOperations
+    })
+  );
+const showFiscalOperations = () =>
+  app.replaceChildren(
+    createFiscalOperationScreen({
+      onBack: showBackoffice,
+      onClasses: showClasses,
+      onGroups: showGroups,
+      onProducts: showCatalog,
+      onFiscalOperations: showFiscalOperations,
+      onCatalog: showFiscalCatalog
+    })
+  );
+const showFiscalCatalog = (catalog) =>
+  app.replaceChildren(
+    createFiscalCatalogScreen({
+      catalog,
+      onBack: showFiscalOperations,
+      onFiscalOperations: showFiscalOperations,
+      onCatalog: showFiscalCatalog
     })
   );
 const showCatalog = () =>
