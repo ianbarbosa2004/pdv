@@ -32,6 +32,9 @@ A fundação inicial já está criada:
 - tela administrativa independente para produtos;
 - cadastro de operações fiscais com CFOP, CST, ICMS, IPI, PIS, COFINS e FCP;
 - cadastros fiscais separados e persistidos para CFOP, CST/CSOSN, alíquotas de ICMS e demais listas das operações;
+- bancada de testes de impressão térmica de 80 mm na Retaguarda, com preview,
+  caracteres, tamanhos, alinhamento, exportação ESC/POS e envio direto por
+  rede TCP RAW ou USB via spooler do Windows;
 - busca e filtro por categoria;
 - carrinho com quantidades;
 - subtotal e total da venda;
@@ -243,9 +246,16 @@ auxiliares ao projeto.
 | `GET` | `/api/payment-methods` | Lista formas de pagamento ativas |
 | `GET` | `/api/fiscal-operations` | Lista operações fiscais |
 | `GET` | `/api/fiscal-catalogs?catalog=...` | Lista itens de um cadastro fiscal |
+| `GET` | `/api/ncm-cest/ncms` | Lista NCMs ativos |
+| `GET` | `/api/ncm-cest/cests` | Lista CESTs ativos |
+| `GET` | `/api/ncm-cest` | Lista relações NCM / CEST |
+| `GET` | `/api/ncm-cest/options?ncm=...` | Lista CESTs relacionados a um NCM |
+| `GET` | `/api/ncm-cest/update-status` | Consulta o histórico da atualização NCM / CEST |
 | `POST` | `/api/classes` | Cria uma classe |
 | `POST` | `/api/groups` | Cria um grupo vinculado a uma classe |
 | `POST` | `/api/products` | Cadastra um produto |
+| `POST` | `/api/ncm-cest` | Cria uma relação NCM / CEST |
+| `POST` | `/api/ncm-cest/update` | Atualiza os catálogos NCM / CEST |
 | `POST` | `/api/fiscal-operations` | Cadastra uma operação fiscal |
 | `POST` | `/api/fiscal-catalogs` | Cadastra um item de catálogo fiscal |
 | `POST` | `/api/sales` | Registra uma venda, pagamentos e baixa o estoque |

@@ -6,70 +6,61 @@ import { createSaleScreen } from "./sales/sale-screen.js";
 import { createBackofficeScreen } from "./backoffice/backoffice-screen.js";
 import { createFiscalOperationScreen } from "./catalog/fiscal-operation-screen.js";
 import { createFiscalCatalogScreen } from "./catalog/fiscal-catalog-screen.js";
+import { createThermalPrintScreen } from "./tools/thermal-print-screen.js";
+import { createNcmCestUpdateScreen } from "./tools/ncm-cest-update-screen.js";
+import { createSettingsScreen } from "./settings/settings-screen.js";
+import { createNcmCestScreen } from "./catalog/ncm-cest-screen.js";
 
 const app = document.querySelector("#app");
 
-if (!app) {
-  throw new Error("Elemento raiz da aplicação não encontrado.");
-}
+if (!app) throw new Error("Elemento raiz da aplicação não encontrado.");
 
-const showSales = () => app.replaceChildren(createSaleScreen({ onBackoffice: showBackoffice }));
+const mount = (screen) => app.replaceChildren(screen);
+const common = () => ({
+  onClasses: showClasses,
+  onGroups: showGroups,
+  onProducts: showCatalog,
+  onNcmCest: showNcmCest,
+  onFiscalOperations: showFiscalOperations,
+  onThermalPrint: showThermalPrint,
+  onNcmCestUpdate: showNcmCestUpdate,
+  onSettings: showSettings
+});
+
+const showSales = () => mount(createSaleScreen({ onBackoffice: showBackoffice }));
 const showBackoffice = () =>
-  app.replaceChildren(
-    createBackofficeScreen({
-      onBack: showSales,
-      onClasses: showClasses,
-      onGroups: showGroups,
-      onProducts: showCatalog,
-      onFiscalOperations: showFiscalOperations
-    })
-  );
+  mount(createBackofficeScreen({ onBack: showSales, ...common() }));
+const showSettings = () =>
+  mount(createSettingsScreen({ onBack: showBackoffice, ...common() }));
+const showThermalPrint = () =>
+  mount(createThermalPrintScreen({ onBack: showBackoffice, onTools: showThermalPrint, ...common() }));
+const showNcmCestUpdate = () =>
+  mount(createNcmCestUpdateScreen({
+    onBack: showBackoffice,
+    onTools: showNcmCestUpdate,
+    onThermalPrint: showThermalPrint,
+    onSettings: showSettings
+  }));
 const showFiscalOperations = () =>
-  app.replaceChildren(
-    createFiscalOperationScreen({
-      onBack: showBackoffice,
-      onClasses: showClasses,
-      onGroups: showGroups,
-      onProducts: showCatalog,
-      onFiscalOperations: showFiscalOperations,
-      onCatalog: showFiscalCatalog
-    })
-  );
+  mount(createFiscalOperationScreen({
+    onBack: showBackoffice,
+    onCatalog: showFiscalCatalog,
+    ...common()
+  }));
 const showFiscalCatalog = (catalog) =>
-  app.replaceChildren(
-    createFiscalCatalogScreen({
-      catalog,
-      onBack: showFiscalOperations,
-      onFiscalOperations: showFiscalOperations,
-      onCatalog: showFiscalCatalog
-    })
-  );
+  mount(createFiscalCatalogScreen({
+    catalog,
+    onBack: showFiscalOperations,
+    onCatalog: showFiscalCatalog,
+    ...common()
+  }));
 const showCatalog = () =>
-  app.replaceChildren(
-    createCatalogScreen({
-      onBack: showSales,
-      onClasses: showClasses,
-      onGroups: showGroups,
-      onProducts: showCatalog
-    })
-  );
+  mount(createCatalogScreen({ onBack: showSales, ...common() }));
+const showNcmCest = () =>
+  mount(createNcmCestScreen({ onBack: showSales, ...common() }));
 const showClasses = () =>
-  app.replaceChildren(
-    createClassScreen({
-      onBack: showSales,
-      onClasses: showClasses,
-      onGroups: showGroups,
-      onProducts: showCatalog
-    })
-  );
+  mount(createClassScreen({ onBack: showSales, ...common() }));
 const showGroups = () =>
-  app.replaceChildren(
-    createGroupScreen({
-      onBack: showSales,
-      onClasses: showClasses,
-      onGroups: showGroups,
-      onProducts: showCatalog
-    })
-  );
+  mount(createGroupScreen({ onBack: showSales, ...common() }));
 
 showSales();

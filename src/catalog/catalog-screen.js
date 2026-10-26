@@ -1,4 +1,6 @@
 import { renderLucideIcons } from "../ui/icons.js";
+import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
+import { bindProductNavigation, renderProductNavigation } from "./product-navigation.js";
 
 const escapeHtml = (value) =>
   String(value)
@@ -11,7 +13,7 @@ const escapeHtml = (value) =>
 const getApiUrl = () =>
   window.__PDV_API_URL__ || `http://${window.location.hostname}:3000`;
 
-export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts }) {
+export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, onNcmCest, onFiscalOperations, onThermalPrint, onNcmCestUpdate, onSettings }) {
   const root = document.createElement("main");
   let groups = [];
   let products = [];
@@ -20,6 +22,13 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts })
   let message = "";
   let submitting = false;
   let editingProduct = null;
+  let ncms = [];
+  let cestOptions = [];
+  let newNcmProduct = "";
+  let newCestProduct = "";
+  let ncmLookupOpen = false;
+  let ncmLookupTerm = "";
+  let ncmLookupField = "description";
   let sortState = { key: "nameProduct", direction: "asc" };
   let searchTerm = "";
 
@@ -45,35 +54,41 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts })
   const sortIndicator = (key) =>
     sortState.key === key ? (sortState.direction === "asc" ? "↑" : "↓") : "↕";
 
+  const getSelectedNcm = (selectedValue) =>
+    ncms.find((ncm) => String(ncm.codeNcm) === String(selectedValue ?? ""));
+
+  const renderNcmField = (selectedValue) => {
+    const selectedNcm = getSelectedNcm(selectedValue);
+    return `
+      <label class="form-field"><span>NCM</span>
+        <div class="catalog-lookup-field">
+          <input name="ncmProduct" value="${escapeHtml(selectedNcm?.codeNcm || "")}" placeholder="Não informado" readonly />
+          <button class="catalog-lookup-button" type="button" data-open-ncm title="Consultar NCM" aria-label="Consultar NCM"><i data-lucide="search"></i></button>
+          <span class="catalog-lookup-description">${escapeHtml(selectedNcm?.descriptionNcm || "Nenhum NCM selecionado")}</span>
+        </div>
+      </label>
+    `;
+  };
+
+  const renderCestOptions = (selectedValue) =>
+    `<option value="">${cestOptions.length ? "Não informado" : "Nenhum CEST relacionado"}</option>${cestOptions.map((cest) => `<option value="${cest.codeCest}" ${String(selectedValue ?? "") === String(cest.codeCest) ? "selected" : ""}>${escapeHtml(cest.codeCest)} - ${escapeHtml(cest.descriptionCest)}</option>`).join("")}`;
+
   const render = () => {
+    const lookupQuery = ncmLookupTerm.trim().toLocaleLowerCase("pt-BR");
+    const lookupRows = ncms
+      .filter((ncm) => {
+        const value = ncmLookupField === "code" ? ncm.codeNcm : ncm.descriptionNcm;
+        return !lookupQuery || String(value ?? "").toLocaleLowerCase("pt-BR").includes(lookupQuery);
+      })
+      .slice(0, 150);
     root.className = "catalog-screen";
     root.innerHTML = `
       <header class="classic-titlebar">
-        <strong>PDV - Cadastro de produtos</strong>
+        <strong>PDV - Cadastro de Produtos</strong>
         <span>Operador: Operador</span>
       </header>
-      <nav class="classic-menubar" aria-label="Menu principal">
-        <button type="button">Arquivo</button>
-        <details class="classic-menu-dropdown">
-          <summary>Cadastros</summary>
-          <div class="classic-menu-panel">
-            <button type="button" data-menu-classes>Classes</button>
-            <button type="button" data-menu-groups>Grupos</button>
-            <button type="button" data-menu-products>Produtos</button>
-          </div>
-        </details>
-        <button type="button">Estoque</button>
-        <button type="button">Vendas</button>
-        <button type="button">Relatórios</button>
-        <button type="button">Configurações</button>
-      </nav>
-      <div class="classic-toolbar">
-        <button class="classic-tool-button" data-back type="button">← Frente de caixa</button>
-        <button class="classic-tool-button" data-classes type="button">Classes</button>
-        <button class="classic-tool-button" data-groups type="button">Grupos</button>
-        <span class="toolbar-separator"></span>
-        <strong>Cadastro de produtos</strong>
-      </div>
+      ${renderMainMenu()}
+      ${renderProductNavigation("products")}
       <section class="classic-content">
         <form class="classic-form-panel" data-product-form>
           <div class="classic-panel-header">Novo produto</div>
@@ -89,6 +104,10 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts })
               ${groups.map((group) => `<option value="${group.idGroup}">${escapeHtml(group.descriptionGroup)}</option>`).join("")}
             </select>
           </label>
+          <div class="classic-form-grid">
+            ${renderNcmField(newNcmProduct)}
+            <label class="form-field"><span>CEST</span><select name="cestProduct" ${cestOptions.length ? "" : "disabled"}>${renderCestOptions(newCestProduct)}</select></label>
+          </div>
           <div class="classic-form-grid">
             <label class="form-field"><span>Preço</span><input name="priceProduct" type="number" min="0" step="0.01" required /></label>
             <label class="form-field"><span>Estoque inicial</span><input name="stockQuantityProduct" type="number" min="0" step="1" required /></label>
@@ -170,6 +189,10 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts })
                   </select>
                 </label>
                 <div class="classic-form-grid">
+                  ${renderNcmField(editingProduct.ncmProduct)}
+                  <label class="form-field"><span>CEST</span><select name="cestProduct" ${cestOptions.length ? "" : "disabled"}>${renderCestOptions(editingProduct.cestProduct)}</select></label>
+                </div>
+                <div class="classic-form-grid">
                   <label class="form-field"><span>Preço</span><input name="priceProduct" type="number" min="0" step="0.01" required value="${escapeHtml(editingProduct.priceProduct)}" /></label>
                   <label class="form-field"><span>Estoque</span><input name="stockQuantityProduct" type="number" min="0" step="1" required value="${escapeHtml(editingProduct.stockQuantityProduct)}" /></label>
                 </div>
@@ -183,20 +206,102 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts })
           </section>
         </div>
       ` : ""}
+      ${ncmLookupOpen ? `
+        <div class="classic-modal-backdrop" data-ncm-modal-backdrop>
+          <section class="classic-modal ncm-lookup-modal" role="dialog" aria-modal="true" aria-labelledby="ncm-lookup-title">
+            <div class="classic-panel-header" id="ncm-lookup-title">Consultar NCM</div>
+            <div class="ncm-lookup-toolbar">
+              <label class="form-field">
+                <span>Consulta</span>
+                <div class="ncm-lookup-controls">
+                  <select data-ncm-lookup-field aria-label="Campo da consulta">
+                    <option value="description" ${ncmLookupField === "description" ? "selected" : ""}>Descrição</option>
+                    <option value="code" ${ncmLookupField === "code" ? "selected" : ""}>NCM</option>
+                  </select>
+                  <input data-ncm-lookup-search type="search" value="${escapeHtml(ncmLookupTerm)}" placeholder="Digite para pesquisar..." aria-label="Pesquisar NCM" />
+                </div>
+              </label>
+            </div>
+            <div class="ncm-lookup-table-wrapper">
+              ${lookupRows.length ? `
+                <table class="classic-table ncm-lookup-table">
+                  <thead><tr><th>NCM</th><th>Descrição</th><th class="actions-column">Selecionar</th></tr></thead>
+                  <tbody>${lookupRows.map((ncm) => `
+                    <tr data-ncm-row="${escapeHtml(ncm.codeNcm)}">
+                      <td>${escapeHtml(ncm.codeNcm)}</td>
+                      <td title="${escapeHtml(ncm.descriptionNcm)}">${escapeHtml(ncm.descriptionNcm)}</td>
+                      <td class="actions-column"><button class="classic-button ncm-select-button" type="button" data-select-ncm="${escapeHtml(ncm.codeNcm)}">OK</button></td>
+                    </tr>
+                  `).join("")}</tbody>
+                </table>
+              ` : '<p class="classic-empty">Nenhum NCM encontrado.</p>'}
+            </div>
+            <div class="classic-form-actions">
+              <span class="ncm-lookup-count">${lookupRows.length}${lookupRows.length === 150 ? "+" : ""} resultado(s)</span>
+              <button class="classic-button" data-close-ncm type="button">Cancelar</button>
+            </div>
+          </section>
+        </div>
+      ` : ""}
     `;
     renderLucideIcons(root);
-    root.querySelector("[data-back]")?.addEventListener("click", onBack);
-    root.querySelector("[data-classes]")?.addEventListener("click", onClasses);
-    root.querySelector("[data-groups]")?.addEventListener("click", onGroups);
-    root.querySelector("[data-menu-classes]")?.addEventListener("click", onClasses);
-    root.querySelector("[data-menu-groups]")?.addEventListener("click", onGroups);
-    root.querySelector("[data-menu-products]")?.addEventListener("click", onProducts);
+    bindMainMenu(root, {
+      products: onProducts,
+      "fiscal-operations": onFiscalOperations,
+      "thermal-print": onThermalPrint,
+      "ncm-cest-update": onNcmCestUpdate,
+      settings: onSettings
+    });
+    bindProductNavigation(root, { back: onBack, classes: onClasses, groups: onGroups, products: onProducts, "ncm-cest": onNcmCest });
     root.querySelector("[data-search]")?.addEventListener("input", (event) => {
       searchTerm = event.currentTarget.value;
       render();
       const searchInput = root.querySelector("[data-search]");
       searchInput?.focus();
       searchInput?.setSelectionRange(searchTerm.length, searchTerm.length);
+    });
+    root.querySelectorAll("[data-open-ncm]").forEach((button) => {
+      button.addEventListener("click", () => {
+        ncmLookupOpen = true;
+        ncmLookupTerm = "";
+        ncmLookupField = "description";
+        render();
+        root.querySelector("[data-ncm-lookup-search]")?.focus();
+      });
+    });
+    root.querySelector("[data-ncm-lookup-field]")?.addEventListener("change", (event) => {
+      ncmLookupField = event.currentTarget.value;
+      render();
+      root.querySelector("[data-ncm-lookup-search]")?.focus();
+    });
+    root.querySelector("[data-ncm-lookup-search]")?.addEventListener("input", (event) => {
+      ncmLookupTerm = event.currentTarget.value;
+      render();
+      root.querySelector("[data-ncm-lookup-search]")?.focus();
+    });
+    root.querySelectorAll("[data-select-ncm]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const selectedCode = button.dataset.selectNcm;
+        ncmLookupOpen = false;
+        if (editingProduct) {
+          editingProduct = { ...editingProduct, ncmProduct: selectedCode, cestProduct: "" };
+        } else {
+          newNcmProduct = selectedCode;
+          newCestProduct = "";
+        }
+        render();
+        void loadCestOptions(selectedCode);
+      });
+    });
+    root.querySelector("[data-close-ncm]")?.addEventListener("click", () => {
+      ncmLookupOpen = false;
+      render();
+    });
+    root.querySelector("[data-ncm-modal-backdrop]")?.addEventListener("click", (event) => {
+      if (event.target === event.currentTarget) {
+        ncmLookupOpen = false;
+        render();
+      }
     });
     root.querySelectorAll("[data-sort]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -211,7 +316,9 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts })
     root.querySelectorAll("[data-edit]").forEach((button) => {
       button.addEventListener("click", () => {
         editingProduct = products.find(({ idProduct }) => String(idProduct) === button.dataset.edit) || null;
+        cestOptions = [];
         render();
+        void loadCestOptions(editingProduct?.ncmProduct);
         root.querySelector("[data-edit-product-form] [name='nameProduct']")?.focus();
       });
     });
@@ -226,6 +333,8 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts })
     root.querySelector("[data-clear-form]")?.addEventListener("click", () => {
       root.querySelector("[data-product-form]")?.reset();
       editingProduct = null;
+      newNcmProduct = "";
+      newCestProduct = "";
       error = "";
       message = "";
       render();
@@ -289,6 +398,12 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts })
       }
       groups = groupPayload.groups;
       products = productPayload.products;
+      const ncmResponse = await fetch(`${getApiUrl()}/api/ncm-cest/ncms`);
+      const ncmPayload = await ncmResponse.json();
+      if (!ncmResponse.ok || !Array.isArray(ncmPayload.ncms)) {
+        throw new Error(ncmPayload.error || "Não foi possível carregar os NCMs.");
+      }
+      ncms = ncmPayload.ncms;
       error = "";
     } catch (loadError) {
       error = loadError instanceof Error ? loadError.message : "Falha ao carregar o catálogo.";
@@ -296,6 +411,25 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts })
       loading = false;
       render();
     }
+  };
+
+  const loadCestOptions = async (ncmCode) => {
+    cestOptions = [];
+    if (!ncmCode) {
+      if (editingProduct) editingProduct = { ...editingProduct, cestProduct: "" };
+      else newCestProduct = "";
+    }
+    if (ncmCode) {
+      try {
+        const response = await fetch(`${getApiUrl()}/api/ncm-cest/options?ncm=${encodeURIComponent(ncmCode)}`);
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || "Não foi possível carregar os CESTs.");
+        cestOptions = payload.cests;
+      } catch (loadError) {
+        error = loadError instanceof Error ? loadError.message : "Falha ao carregar os CESTs.";
+      }
+    }
+    render();
   };
 
   const createProduct = async (formData, productId = null) => {
@@ -313,6 +447,8 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts })
           skuProduct: formData.get("skuProduct"),
           barcodeProduct: formData.get("barcodeProduct") || null,
           idGroup: Number(formData.get("idGroup")),
+          ncmProduct: formData.get("ncmProduct") || null,
+          cestProduct: formData.get("cestProduct") || null,
           priceProduct: formData.get("priceProduct"),
           stockQuantityProduct: formData.get("stockQuantityProduct")
         })
