@@ -79,3 +79,14 @@ sessão:
 > procedimentos herdados de cPanel, Passenger ou outro projeto. Só publique
 > quando existir um procedimento documentado e o usuário autorizar
 > explicitamente.
+>
+> Workarounds obrigatórios já conhecidos: não use substituições globais para
+> nomenclatura; audite cada entidade contra o schema e os contratos. Antes de
+> validar uma alteração na API, encerre a instância antiga pela porta e
+> confirme o `/api/health` na instância reiniciada. Para testes que iniciam a
+> API, não use `--env-file=.env`; injete somente configurações de teste pelo
+> ambiente do processo. Se o repositório não tiver destino ou script oficial
+> de deploy, faça apenas o build local e declare o deploy bloqueado. Após um
+> merge, não force a remoção de branch que esteja aberto no worktree ativo.
+> Consulte também a seção “Dificuldades e workarounds registrados” em
+> `docs/DEVELOPMENT.md`.

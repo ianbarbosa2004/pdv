@@ -430,13 +430,30 @@ h2 {
 }
 
 .form-field input,
-.form-field select {
+.form-field select,
+.form-field textarea {
   width: 100%;
   padding: 11px 12px;
   border: 1px solid #dce3eb;
   border-radius: 9px;
   color: #172033;
   background: #fff;
+}
+
+.fiscal-operation-form {
+  max-height: calc(100vh - 128px);
+  overflow: auto;
+}
+
+.fiscal-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 24px;
+}
+
+.fiscal-check input {
+  width: auto;
 }
 
 .form-field input:focus,
@@ -710,12 +727,22 @@ h2 {
 
 .classic-content {
   display: grid;
-  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+  grid-template-columns: minmax(480px, 560px) minmax(0, 1fr);
   gap: 22px;
   align-items: start;
-  max-width: 1440px;
+  max-width: 1680px;
   margin: 0 auto;
   padding: 18px;
+}
+
+.fiscal-content {
+  grid-template-columns: minmax(720px, 760px) minmax(0, 1fr);
+  max-width: 1900px;
+}
+
+.fiscal-catalog-content {
+  grid-template-columns: minmax(420px, 560px) minmax(0, 1fr);
+  max-width: 1680px;
 }
 
 .classic-form-panel,
@@ -986,6 +1013,12 @@ h2 {
 .classic-table .actions-column {
   width: 92px;
   text-align: center;
+}
+
+.fiscal-content .actions-column {
+  width: 92px;
+  min-width: 92px;
+  white-space: nowrap;
 }
 
 .icon-button {

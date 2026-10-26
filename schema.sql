@@ -57,6 +57,48 @@ CREATE TABLE IF NOT EXISTS payment_methods (
   UNIQUE KEY uqPaymentMethodsNamePaymentMethod (namePaymentMethod)
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS fiscal_operations (
+  idFiscalOperation BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  descriptionFiscalOperation VARCHAR(180) NOT NULL,
+  taxRegimeFiscalOperation VARCHAR(80) NOT NULL,
+  typeFiscalOperation ENUM('entry', 'exit') NOT NULL DEFAULT 'exit',
+  contextFiscalOperation VARCHAR(40) NOT NULL DEFAULT 'within_state',
+  taxSituationFiscalOperation VARCHAR(20) NULL,
+  originFiscalOperation VARCHAR(20) NULL,
+  cfopFiscalOperation VARCHAR(10) NULL,
+  operationNatureFiscalOperation VARCHAR(180) NULL,
+  ipiSituationFiscalOperation VARCHAR(20) NULL,
+  icmsBaseModeFiscalOperation VARCHAR(40) NULL,
+  icmsStBaseModeFiscalOperation VARCHAR(40) NULL,
+  icmsExemptionReasonFiscalOperation VARCHAR(180) NULL,
+  cofinsSituationFiscalOperation VARCHAR(20) NULL,
+  pisSituationFiscalOperation VARCHAR(20) NULL,
+  fcpEnabledFiscalOperation TINYINT(1) NOT NULL DEFAULT 0,
+  fcpStEnabledFiscalOperation TINYINT(1) NOT NULL DEFAULT 0,
+  fiscalBenefitCodeFiscalOperation VARCHAR(40) NULL,
+  legalBasisFiscalOperation TEXT NULL,
+  isActiveFiscalOperation TINYINT(1) NOT NULL DEFAULT 1,
+  createdAtFiscalOperation TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAtFiscalOperation TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (idFiscalOperation),
+  KEY idxFiscalOperationsCfopFiscalOperation (cfopFiscalOperation),
+  KEY idxFiscalOperationsActiveDescription (isActiveFiscalOperation, descriptionFiscalOperation)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS fiscal_catalog_items (
+  idFiscalCatalogItem BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  catalogFiscalCatalogItem VARCHAR(50) NOT NULL,
+  codeFiscalCatalogItem VARCHAR(30) NOT NULL,
+  descriptionFiscalCatalogItem VARCHAR(255) NOT NULL,
+  valueFiscalCatalogItem DECIMAL(10,4) NULL,
+  isActiveFiscalCatalogItem TINYINT(1) NOT NULL DEFAULT 1,
+  createdAtFiscalCatalogItem TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAtFiscalCatalogItem TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (idFiscalCatalogItem),
+  UNIQUE KEY uqFiscalCatalogItemsCatalogCode (catalogFiscalCatalogItem, codeFiscalCatalogItem),
+  KEY idxFiscalCatalogItemsCatalogActive (catalogFiscalCatalogItem, isActiveFiscalCatalogItem, descriptionFiscalCatalogItem)
+) ENGINE=InnoDB;
+
 CREATE TABLE IF NOT EXISTS sales (
   idSale BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   clientIdSale CHAR(36) NOT NULL,
