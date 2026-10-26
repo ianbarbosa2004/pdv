@@ -440,6 +440,11 @@ h2 {
   background: #fff;
 }
 
+.form-field textarea.catalog-description-input {
+  font: inherit;
+  line-height: 1.4;
+}
+
 .fiscal-operation-form {
   max-height: calc(100vh - 128px);
   overflow: auto;
@@ -454,6 +459,41 @@ h2 {
 
 .fiscal-check input {
   width: auto;
+}
+
+.fcp-fieldset {
+  min-width: 0;
+  margin: 4px 0 0;
+  padding: 8px 12px 12px;
+  border: 1px solid #aeb8c4;
+}
+
+.fcp-fieldset legend {
+  padding: 0 5px;
+  color: #364352;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.fcp-options {
+  display: grid;
+  grid-template-columns: minmax(74px, 0.45fr) minmax(180px, 1fr);
+  gap: 12px 22px;
+  align-items: center;
+  color: #364352;
+  font-size: 0.78rem;
+}
+
+.fcp-options label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.fcp-options input {
+  width: auto;
+  margin: 0;
 }
 
 .form-field input:focus,
@@ -596,6 +636,11 @@ h2 {
   background: #e7eef6;
 }
 
+.classic-menu-dropdown:hover > .classic-menu-panel,
+.classic-menu-dropdown:focus-within > .classic-menu-panel {
+  display: flex;
+}
+
 .classic-menu-panel {
   position: absolute;
   top: 27px;
@@ -607,6 +652,25 @@ h2 {
   border: 1px solid #aeb8c4;
   background: #fff;
   box-shadow: 2px 3px 7px rgb(35 49 64 / 18%);
+}
+
+.classic-menu-nested {
+  width: 100%;
+}
+
+.classic-menu-nested > summary {
+  display: flex;
+  width: 100%;
+  height: 28px;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 7px 10px;
+  line-height: 12px;
+}
+
+.classic-menu-nested > .classic-menu-panel {
+  top: -5px;
+  left: calc(100% - 3px);
 }
 
 .classic-menu-panel button {
@@ -708,6 +772,27 @@ h2 {
   font-size: 0.78rem;
 }
 
+.settings-content {
+  width: min(100% - 48px, 760px);
+  margin: 0 auto;
+  padding: 34px 0;
+}
+
+.settings-form {
+  margin-top: 20px;
+}
+
+.settings-form small {
+  color: #687584;
+  font-size: 0.72rem;
+  font-weight: 400;
+}
+
+.settings-form .error-message,
+.settings-form .success-message {
+  margin: 0;
+}
+
 .backoffice-shortcut:hover,
 .backoffice-shortcut:focus-visible {
   border-color: #6f8eaf;
@@ -735,6 +820,174 @@ h2 {
   padding: 18px;
 }
 
+.thermal-print-content {
+  width: min(100% - 36px, 1440px);
+  margin: 0 auto;
+  padding: 28px 0 42px;
+}
+
+.thermal-print-heading {
+  margin-bottom: 24px;
+}
+
+.thermal-print-heading h1 {
+  margin-bottom: 8px;
+  font-size: clamp(1.55rem, 2.4vw, 2.2rem);
+}
+
+.thermal-print-heading p:last-child {
+  max-width: 760px;
+  margin-bottom: 0;
+  color: #687584;
+}
+
+.thermal-print-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 430px) minmax(320px, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+
+.thermal-print-controls .classic-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.thermal-print-controls .classic-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.thermal-print-controls .classic-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.thermal-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0;
+  color: #33445b;
+  font-size: 0.84rem;
+}
+
+.thermal-check input {
+  width: 16px;
+  height: 16px;
+}
+
+.thermal-preview-panel {
+  min-width: 0;
+  border: 1px solid #c8d1dc;
+  background: #e8edf2;
+}
+
+.thermal-preview-panel > .classic-panel-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.thermal-preview-meta {
+  color: #687584;
+  font-size: 0.72rem;
+  font-weight: 400;
+}
+
+.thermal-paper {
+  display: flex;
+  justify-content: center;
+  min-height: 530px;
+  padding: 28px 20px;
+  overflow: auto;
+  background: repeating-linear-gradient(0deg, #dfe5eb 0, #dfe5eb 1px, #e8edf2 1px, #e8edf2 3px);
+}
+
+.thermal-ticket {
+  width: 80mm;
+  min-height: 330px;
+  padding: 10mm 5mm;
+  overflow-wrap: anywhere;
+  color: #111;
+  background: #fff;
+  box-shadow: 0 2px 9px rgb(21 34 49 / 18%);
+  font-family: "Courier New", Courier, monospace;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.thermal-ticket-brand,
+.thermal-ticket-total {
+  font-weight: 700;
+}
+
+.thermal-ticket-brand {
+  margin-bottom: 5px;
+  font-size: 14px;
+}
+
+.thermal-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.thermal-align-left { text-align: left; }
+.thermal-align-center { text-align: center; }
+.thermal-align-right { text-align: right; }
+.thermal-size-small { font-size: 9px; }
+.thermal-size-normal { font-size: 11px; }
+.thermal-size-large { font-size: 15px; line-height: 1.25; }
+.thermal-bold { font-weight: 700; }
+
+.thermal-print-note {
+  margin: 20px 0 0;
+  padding: 12px 14px;
+  border: 1px solid #c8d5e0;
+  border-top: 2px solid #6f8dab;
+  color: #536477;
+  background: #eef3f7;
+  font-size: 0.8rem;
+}
+
+@media print {
+  @page {
+    size: 80mm auto;
+    margin: 0;
+  }
+
+  body {
+    min-width: 0;
+    background: #fff;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  .thermal-paper,
+  .thermal-paper * {
+    visibility: visible;
+  }
+
+  .thermal-paper {
+    display: block;
+    min-height: 0;
+    padding: 0;
+    background: #fff;
+  }
+
+  .thermal-ticket {
+    width: 80mm;
+    min-height: 0;
+    padding: 4mm;
+    box-shadow: none;
+  }
+}
+
 .fiscal-content {
   grid-template-columns: minmax(720px, 760px) minmax(0, 1fr);
   max-width: 1900px;
@@ -750,6 +1003,84 @@ h2 {
   border: 1px solid #b8c1cc;
   background: #fff;
   box-shadow: 0 1px 2px rgb(35 49 64 / 8%);
+}
+
+.ncm-cest-catalog-panel {
+  min-width: 0;
+}
+
+.catalog-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  border-bottom: 1px solid #cbd3dc;
+  background: #cbd3dc;
+}
+
+.catalog-summary-item {
+  display: flex;
+  min-height: 58px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  padding: 8px 12px;
+  border: 0;
+  color: #536274;
+  background: #f4f6f8;
+  text-align: left;
+  cursor: pointer;
+}
+
+.catalog-summary-item strong {
+  color: #315b8a;
+  font-size: 1.15rem;
+}
+
+.catalog-summary-item span {
+  font-size: 0.72rem;
+}
+
+.catalog-summary-item:hover,
+.catalog-summary-item.is-active {
+  background: #e7eef6;
+}
+
+.catalog-view-tabs {
+  display: flex;
+  gap: 0;
+  padding: 8px 10px 0;
+  border-bottom: 1px solid #b8c1cc;
+  background: #eef1f4;
+}
+
+.catalog-view-tabs button {
+  padding: 7px 12px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  color: #536274;
+  background: transparent;
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.catalog-view-tabs button:hover,
+.catalog-view-tabs button.is-active {
+  border-color: #b8c1cc;
+  color: #234a73;
+  background: #fff;
+}
+
+.catalog-reference-table td:nth-child(2) {
+  white-space: normal;
+}
+
+.catalog-result-count {
+  padding: 7px 10px;
+  border-top: 1px solid #d5dce4;
+  color: #647284;
+  background: #f5f7f9;
+  font-size: 0.72rem;
+  text-align: right;
 }
 
 .classic-modal-backdrop {
@@ -771,6 +1102,126 @@ h2 {
 
 .classic-modal.product-edit-modal {
   width: min(100%, 620px);
+}
+
+.classic-modal.ncm-lookup-modal {
+  width: min(100%, 860px);
+}
+
+.ncm-lookup-toolbar {
+  padding: 10px 12px;
+  border-bottom: 1px solid #cbd3dc;
+  background: #eef1f4;
+}
+
+.ncm-lookup-toolbar .form-field {
+  gap: 5px;
+}
+
+.ncm-lookup-controls {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 6px;
+}
+
+.ncm-lookup-controls select,
+.ncm-lookup-controls input {
+  min-height: 30px;
+  padding: 5px 7px;
+  border: 1px solid #aeb8c4;
+  border-radius: 2px;
+  color: #202124;
+  background: #fff;
+  font-size: 0.8rem;
+}
+
+.ncm-lookup-controls select:focus,
+.ncm-lookup-controls input:focus {
+  border-color: #315b8a;
+  outline: 1px solid #8fb0d1;
+}
+
+.ncm-lookup-table-wrapper {
+  height: min(54vh, 430px);
+  min-height: 230px;
+  overflow: auto;
+  background: #fff;
+}
+
+.ncm-lookup-table {
+  table-layout: fixed;
+}
+
+.ncm-lookup-table th:first-child,
+.ncm-lookup-table td:first-child {
+  width: 125px;
+}
+
+.ncm-lookup-table th:last-child,
+.ncm-lookup-table td:last-child {
+  width: 92px;
+}
+
+.ncm-lookup-table td:nth-child(2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ncm-select-button {
+  min-width: 54px;
+  padding: 4px 8px;
+}
+
+.ncm-lookup-count {
+  margin-right: auto;
+  color: #536274;
+  font-size: 0.74rem;
+  align-self: center;
+}
+
+.catalog-lookup-field {
+  display: grid;
+  grid-template-columns: 112px 32px minmax(0, 1fr);
+  gap: 5px;
+  align-items: center;
+}
+
+.classic-form-panel .catalog-lookup-field input {
+  width: auto;
+}
+
+.catalog-lookup-button {
+  display: inline-grid;
+  width: 32px;
+  height: 30px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid #315b8a;
+  border-radius: 2px;
+  color: #fff;
+  background: #315b8a;
+  cursor: pointer;
+}
+
+.catalog-lookup-button:hover,
+.catalog-lookup-button:focus-visible {
+  background: #264d78;
+  outline: 1px solid #8fb0d1;
+}
+
+.catalog-lookup-button svg {
+  width: 15px;
+  height: 15px;
+  stroke: currentColor;
+}
+
+.catalog-lookup-description {
+  overflow: hidden;
+  color: #536274;
+  font-size: 0.75rem;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .classic-modal form {
@@ -846,6 +1297,27 @@ h2 {
   color: #27313d;
   background: linear-gradient(#fff, #e4e8ec);
   font-size: 0.78rem;
+}
+
+.ncm-cest-update-screen .classic-form-actions .classic-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ncm-cest-update-screen .classic-form-actions .classic-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.ncm-cest-update-screen .classic-form-actions .is-spinning {
+  animation: ncm-cest-update-spin 0.9s linear infinite;
+}
+
+@keyframes ncm-cest-update-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .classic-button:hover:not(:disabled) {
@@ -1111,5 +1583,28 @@ h2 {
 
   .classic-content {
     grid-template-columns: 1fr;
+  }
+
+  .classic-modal.ncm-lookup-modal {
+    width: min(100%, 720px);
+  }
+}
+
+@media (max-width: 620px) {
+  .ncm-lookup-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .catalog-lookup-field {
+    grid-template-columns: minmax(0, 1fr) 32px;
+  }
+
+  .catalog-lookup-button {
+    width: 32px;
+  }
+
+  .catalog-lookup-description {
+    grid-column: 1 / -1;
+    min-height: 18px;
   }
 }

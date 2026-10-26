@@ -1,4 +1,6 @@
-export function createBackofficeScreen({ onBack, onClasses, onGroups, onProducts, onFiscalOperations }) {
+import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
+
+export function createBackofficeScreen({ onBack, onClasses, onGroups, onProducts, onFiscalOperations, onThermalPrint, onNcmCestUpdate, onSettings }) {
   const root = document.createElement("main");
 
   root.className = "catalog-screen";
@@ -7,21 +9,7 @@ export function createBackofficeScreen({ onBack, onClasses, onGroups, onProducts
       <strong>PDV - Retaguarda</strong>
       <span>Operador: Operador</span>
     </header>
-    <nav class="classic-menubar" aria-label="Menu principal">
-      <button type="button">Arquivo</button>
-      <details class="classic-menu-dropdown">
-        <summary>Cadastros</summary>
-        <div class="classic-menu-panel">
-          <button type="button" data-classes>Classes</button>
-          <button type="button" data-groups>Grupos</button>
-          <button type="button" data-products>Produtos</button><button type="button" data-fiscal-operations>Operações fiscais</button>
-        </div>
-      </details>
-      <button type="button">Estoque</button>
-      <button type="button">Vendas</button>
-      <button type="button">Relatórios</button>
-      <button type="button">Configurações</button>
-    </nav>
+    ${renderMainMenu()}
     <div class="classic-toolbar">
       <button class="classic-tool-button" data-back type="button">← Frente de caixa</button>
       <strong>Início da retaguarda</strong>
@@ -49,10 +37,25 @@ export function createBackofficeScreen({ onBack, onClasses, onGroups, onProducts
           <strong>Operações fiscais</strong>
           <span>Cadastre CFOP, CST, PIS, COFINS, ICMS e regras fiscais.</span>
         </button>
+        <button class="backoffice-shortcut" data-thermal-print type="button">
+          <strong>Impressão térmica</strong>
+          <span>Teste caracteres, tamanhos e alinhamento em papel de 80 mm.</span>
+        </button>
+        <button class="backoffice-shortcut" data-settings type="button">
+          <strong>Impressoras</strong>
+          <span>Selecione as impressoras padrão de cupons e relatórios.</span>
+        </button>
       </div>
     </section>
   `;
 
+  bindMainMenu(root, {
+    products: onProducts,
+    "fiscal-operations": onFiscalOperations,
+    "thermal-print": onThermalPrint,
+    "ncm-cest-update": onNcmCestUpdate,
+    settings: onSettings
+  });
   root.querySelector("[data-back]")?.addEventListener("click", onBack);
   root.querySelectorAll("[data-classes]").forEach((button) =>
     button.addEventListener("click", onClasses)
@@ -65,6 +68,12 @@ export function createBackofficeScreen({ onBack, onClasses, onGroups, onProducts
   );
   root.querySelectorAll("[data-fiscal-operations]").forEach((button) =>
     button.addEventListener("click", onFiscalOperations)
+  );
+  root.querySelectorAll("[data-thermal-print]").forEach((button) =>
+    button.addEventListener("click", onThermalPrint)
+  );
+  root.querySelectorAll("[data-settings]").forEach((button) =>
+    button.addEventListener("click", onSettings)
   );
 
   return root;

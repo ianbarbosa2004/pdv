@@ -2,9 +2,16 @@ import { createServer } from "node:http";
 import { createPool } from "./database.js";
 import { getConfig } from "./config.js";
 import { createSale, SaleValidationError } from "./sale-service.js";
+import {
+  DEFAULT_CEST_SOURCE_URL,
+  DEFAULT_NCM_SOURCE_URL,
+  ensureUpdateSchema,
+  updateCatalog
+} from "./ncm-cest-update.js";
 
 const config = getConfig();
 const pool = createPool(config);
+let ncmCestUpdateRunning = false;
 
 const json = (response, status, payload) => {
   response.writeHead(status, {
@@ -59,11 +66,74 @@ const fiscalCatalogDefinitions = {
   "contribution-situations": { label: "Situações tributárias PIS/COFINS", values: [["01", "01 - Operação tributável com alíquota básica"], ["02", "02 - Operação tributável com alíquota diferenciada"], ["03", "03 - Operação tributável por unidade de medida"], ["04", "04 - Operação tributável monofásica"], ["05", "05 - Operação tributável por ST"], ["06", "06 - Operação tributável a alíquota zero"], ["07", "07 - Operação isenta"], ["08", "08 - Sem incidência"], ["09", "09 - Com suspensão"], ["49", "49 - Outras saídas"], ["50", "50 - Com direito a crédito"], ["51", "51 - Alíquota básica"], ["52", "52 - Alíquota diferenciada"], ["53", "53 - Alíquota por unidade de medida"], ["54", "54 - Monofásica"], ["55", "55 - Por substituição tributária"], ["98", "98 - Outras entradas"], ["99", "99 - Outras operações"]] },
   "base-modes": { label: "Modalidades de base de cálculo", values: [["value", "Pauta (valor)"], ["margin", "Margem de valor agregado"], ["price", "Preço tabelado ou máximo sugerido"]] },
   "exemption-reasons": { label: "Motivos de desoneração do ICMS", values: [["1", "1 - Táxi"], ["3", "3 - Produtor agropecuário"], ["4", "4 - Fomentar / Proterra"], ["5", "5 - Aquisição de ativo permanente"], ["6", "6 - Transporte ferroviário"], ["7", "7 - Comunicação"], ["8", "8 - Remessa para exposição ou feira"], ["9", "9 - Remessa para industrialização"], ["10", "10 - Operação com medicamento"], ["11", "11 - Aquisição de bem para produção"], ["12", "12 - Programa de alimentação do trabalhador"], ["16", "16 - Bens destinados à pesquisa"], ["90", "90 - Outros"]] },
-  cfops: { label: "CFOP", values: [["5.102", "Venda de mercadoria adquirida ou recebida de terceiros"]] },
+  cfops: {
+    label: "CFOP",
+    values: [
+      ["5.102", "Venda de mercadoria adquirida ou recebida de terceiros"],
+      ["5.405", "Venda de mercadoria adquirida ou recebida de terceiros em operação com mercadoria sujeita ao regime de substituição tributária, na condição de contribuinte substituído"],
+      ["6.102", "Venda de mercadoria adquirida ou recebida de terceiros"],
+      ["6.403", "Venda de mercadoria adquirida ou recebida de terceiros em operação com mercadoria sujeita ao regime de substituição tributária, na condição de contribuinte substituído"]
+    ]
+  },
   "icms-rates": { label: "Alíquotas de ICMS", values: [["7", "Alíquota interna de 7%", 7], ["12", "Alíquota interna de 12%", 12], ["17", "Alíquota interna de 17%", 17], ["18", "Alíquota interna de 18%", 18], ["25", "Alíquota interna de 25%", 25]] }
 };
 
 const fiscalCatalogNames = new Set(Object.keys(fiscalCatalogDefinitions));
+const autoCodeCatalogs = new Set(["icms-rates", "tax-regimes", "base-modes", "contexts"]);
+const autoCodeReferences = {
+  "tax-regimes": ["taxRegimeFiscalOperation"],
+  "base-modes": ["icmsBaseModeFiscalOperation", "icmsStBaseModeFiscalOperation"],
+  contexts: ["contextFiscalOperation"]
+};
+const slugCodeCatalogs = new Set(["operation-types"]);
+
+const slugifyCatalogDescription = (value) =>
+  String(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 30);
+
+const normalizeCfopCode = (value) => {
+  const digits = String(value).replace(/\D/g, "");
+  return digits.length === 4 ? `${digits[0]}.${digits.slice(1)}` : "";
+};
+
+const stripCatalogCodeFromDescription = (value) =>
+  String(value).replace(/^[^-\s]+\s*-\s*/, "").trim();
+
+const renumberFiscalCatalogIds = async (connection) => {
+  const [items] = await connection.query(
+    `SELECT idFiscalCatalogItem
+     FROM fiscal_catalog_items
+     ORDER BY idFiscalCatalogItem`
+  );
+  if (!items.length) return;
+
+  const temporaryOffset = 1000000000000;
+  for (const item of items) {
+    await connection.query(
+      `UPDATE fiscal_catalog_items
+       SET idFiscalCatalogItem = ?
+       WHERE idFiscalCatalogItem = ?`,
+      [temporaryOffset + Number(item.idFiscalCatalogItem), item.idFiscalCatalogItem]
+    );
+  }
+  for (const [index, item] of items.entries()) {
+    await connection.query(
+      `UPDATE fiscal_catalog_items
+       SET idFiscalCatalogItem = ?
+       WHERE idFiscalCatalogItem = ?`,
+      [index + 1, temporaryOffset + Number(item.idFiscalCatalogItem)]
+    );
+  }
+  await connection.query(
+    `ALTER TABLE fiscal_catalog_items AUTO_INCREMENT = ?`,
+    [items.length + 1]
+  );
+};
 
 const ensureFiscalCatalogSchema = async () => {
   await pool.query(`CREATE TABLE IF NOT EXISTS fiscal_catalog_items (
@@ -79,15 +149,347 @@ const ensureFiscalCatalogSchema = async () => {
     UNIQUE KEY uqFiscalCatalogItemsCatalogCode (catalogFiscalCatalogItem, codeFiscalCatalogItem),
     KEY idxFiscalCatalogItemsCatalogActive (catalogFiscalCatalogItem, isActiveFiscalCatalogItem, descriptionFiscalCatalogItem)
   ) ENGINE=InnoDB`);
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    await renumberFiscalCatalogIds(connection);
+    for (const catalog of autoCodeCatalogs) {
+      const [items] = await connection.query(
+        `SELECT idFiscalCatalogItem, codeFiscalCatalogItem
+         FROM fiscal_catalog_items
+         WHERE catalogFiscalCatalogItem = ?
+         ORDER BY idFiscalCatalogItem`,
+        [catalog]
+      );
+      if (!items.length) continue;
+      const mappings = items.map((item, index) => ({
+        oldCode: String(item.codeFiscalCatalogItem),
+        newCode: String(index + 1),
+        id: item.idFiscalCatalogItem
+      }));
+      for (const mapping of mappings) {
+        await connection.query(
+          `UPDATE fiscal_catalog_items
+           SET codeFiscalCatalogItem = ?
+           WHERE idFiscalCatalogItem = ?`,
+          [`r${mapping.id}`, mapping.id]
+        );
+      }
+      for (const mapping of mappings) {
+        for (const column of autoCodeReferences[catalog] || []) {
+          await connection.query(
+            `UPDATE fiscal_operations
+             SET ${column} = ?
+             WHERE ${column} = ?`,
+            [`__ref__${mapping.id}`, mapping.oldCode]
+          );
+        }
+      }
+      for (const mapping of mappings) {
+        for (const column of autoCodeReferences[catalog] || []) {
+          await connection.query(
+            `UPDATE fiscal_operations
+             SET ${column} = ?
+             WHERE ${column} = ?`,
+            [mapping.newCode, `__ref__${mapping.id}`]
+          );
+        }
+        await connection.query(
+          `UPDATE fiscal_catalog_items
+           SET codeFiscalCatalogItem = ?
+           WHERE idFiscalCatalogItem = ?`,
+          [mapping.newCode, mapping.id]
+        );
+      }
+    }
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
   for (const [catalog, definition] of Object.entries(fiscalCatalogDefinitions)) {
-    for (const [code, description, value] of definition.values) {
-      await pool.query(
-        `INSERT IGNORE INTO fiscal_catalog_items
+    for (const [index, [code, description, value]] of definition.values.entries()) {
+      const normalizedDescription = ["tax-situations", "origins", "ipi-situations", "contribution-situations", "exemption-reasons"].includes(catalog)
+        ? stripCatalogCodeFromDescription(description)
+        : description;
+      if (autoCodeCatalogs.has(catalog)) {
+        const [existing] = await pool.query(
+          `SELECT idFiscalCatalogItem
+           FROM fiscal_catalog_items
+           WHERE catalogFiscalCatalogItem = ? AND descriptionFiscalCatalogItem = ?
+           LIMIT 1`,
+          [catalog, normalizedDescription]
+        );
+        if (existing[0]) {
+          await pool.query(
+            `UPDATE fiscal_catalog_items
+             SET valueFiscalCatalogItem = ?
+             WHERE idFiscalCatalogItem = ?`,
+            [value ?? null, existing[0].idFiscalCatalogItem]
+          );
+          continue;
+        }
+      } else {
+        await pool.query(
+          `INSERT INTO fiscal_catalog_items
+            (catalogFiscalCatalogItem, codeFiscalCatalogItem, descriptionFiscalCatalogItem, valueFiscalCatalogItem)
+           VALUES (?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE
+             descriptionFiscalCatalogItem = VALUES(descriptionFiscalCatalogItem),
+             valueFiscalCatalogItem = VALUES(valueFiscalCatalogItem)`,
+          [catalog, code, normalizedDescription, value ?? null]
+        );
+        continue;
+      }
+      const seedCode = autoCodeCatalogs.has(catalog)
+        ? `seed-${catalog.slice(0, 12)}-${index}`
+        : code;
+      const [result] = await pool.query(
+        `INSERT INTO fiscal_catalog_items
           (catalogFiscalCatalogItem, codeFiscalCatalogItem, descriptionFiscalCatalogItem, valueFiscalCatalogItem)
          VALUES (?, ?, ?, ?)`,
-        [catalog, code, description, value ?? null]
+        [catalog, seedCode, normalizedDescription, value ?? null]
       );
+      if (autoCodeCatalogs.has(catalog)) {
+        const [nextCodeRows] = await pool.query(
+          `SELECT COALESCE(MAX(CAST(codeFiscalCatalogItem AS UNSIGNED)), 0) AS maxCode
+           FROM fiscal_catalog_items
+           WHERE catalogFiscalCatalogItem = ? AND idFiscalCatalogItem <> ?`,
+          [catalog, result.insertId]
+        );
+        await pool.query(
+          `UPDATE fiscal_catalog_items
+           SET codeFiscalCatalogItem = ?
+           WHERE idFiscalCatalogItem = ?`,
+          [String(Number(nextCodeRows[0].maxCode) + 1), result.insertId]
+        );
+      }
     }
+  }
+  await pool.query(
+    `DELETE FROM fiscal_catalog_items
+     WHERE catalogFiscalCatalogItem = 'operation-types'
+       AND codeFiscalCatalogItem IN ('entrada', 'saida')`
+  );
+  const cleanupConnection = await pool.getConnection();
+  try {
+    await cleanupConnection.beginTransaction();
+    await renumberFiscalCatalogIds(cleanupConnection);
+    await cleanupConnection.commit();
+  } catch (error) {
+    await cleanupConnection.rollback();
+    throw error;
+  } finally {
+    cleanupConnection.release();
+  }
+};
+
+const ensurePrinterSettingsSchema = async () => {
+  await pool.query(`CREATE TABLE IF NOT EXISTS printer_settings (
+    idPrinterSetting TINYINT UNSIGNED NOT NULL,
+    receiptPrinterName VARCHAR(255) NULL,
+    reportsPrinterName VARCHAR(255) NULL,
+    updatedAtPrinterSetting TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (idPrinterSetting)
+  ) ENGINE=InnoDB`);
+  await pool.query(
+    `INSERT INTO printer_settings (idPrinterSetting)
+     VALUES (1)
+     ON DUPLICATE KEY UPDATE idPrinterSetting = idPrinterSetting`
+  );
+};
+
+const ensureFiscalOperationSchema = async () => {
+  const [columns] = await pool.query(
+    `SELECT COLUMN_NAME
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'fiscal_operations'
+       AND COLUMN_NAME IN (?, ?)`,
+    [
+      config.database.name,
+      "fcpUseReductionBaseFiscalOperation",
+      "fcpStUseReductionBaseFiscalOperation"
+    ]
+  );
+  const existing = new Set(columns.map(({ COLUMN_NAME }) => COLUMN_NAME));
+  if (!existing.has("fcpUseReductionBaseFiscalOperation")) {
+    await pool.query(
+      `ALTER TABLE fiscal_operations
+       ADD COLUMN fcpUseReductionBaseFiscalOperation TINYINT(1) NOT NULL DEFAULT 0
+       AFTER fcpEnabledFiscalOperation`
+    );
+  }
+  if (!existing.has("fcpStUseReductionBaseFiscalOperation")) {
+    await pool.query(
+      `ALTER TABLE fiscal_operations
+       ADD COLUMN fcpStUseReductionBaseFiscalOperation TINYINT(1) NOT NULL DEFAULT 0
+       AFTER fcpStEnabledFiscalOperation`
+    );
+  }
+};
+
+const ensureNcmCestSchema = async () => {
+  await pool.query(`CREATE TABLE IF NOT EXISTS ncm_catalog (
+    idNcm BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    codeNcm CHAR(8) NOT NULL,
+    descriptionNcm VARCHAR(255) NOT NULL,
+    isActiveNcm TINYINT(1) NOT NULL DEFAULT 1,
+    createdAtNcm TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updatedAtNcm TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (idNcm),
+    UNIQUE KEY uqNcmCode (codeNcm)
+  ) ENGINE=InnoDB`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS cest_catalog (
+    idCest BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    codeCest CHAR(7) NOT NULL,
+    descriptionCest VARCHAR(255) NOT NULL,
+    segmentCest VARCHAR(160) NULL,
+    isActiveCest TINYINT(1) NOT NULL DEFAULT 1,
+    createdAtCest TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updatedAtCest TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (idCest),
+    UNIQUE KEY uqCestCode (codeCest)
+  ) ENGINE=InnoDB`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS ncm_cest_relations (
+    idNcmCestRelation BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    idNcm BIGINT UNSIGNED NOT NULL,
+    idCest BIGINT UNSIGNED NOT NULL,
+    createdAtNcmCestRelation TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (idNcmCestRelation),
+    UNIQUE KEY uqNcmCestRelation (idNcm, idCest),
+    KEY idxNcmCestRelationsCest (idCest),
+    CONSTRAINT fkNcmCestRelationsNcm FOREIGN KEY (idNcm) REFERENCES ncm_catalog (idNcm) ON DELETE RESTRICT,
+    CONSTRAINT fkNcmCestRelationsCest FOREIGN KEY (idCest) REFERENCES cest_catalog (idCest) ON DELETE RESTRICT
+  ) ENGINE=InnoDB`);
+  await pool.query(
+    "ALTER TABLE ncm_catalog MODIFY COLUMN descriptionNcm TEXT NOT NULL"
+  );
+  await pool.query(
+    "ALTER TABLE cest_catalog MODIFY COLUMN descriptionCest TEXT NOT NULL"
+  );
+  await ensureUpdateSchema(pool);
+};
+
+const ensureProductFiscalSchema = async () => {
+  const [columns] = await pool.query(
+    `SELECT COLUMN_NAME
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'products'
+       AND COLUMN_NAME IN (?, ?)`,
+    [config.database.name, "ncmProduct", "cestProduct"]
+  );
+  const existing = new Set(columns.map(({ COLUMN_NAME }) => COLUMN_NAME));
+  if (!existing.has("ncmProduct")) {
+    await pool.query("ALTER TABLE products ADD COLUMN ncmProduct CHAR(8) NULL AFTER nameProduct");
+  }
+  if (!existing.has("cestProduct")) {
+    await pool.query("ALTER TABLE products ADD COLUMN cestProduct CHAR(7) NULL AFTER ncmProduct");
+  }
+};
+
+const ensureNavigationSchema = async () => {
+  await pool.query(`CREATE TABLE IF NOT EXISTS navigation_menus (
+    idNavigationMenu TINYINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    keyNavigationMenu VARCHAR(80) NOT NULL,
+    labelNavigationMenu VARCHAR(120) NOT NULL,
+    orderNavigationMenu SMALLINT UNSIGNED NOT NULL,
+    isActiveNavigationMenu TINYINT(1) NOT NULL DEFAULT 1,
+    PRIMARY KEY (idNavigationMenu),
+    UNIQUE KEY uqNavigationMenusKey (keyNavigationMenu)
+  ) ENGINE=InnoDB`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS navigation_items (
+    idNavigationItem BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    idNavigationMenu TINYINT UNSIGNED NOT NULL,
+    idParentNavigationItem BIGINT UNSIGNED NULL,
+    typeNavigationItem ENUM('item', 'submenu', 'bar') NOT NULL,
+    keyNavigationItem VARCHAR(80) NOT NULL,
+    labelNavigationItem VARCHAR(120) NOT NULL,
+    routeNavigationItem VARCHAR(120) NULL,
+    orderNavigationItem SMALLINT UNSIGNED NOT NULL,
+    isActiveNavigationItem TINYINT(1) NOT NULL DEFAULT 1,
+    PRIMARY KEY (idNavigationItem),
+    UNIQUE KEY uqNavigationItemsMenuParentKey (idNavigationMenu, idParentNavigationItem, keyNavigationItem),
+    KEY idxNavigationItemsMenuParentOrder (idNavigationMenu, idParentNavigationItem, orderNavigationItem),
+    CONSTRAINT fkNavigationItemsMenu FOREIGN KEY (idNavigationMenu) REFERENCES navigation_menus (idNavigationMenu) ON DELETE CASCADE,
+    CONSTRAINT fkNavigationItemsParent FOREIGN KEY (idParentNavigationItem) REFERENCES navigation_items (idNavigationItem) ON DELETE CASCADE
+  ) ENGINE=InnoDB`);
+  await pool.query(
+    `INSERT INTO navigation_menus (keyNavigationMenu, labelNavigationMenu, orderNavigationMenu)
+     VALUES ('registrations', 'Cadastros', 2)
+     ON DUPLICATE KEY UPDATE labelNavigationMenu = VALUES(labelNavigationMenu), orderNavigationMenu = VALUES(orderNavigationMenu)`
+  );
+  const [menus] = await pool.query(
+    `SELECT idNavigationMenu FROM navigation_menus WHERE keyNavigationMenu = 'registrations'`
+  );
+  const menuId = menus[0]?.idNavigationMenu;
+  if (!menuId) throw new Error("Menu Cadastros não foi criado.");
+  const ensureNavigationItem = async ({ parentId = null, type, key, label, route, order }) => {
+    const [existing] = await pool.query(
+      `SELECT idNavigationItem
+       FROM navigation_items
+       WHERE idNavigationMenu = ?
+         AND keyNavigationItem = ?
+         AND ((idParentNavigationItem IS NULL AND ? IS NULL) OR idParentNavigationItem = ?)
+       LIMIT 1`,
+      [menuId, key, parentId, parentId]
+    );
+    if (existing[0]) {
+      await pool.query(
+        `UPDATE navigation_items
+         SET typeNavigationItem = ?, labelNavigationItem = ?, routeNavigationItem = ?, orderNavigationItem = ?
+         WHERE idNavigationItem = ?`,
+        [type, label, route, order, existing[0].idNavigationItem]
+      );
+      return existing[0].idNavigationItem;
+    }
+    const [result] = await pool.query(
+      `INSERT INTO navigation_items
+        (idNavigationMenu, idParentNavigationItem, typeNavigationItem, keyNavigationItem, labelNavigationItem, routeNavigationItem, orderNavigationItem)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [menuId, parentId, type, key, label, route, order]
+    );
+    return result.insertId;
+  };
+
+  await ensureNavigationItem({ type: "item", key: "products", label: "Produtos", route: null, order: 1 });
+  await ensureNavigationItem({ type: "item", key: "fiscal-operations", label: "Operações Fiscais", route: null, order: 2 });
+  const productsId = await ensureNavigationItem({ type: "item", key: "products", label: "Produtos", route: null, order: 1 });
+  await ensureNavigationItem({ parentId: productsId, type: "bar", key: "products", label: "Produtos", route: "products", order: 1 });
+  await ensureNavigationItem({ parentId: productsId, type: "bar", key: "classes", label: "Classes", route: "classes", order: 2 });
+  await ensureNavigationItem({ parentId: productsId, type: "bar", key: "groups", label: "Grupos", route: "groups", order: 3 });
+  await ensureNavigationItem({ parentId: productsId, type: "bar", key: "ncm-cest", label: "NCM / CEST", route: "ncm-cest", order: 4 });
+  const fiscalOperationsId = await ensureNavigationItem({
+    type: "item",
+    key: "fiscal-operations",
+    label: "Operações Fiscais",
+    route: null,
+    order: 2
+  });
+  const fiscalBarItems = [
+    ["fiscal-operations", "Operações Fiscais", "fiscal-operations"],
+    ["cfops", "CFOP", "cfops"],
+    ["tax-situations", "CST / CSOSN", "tax-situations"],
+    ["icms-rates", "Alíquotas ICMS", "icms-rates"],
+    ["tax-regimes", "Regimes", "tax-regimes"],
+    ["operation-types", "Tipos", "operation-types"],
+    ["contexts", "Contextos", "contexts"],
+    ["origins", "Origens", "origins"],
+    ["ipi-situations", "IPI", "ipi-situations"],
+    ["contribution-situations", "PIS / COFINS", "contribution-situations"],
+    ["base-modes", "Bases", "base-modes"],
+    ["exemption-reasons", "Desoneração", "exemption-reasons"]
+  ];
+  for (const [key, label, route] of fiscalBarItems) {
+    await ensureNavigationItem({
+      parentId: fiscalOperationsId,
+      type: "bar",
+      key,
+      label,
+      route,
+      order: fiscalBarItems.findIndex(([itemKey]) => itemKey === key) + 1
+    });
   }
 };
 
@@ -133,12 +535,158 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "GET" && request.url === "/api/navigation") {
+    try {
+      await ensureNavigationSchema();
+      const [menus] = await pool.query(
+        `SELECT idNavigationMenu, keyNavigationMenu, labelNavigationMenu, orderNavigationMenu
+         FROM navigation_menus
+         WHERE isActiveNavigationMenu = 1
+         ORDER BY orderNavigationMenu, idNavigationMenu`
+      );
+      const [items] = await pool.query(
+        `SELECT idNavigationItem, idNavigationMenu, idParentNavigationItem,
+                typeNavigationItem, keyNavigationItem, labelNavigationItem,
+                routeNavigationItem, orderNavigationItem
+         FROM navigation_items
+         WHERE isActiveNavigationItem = 1
+         ORDER BY idNavigationMenu, COALESCE(idParentNavigationItem, 0), orderNavigationItem, idNavigationItem`
+      );
+      json(response, 200, { menus, items });
+    } catch (error) {
+      handleError(response, error, {
+        log: "Falha ao consultar a estrutura de navegação:",
+        message: "Não foi possível consultar a estrutura de navegação.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/api/printer-settings") {
+    try {
+      await ensurePrinterSettingsSchema();
+      const [rows] = await pool.query(
+        `SELECT receiptPrinterName, reportsPrinterName
+         FROM printer_settings
+         WHERE idPrinterSetting = 1`
+      );
+      json(response, 200, {
+        receiptPrinterName: rows[0]?.receiptPrinterName || "",
+        reportsPrinterName: rows[0]?.reportsPrinterName || ""
+      });
+    } catch (error) {
+      handleError(response, error, {
+        log: "Falha ao consultar configurações de impressora:",
+        message: "Não foi possível consultar as configurações de impressora.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/api/ncm-cest/update-status") {
+    try {
+      await ensureNcmCestSchema();
+      const [updates] = await pool.query(
+        `SELECT idNcmCestUpdate,
+                sourceNcmNcmCestUpdate AS sourceNcm,
+                sourceCestNcmCestUpdate AS sourceCest,
+                statusNcmCestUpdate AS status,
+                ncmCountNcmCestUpdate AS ncmCount,
+                cestCountNcmCestUpdate AS cestCount,
+                relationCountNcmCestUpdate AS relationCount,
+                messageNcmCestUpdate AS message,
+                startedAtNcmCestUpdate AS startedAt,
+                completedAtNcmCestUpdate AS completedAt
+         FROM ncm_cest_updates
+         ORDER BY idNcmCestUpdate DESC
+         LIMIT 1`
+      );
+      json(response, 200, {
+        running: ncmCestUpdateRunning,
+        sources: {
+          ncm: process.env.PDV_NCM_SOURCE_URL || DEFAULT_NCM_SOURCE_URL,
+          cest: process.env.PDV_CEST_SOURCE_URL || DEFAULT_CEST_SOURCE_URL
+        },
+        update: updates[0] || null
+      });
+    } catch (error) {
+      handleError(response, error, {
+        log: "Falha ao consultar atualização NCM / CEST:",
+        message: "Não foi possível consultar o status da atualização NCM / CEST.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/api/ncm-cest/update") {
+    if (ncmCestUpdateRunning) {
+      json(response, 409, { error: "Já existe uma atualização NCM / CEST em andamento." });
+      return;
+    }
+    ncmCestUpdateRunning = true;
+    try {
+      const result = await updateCatalog(pool, {
+        ncmSourceUrl: process.env.PDV_NCM_SOURCE_URL || DEFAULT_NCM_SOURCE_URL,
+        cestSourceUrl: process.env.PDV_CEST_SOURCE_URL || DEFAULT_CEST_SOURCE_URL
+      });
+      json(response, 200, { ok: true, ...result });
+    } catch (error) {
+      console.error("Falha ao atualizar catálogos oficiais NCM / CEST:", error);
+      json(response, 502, {
+        error: error instanceof SaleValidationError
+          ? error.message
+          : "A fonte oficial NCM / CEST não está disponível ou não foi reconhecida."
+      });
+    } finally {
+      ncmCestUpdateRunning = false;
+    }
+    return;
+  }
+
+  if (request.method === "PUT" && request.url === "/api/printer-settings") {
+    try {
+      const payload = await readJsonBody(request);
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+        throw new SaleValidationError("Configurações de impressora inválidas.");
+      }
+      const parsePrinterName = (value, fieldName) => {
+        if (value === null || value === undefined || value === "") return null;
+        if (typeof value !== "string" || value.trim().length > 255) {
+          throw new SaleValidationError(`${fieldName} inválida.`);
+        }
+        return value.trim() || null;
+      };
+      const receiptPrinterName = parsePrinterName(payload.receiptPrinterName, "Impressora de cupom");
+      const reportsPrinterName = parsePrinterName(payload.reportsPrinterName, "Impressora de relatórios");
+      await ensurePrinterSettingsSchema();
+      await pool.query(
+        `UPDATE printer_settings
+         SET receiptPrinterName = ?, reportsPrinterName = ?
+         WHERE idPrinterSetting = 1`,
+        [receiptPrinterName, reportsPrinterName]
+      );
+      json(response, 200, { receiptPrinterName: receiptPrinterName || "", reportsPrinterName: reportsPrinterName || "" });
+    } catch (error) {
+      handleError(response, error, {
+        log: "Falha ao salvar configurações de impressora:",
+        message: "Não foi possível salvar as configurações de impressora.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
   if (request.method === "GET" && request.url.startsWith("/api/products")) {
     try {
+      await ensureProductFiscalSchema();
       const includeInactive = request.url.includes("includeInactive=1");
       const [products] = await pool.query(
         `SELECT products.idProduct, products.idGroup, products.skuProduct,
-                products.barcodeProduct, products.nameProduct, products.priceProduct,
+                products.barcodeProduct, products.nameProduct, products.ncmProduct,
+                products.cestProduct, products.priceProduct,
                 products.stockQuantityProduct, products.isActiveProduct,
                 groups.descriptionGroup, classes.descriptionClass
          FROM products
@@ -206,6 +754,160 @@ const server = createServer(async (request, response) => {
       json(response, 200, { ok: true, idClass, isActiveClass: isActiveClass ? 1 : 0 });
     } catch (error) {
       handleError(response, error, { log: "Falha ao alterar status da classe:", message: "Não foi possível alterar o status da classe.", duplicate: "" });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/api/ncm-cest/ncms") {
+    try {
+      await ensureNcmCestSchema();
+      const [ncms] = await pool.query(
+        `SELECT idNcm, codeNcm, descriptionNcm
+         FROM ncm_catalog
+         WHERE isActiveNcm = 1
+         ORDER BY codeNcm`
+      );
+      json(response, 200, { ncms });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao listar NCMs:", message: "Não foi possível consultar os NCMs.", duplicate: "" });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && request.url.startsWith("/api/ncm-cest/options")) {
+    try {
+      await ensureNcmCestSchema();
+      const ncmCode = new URL(request.url, "http://localhost").searchParams.get("ncm")?.replace(/\D/g, "") || "";
+      if (!/^\d{8}$/.test(ncmCode)) throw new SaleValidationError("NCM inválido.");
+      const [cests] = await pool.query(
+        `SELECT cest.codeCest AS codeCest, cest.descriptionCest AS descriptionCest,
+                cest.segmentCest AS segmentCest
+         FROM ncm_cest_relations relation
+         INNER JOIN ncm_catalog ncm ON ncm.idNcm = relation.idNcm
+         INNER JOIN cest_catalog cest ON cest.idCest = relation.idCest
+         WHERE ncm.codeNcm = ? AND ncm.isActiveNcm = 1 AND cest.isActiveCest = 1
+         ORDER BY cest.codeCest`,
+        [ncmCode]
+      );
+      json(response, 200, { ncm: ncmCode, cests });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao consultar CESTs do NCM:", message: "Não foi possível consultar os CESTs deste NCM.", duplicate: "" });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/api/ncm-cest/cests") {
+    try {
+      await ensureNcmCestSchema();
+      const [cests] = await pool.query(
+        `SELECT idCest, codeCest, descriptionCest, segmentCest
+         FROM cest_catalog
+         WHERE isActiveCest = 1
+         ORDER BY codeCest`
+      );
+      json(response, 200, { cests });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao listar CESTs:", message: "Não foi possível consultar os CESTs.", duplicate: "" });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/api/ncm-cest") {
+    try {
+      await ensureNcmCestSchema();
+      const [relations] = await pool.query(
+        `SELECT relation.idNcmCestRelation,
+                ncm.codeNcm AS ncmCode, ncm.descriptionNcm AS ncmDescription,
+                cest.codeCest AS cestCode, cest.descriptionCest AS cestDescription,
+                cest.segmentCest AS segment
+         FROM ncm_cest_relations relation
+         INNER JOIN ncm_catalog ncm ON ncm.idNcm = relation.idNcm
+         INNER JOIN cest_catalog cest ON cest.idCest = relation.idCest
+         WHERE ncm.isActiveNcm = 1 AND cest.isActiveCest = 1
+         ORDER BY ncm.codeNcm, cest.codeCest`
+      );
+      json(response, 200, { relations });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao listar relações NCM / CEST:", message: "Não foi possível consultar as relações NCM / CEST.", duplicate: "" });
+    }
+    return;
+  }
+
+  if ((request.method === "POST" || request.method === "PUT") && request.url === "/api/ncm-cest") {
+    const connection = await pool.getConnection();
+    try {
+      await ensureNcmCestSchema();
+      const payload = await readJsonBody(request);
+      const idNcmCestRelation = request.method === "PUT" ? parsePositiveId(payload.idNcmCestRelation) : null;
+      const ncmCode = typeof payload.ncmCode === "string" ? payload.ncmCode.replace(/\D/g, "") : "";
+      const cestCode = typeof payload.cestCode === "string" ? payload.cestCode.replace(/\D/g, "") : "";
+      const ncmDescription = typeof payload.ncmDescription === "string" ? payload.ncmDescription.trim() : "";
+      const cestDescription = typeof payload.cestDescription === "string" ? payload.cestDescription.trim() : "";
+      const segment = typeof payload.segment === "string" ? payload.segment.trim() : "";
+      if (
+        (request.method === "PUT" && !idNcmCestRelation) ||
+        !/^\d{8}$/.test(ncmCode) ||
+        !/^\d{7}$/.test(cestCode) ||
+        !ncmDescription ||
+        ncmDescription.length > 255 ||
+        !cestDescription ||
+        cestDescription.length > 255 ||
+        segment.length > 160
+      ) {
+        throw new SaleValidationError("NCM, CEST e descrições são obrigatórios e devem ser válidos.");
+      }
+      await connection.beginTransaction();
+      let ncmId;
+      let cestId;
+      const [ncmRows] = await connection.query("SELECT idNcm FROM ncm_catalog WHERE codeNcm = ?", [ncmCode]);
+      if (ncmRows[0]) {
+        ncmId = ncmRows[0].idNcm;
+        await connection.query("UPDATE ncm_catalog SET descriptionNcm = ? WHERE idNcm = ?", [ncmDescription, ncmId]);
+      } else {
+        const [result] = await connection.query("INSERT INTO ncm_catalog (codeNcm, descriptionNcm) VALUES (?, ?)", [ncmCode, ncmDescription]);
+        ncmId = result.insertId;
+      }
+      const [cestRows] = await connection.query("SELECT idCest FROM cest_catalog WHERE codeCest = ?", [cestCode]);
+      if (cestRows[0]) {
+        cestId = cestRows[0].idCest;
+        await connection.query("UPDATE cest_catalog SET descriptionCest = ?, segmentCest = ? WHERE idCest = ?", [cestDescription, segment || null, cestId]);
+      } else {
+        const [result] = await connection.query("INSERT INTO cest_catalog (codeCest, descriptionCest, segmentCest) VALUES (?, ?, ?)", [cestCode, cestDescription, segment || null]);
+        cestId = result.insertId;
+      }
+      if (request.method === "POST") {
+        const [result] = await connection.query("INSERT INTO ncm_cest_relations (idNcm, idCest) VALUES (?, ?)", [ncmId, cestId]);
+        await connection.commit();
+        json(response, 201, { idNcmCestRelation: result.insertId });
+      } else {
+        const [result] = await connection.query(
+          "UPDATE ncm_cest_relations SET idNcm = ?, idCest = ? WHERE idNcmCestRelation = ?",
+          [ncmId, cestId, idNcmCestRelation]
+        );
+        if (!result.affectedRows) throw new SaleValidationError("Relação NCM / CEST não encontrada.", 404);
+        await connection.commit();
+        json(response, 200, { idNcmCestRelation });
+      }
+    } catch (error) {
+      await connection.rollback();
+      handleError(response, error, { log: "Falha ao salvar relação NCM / CEST:", message: "Não foi possível salvar a relação NCM / CEST.", duplicate: "Essa relação NCM / CEST já está cadastrada." });
+    } finally {
+      connection.release();
+    }
+    return;
+  }
+
+  if (request.method === "DELETE" && request.url === "/api/ncm-cest") {
+    try {
+      await ensureNcmCestSchema();
+      const payload = await readJsonBody(request);
+      const idNcmCestRelation = parsePositiveId(payload.idNcmCestRelation);
+      if (!idNcmCestRelation) throw new SaleValidationError("Relação NCM / CEST inválida.");
+      const [result] = await pool.query("DELETE FROM ncm_cest_relations WHERE idNcmCestRelation = ?", [idNcmCestRelation]);
+      if (!result.affectedRows) throw new SaleValidationError("Relação NCM / CEST não encontrada.", 404);
+      json(response, 200, { ok: true, idNcmCestRelation });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao excluir relação NCM / CEST:", message: "Não foi possível excluir a relação NCM / CEST.", duplicate: "" });
     }
     return;
   }
@@ -339,18 +1041,38 @@ const server = createServer(async (request, response) => {
       const nameProduct = typeof payload.nameProduct === "string" ? payload.nameProduct.trim() : "";
       const skuProduct = typeof payload.skuProduct === "string" ? payload.skuProduct.trim() : "";
       const barcodeProduct = payload.barcodeProduct === null || payload.barcodeProduct === undefined ? null : String(payload.barcodeProduct).trim() || null;
+      const ncmProduct = typeof payload.ncmProduct === "string" ? payload.ncmProduct.replace(/\D/g, "") : "";
+      const cestProduct = typeof payload.cestProduct === "string" ? payload.cestProduct.replace(/\D/g, "") : "";
       const idGroup = parsePositiveId(payload.idGroup);
-      if (!nameProduct || nameProduct.length > 180 || !skuProduct || skuProduct.length > 64 || !idGroup) throw new SaleValidationError("Nome, SKU e grupo são obrigatórios.");
+      if (!nameProduct || nameProduct.length > 180 || !skuProduct || skuProduct.length > 64 || !idGroup || (ncmProduct && !/^\d{8}$/.test(ncmProduct)) || (cestProduct && !/^\d{7}$/.test(cestProduct))) throw new SaleValidationError("Nome, SKU, grupo, NCM ou CEST inválidos.");
+      await ensureProductFiscalSchema();
       const priceProduct = parseMoney(payload.priceProduct, "Preço");
       const stockQuantityProduct = parseNonNegativeQuantity(payload.stockQuantityProduct);
       const [groups] = await pool.query("SELECT idGroup FROM `groups` WHERE idGroup = ?", [idGroup]);
       if (!groups.length) throw new SaleValidationError("Grupo não encontrado.", 409);
+      if (ncmProduct) {
+        const [ncmRows] = await pool.query("SELECT idNcm FROM ncm_catalog WHERE codeNcm = ? AND isActiveNcm = 1", [ncmProduct]);
+        if (!ncmRows.length) throw new SaleValidationError("NCM não encontrado no cadastro.", 409);
+        if (cestProduct) {
+          const [relationRows] = await pool.query(
+            `SELECT relation.idNcmCestRelation
+             FROM ncm_cest_relations relation
+             INNER JOIN ncm_catalog ncm ON ncm.idNcm = relation.idNcm
+             INNER JOIN cest_catalog cest ON cest.idCest = relation.idCest
+             WHERE ncm.codeNcm = ? AND cest.codeCest = ?`,
+            [ncmProduct, cestProduct]
+          );
+          if (!relationRows.length) throw new SaleValidationError("O CEST selecionado não está relacionado ao NCM.", 409);
+        }
+      } else if (cestProduct) {
+        throw new SaleValidationError("Informe o NCM antes de selecionar o CEST.");
+      }
       const [result] = await pool.query(
-        `INSERT INTO products (idGroup, skuProduct, barcodeProduct, nameProduct, priceProduct, stockQuantityProduct)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [idGroup, skuProduct, barcodeProduct, nameProduct, priceProduct, stockQuantityProduct]
+        `INSERT INTO products (idGroup, skuProduct, barcodeProduct, nameProduct, ncmProduct, cestProduct, priceProduct, stockQuantityProduct)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [idGroup, skuProduct, barcodeProduct, nameProduct, ncmProduct || null, cestProduct || null, priceProduct, stockQuantityProduct]
       );
-      json(response, 201, { product: { idProduct: result.insertId, idGroup, skuProduct, barcodeProduct, nameProduct, priceProduct, stockQuantityProduct } });
+      json(response, 201, { product: { idProduct: result.insertId, idGroup, skuProduct, barcodeProduct, nameProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct, stockQuantityProduct } });
     } catch (error) {
       handleError(response, error, { log: "Falha ao criar produto:", message: "Não foi possível criar o produto.", duplicate: "SKU ou código de barras já cadastrado." });
     }
@@ -364,19 +1086,39 @@ const server = createServer(async (request, response) => {
       const nameProduct = typeof payload.nameProduct === "string" ? payload.nameProduct.trim() : "";
       const skuProduct = typeof payload.skuProduct === "string" ? payload.skuProduct.trim() : "";
       const barcodeProduct = payload.barcodeProduct === null || payload.barcodeProduct === undefined ? null : String(payload.barcodeProduct).trim() || null;
+      const ncmProduct = typeof payload.ncmProduct === "string" ? payload.ncmProduct.replace(/\D/g, "") : "";
+      const cestProduct = typeof payload.cestProduct === "string" ? payload.cestProduct.replace(/\D/g, "") : "";
       const idGroup = parsePositiveId(payload.idGroup);
-      if (!idProduct || !nameProduct || nameProduct.length > 180 || !skuProduct || skuProduct.length > 64 || !idGroup) throw new SaleValidationError("Produto, nome, SKU e grupo são obrigatórios.");
+      if (!idProduct || !nameProduct || nameProduct.length > 180 || !skuProduct || skuProduct.length > 64 || !idGroup || (ncmProduct && !/^\d{8}$/.test(ncmProduct)) || (cestProduct && !/^\d{7}$/.test(cestProduct))) throw new SaleValidationError("Produto, nome, SKU, grupo, NCM ou CEST inválidos.");
+      await ensureProductFiscalSchema();
       const priceProduct = parseMoney(payload.priceProduct, "Preço");
       const stockQuantityProduct = parseNonNegativeQuantity(payload.stockQuantityProduct);
       const [groups] = await pool.query("SELECT idGroup FROM `groups` WHERE idGroup = ?", [idGroup]);
       if (!groups.length) throw new SaleValidationError("Grupo não encontrado.", 409);
+      if (ncmProduct) {
+        const [ncmRows] = await pool.query("SELECT idNcm FROM ncm_catalog WHERE codeNcm = ? AND isActiveNcm = 1", [ncmProduct]);
+        if (!ncmRows.length) throw new SaleValidationError("NCM não encontrado no cadastro.", 409);
+        if (cestProduct) {
+          const [relationRows] = await pool.query(
+            `SELECT relation.idNcmCestRelation
+             FROM ncm_cest_relations relation
+             INNER JOIN ncm_catalog ncm ON ncm.idNcm = relation.idNcm
+             INNER JOIN cest_catalog cest ON cest.idCest = relation.idCest
+             WHERE ncm.codeNcm = ? AND cest.codeCest = ?`,
+            [ncmProduct, cestProduct]
+          );
+          if (!relationRows.length) throw new SaleValidationError("O CEST selecionado não está relacionado ao NCM.", 409);
+        }
+      } else if (cestProduct) {
+        throw new SaleValidationError("Informe o NCM antes de selecionar o CEST.");
+      }
       const [result] = await pool.query(
-        `UPDATE products SET idGroup = ?, skuProduct = ?, barcodeProduct = ?, nameProduct = ?, priceProduct = ?, stockQuantityProduct = ?
+        `UPDATE products SET idGroup = ?, skuProduct = ?, barcodeProduct = ?, nameProduct = ?, ncmProduct = ?, cestProduct = ?, priceProduct = ?, stockQuantityProduct = ?
          WHERE idProduct = ?`,
-        [idGroup, skuProduct, barcodeProduct, nameProduct, priceProduct, stockQuantityProduct, idProduct]
+        [idGroup, skuProduct, barcodeProduct, nameProduct, ncmProduct || null, cestProduct || null, priceProduct, stockQuantityProduct, idProduct]
       );
       if (!result.affectedRows) throw new SaleValidationError("Produto não encontrado.", 404);
-      json(response, 200, { product: { idProduct, idGroup, skuProduct, barcodeProduct, nameProduct, priceProduct, stockQuantityProduct } });
+      json(response, 200, { product: { idProduct, idGroup, skuProduct, barcodeProduct, nameProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct, stockQuantityProduct } });
     } catch (error) {
       handleError(response, error, { log: "Falha ao editar produto:", message: "Não foi possível editar o produto.", duplicate: "SKU ou código de barras já cadastrado." });
     }
@@ -452,15 +1194,35 @@ const server = createServer(async (request, response) => {
       const payload = await readJsonBody(request);
       const catalog = typeof payload.catalogFiscalCatalogItem === "string" ? payload.catalogFiscalCatalogItem.trim() : "";
       const idFiscalCatalogItem = request.method === "PUT" ? parsePositiveId(payload.idFiscalCatalogItem) : null;
-      const codeFiscalCatalogItem = typeof payload.codeFiscalCatalogItem === "string" ? payload.codeFiscalCatalogItem.trim() : "";
       const descriptionFiscalCatalogItem = typeof payload.descriptionFiscalCatalogItem === "string" ? payload.descriptionFiscalCatalogItem.trim() : "";
+      let codeFiscalCatalogItem = typeof payload.codeFiscalCatalogItem === "string" ? payload.codeFiscalCatalogItem.trim() : "";
+      if (catalog === "cfops") codeFiscalCatalogItem = normalizeCfopCode(codeFiscalCatalogItem);
+      if (slugCodeCatalogs.has(catalog)) codeFiscalCatalogItem = slugifyCatalogDescription(descriptionFiscalCatalogItem);
+      if (autoCodeCatalogs.has(catalog) && request.method === "PUT") {
+        const [existing] = await pool.query(
+          "SELECT codeFiscalCatalogItem FROM fiscal_catalog_items WHERE idFiscalCatalogItem = ? AND catalogFiscalCatalogItem = ?",
+          [idFiscalCatalogItem, catalog]
+        );
+        codeFiscalCatalogItem = existing[0]?.codeFiscalCatalogItem || "";
+      }
+      if (autoCodeCatalogs.has(catalog) && request.method === "POST") {
+        const [nextCodeRows] = await pool.query(
+          `SELECT COALESCE(MAX(CAST(codeFiscalCatalogItem AS UNSIGNED)), 0) + 1 AS nextCode
+           FROM fiscal_catalog_items
+           WHERE catalogFiscalCatalogItem = ?`,
+          [catalog]
+        );
+        codeFiscalCatalogItem = String(nextCodeRows[0].nextCode);
+      }
       const valueFiscalCatalogItem = payload.valueFiscalCatalogItem === "" || payload.valueFiscalCatalogItem == null
         ? null
         : Number(payload.valueFiscalCatalogItem);
       if (
         !fiscalCatalogNames.has(catalog) ||
         (request.method === "PUT" && !idFiscalCatalogItem) ||
-        !codeFiscalCatalogItem ||
+        (!codeFiscalCatalogItem && !autoCodeCatalogs.has(catalog)) ||
+        (catalog === "cfops" && !/^\d\.\d{3}$/.test(codeFiscalCatalogItem)) ||
+        (slugCodeCatalogs.has(catalog) && !codeFiscalCatalogItem) ||
         codeFiscalCatalogItem.length > 30 ||
         !descriptionFiscalCatalogItem ||
         descriptionFiscalCatalogItem.length > 255 ||
@@ -519,7 +1281,8 @@ const server = createServer(async (request, response) => {
                 icmsBaseModeFiscalOperation, icmsStBaseModeFiscalOperation,
                 icmsExemptionReasonFiscalOperation, cofinsSituationFiscalOperation,
                 pisSituationFiscalOperation, fcpEnabledFiscalOperation,
-                fcpStEnabledFiscalOperation, fiscalBenefitCodeFiscalOperation,
+                fcpUseReductionBaseFiscalOperation, fcpStEnabledFiscalOperation,
+                fcpStUseReductionBaseFiscalOperation, fiscalBenefitCodeFiscalOperation,
                 legalBasisFiscalOperation, isActiveFiscalOperation
          FROM fiscal_operations
          WHERE (? OR isActiveFiscalOperation = 1)
@@ -541,6 +1304,7 @@ const server = createServer(async (request, response) => {
       const taxRegimeFiscalOperation = typeof payload.taxRegimeFiscalOperation === "string" ? payload.taxRegimeFiscalOperation.trim() : "";
       const typeFiscalOperation = payload.typeFiscalOperation;
       const contextFiscalOperation = payload.contextFiscalOperation;
+      const cfopFiscalOperation = typeof payload.cfopFiscalOperation === "string" ? payload.cfopFiscalOperation.trim() : "";
       if (
         (request.method === "PUT" && !idFiscalOperation) ||
         !descriptionFiscalOperation ||
@@ -572,6 +1336,21 @@ const server = createServer(async (request, response) => {
         catalogValues("base-modes"),
         catalogValues("exemption-reasons")
       ]);
+      let operationNatureFiscalOperation = null;
+      if (cfopFiscalOperation) {
+        const [cfopRows] = await pool.query(
+          `SELECT descriptionFiscalCatalogItem
+           FROM fiscal_catalog_items
+           WHERE catalogFiscalCatalogItem = 'cfops'
+             AND codeFiscalCatalogItem = ?
+             AND isActiveFiscalCatalogItem = 1`,
+          [cfopFiscalOperation]
+        );
+        if (!cfopRows.length) {
+          throw new SaleValidationError("CFOP inválido.");
+        }
+        operationNatureFiscalOperation = cfopRows[0].descriptionFiscalCatalogItem;
+      }
       if (
         (request.method === "PUT" && !idFiscalOperation) ||
         !descriptionFiscalOperation ||
@@ -592,12 +1371,15 @@ const server = createServer(async (request, response) => {
       }
       const fields = [
         descriptionFiscalOperation, taxRegimeFiscalOperation, typeFiscalOperation, contextFiscalOperation,
-        payload.taxSituationFiscalOperation || null, payload.originFiscalOperation || null, payload.cfopFiscalOperation || null,
-        payload.operationNatureFiscalOperation || null, payload.ipiSituationFiscalOperation || null,
+        payload.taxSituationFiscalOperation || null, payload.originFiscalOperation || null, cfopFiscalOperation || null,
+        operationNatureFiscalOperation, payload.ipiSituationFiscalOperation || null,
         payload.icmsBaseModeFiscalOperation || null, payload.icmsStBaseModeFiscalOperation || null,
         payload.icmsExemptionReasonFiscalOperation || null, payload.cofinsSituationFiscalOperation || null,
         payload.pisSituationFiscalOperation || null, payload.fcpEnabledFiscalOperation ? 1 : 0,
-        payload.fcpStEnabledFiscalOperation ? 1 : 0, payload.fiscalBenefitCodeFiscalOperation || null,
+        payload.fcpUseReductionBaseFiscalOperation ? 1 : 0,
+        payload.fcpStEnabledFiscalOperation ? 1 : 0,
+        payload.fcpStUseReductionBaseFiscalOperation ? 1 : 0,
+        payload.fiscalBenefitCodeFiscalOperation || null,
         payload.legalBasisFiscalOperation || null
       ];
       if (request.method === "POST") {
@@ -609,9 +1391,10 @@ const server = createServer(async (request, response) => {
              ipiSituationFiscalOperation, icmsBaseModeFiscalOperation,
              icmsStBaseModeFiscalOperation, icmsExemptionReasonFiscalOperation,
              cofinsSituationFiscalOperation, pisSituationFiscalOperation,
-             fcpEnabledFiscalOperation, fcpStEnabledFiscalOperation,
+             fcpEnabledFiscalOperation, fcpUseReductionBaseFiscalOperation,
+             fcpStEnabledFiscalOperation, fcpStUseReductionBaseFiscalOperation,
              fiscalBenefitCodeFiscalOperation, legalBasisFiscalOperation)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           fields
         );
         json(response, 201, { idFiscalOperation: result.insertId });
@@ -624,7 +1407,8 @@ const server = createServer(async (request, response) => {
              ipiSituationFiscalOperation = ?, icmsBaseModeFiscalOperation = ?,
              icmsStBaseModeFiscalOperation = ?, icmsExemptionReasonFiscalOperation = ?,
              cofinsSituationFiscalOperation = ?, pisSituationFiscalOperation = ?,
-             fcpEnabledFiscalOperation = ?, fcpStEnabledFiscalOperation = ?,
+             fcpEnabledFiscalOperation = ?, fcpUseReductionBaseFiscalOperation = ?,
+             fcpStEnabledFiscalOperation = ?, fcpStUseReductionBaseFiscalOperation = ?,
              fiscalBenefitCodeFiscalOperation = ?, legalBasisFiscalOperation = ?
            WHERE idFiscalOperation = ?`,
           [...fields, idFiscalOperation]
@@ -674,5 +1458,20 @@ server.listen(config.apiPort, config.apiHost, () => {
   console.log(`API PDV ouvindo em http://${config.apiHost}:${config.apiPort}`);
   void ensureFiscalCatalogSchema().catch((error) => {
     console.error("Falha ao preparar os cadastros fiscais:", error);
+  });
+  void ensureFiscalOperationSchema().catch((error) => {
+    console.error("Falha ao preparar as operações fiscais:", error);
+  });
+  void ensureNcmCestSchema().catch((error) => {
+    console.error("Falha ao preparar o cadastro NCM / CEST:", error);
+  });
+  void ensureProductFiscalSchema().catch((error) => {
+    console.error("Falha ao preparar os campos fiscais dos produtos:", error);
+  });
+  void ensurePrinterSettingsSchema().catch((error) => {
+    console.error("Falha ao preparar as configurações de impressora:", error);
+  });
+  void ensureNavigationSchema().catch((error) => {
+    console.error("Falha ao preparar a estrutura de navegação:", error);
   });
 });

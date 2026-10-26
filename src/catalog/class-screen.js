@@ -1,4 +1,6 @@
 import { renderLucideIcons } from "../ui/icons.js";
+import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
+import { bindProductNavigation, renderProductNavigation } from "./product-navigation.js";
 
 const escapeHtml = (value) =>
   String(value)
@@ -11,7 +13,7 @@ const escapeHtml = (value) =>
 const getApiUrl = () =>
   window.__PDV_API_URL__ || `http://${window.location.hostname}:3000`;
 
-export function createClassScreen({ onBack, onClasses, onGroups, onProducts }) {
+export function createClassScreen({ onBack, onClasses, onGroups, onProducts, onNcmCest, onFiscalOperations, onThermalPrint, onNcmCestUpdate, onSettings }) {
   const root = document.createElement("main");
   let classes = [];
   let loading = true;
@@ -48,27 +50,8 @@ export function createClassScreen({ onBack, onClasses, onGroups, onProducts }) {
         <strong>PDV - Cadastro de classes</strong>
         <span>Operador: Operador</span>
       </header>
-      <nav class="classic-menubar" aria-label="Menu principal">
-        <button type="button">Arquivo</button>
-        <details class="classic-menu-dropdown">
-          <summary>Cadastros</summary>
-          <div class="classic-menu-panel">
-            <button type="button" data-menu-classes>Classes</button>
-            <button type="button" data-menu-groups>Grupos</button>
-            <button type="button" data-menu-products>Produtos</button>
-          </div>
-        </details>
-        <button type="button">Estoque</button>
-        <button type="button">Vendas</button>
-        <button type="button">Relatórios</button>
-        <button type="button">Configurações</button>
-      </nav>
-      <div class="classic-toolbar">
-        <button class="classic-tool-button" data-back type="button">← Frente de caixa</button>
-        <button class="classic-tool-button is-active" type="button">Classes</button>
-        <button class="classic-tool-button" data-groups type="button">Grupos</button>
-        <button class="classic-tool-button" data-products type="button">Produtos</button>
-      </div>
+      ${renderMainMenu()}
+      ${renderProductNavigation("classes")}
       <section class="classic-content">
         <form class="classic-form-panel" data-class-form>
           <div class="classic-panel-header">Nova classe</div>
@@ -144,12 +127,14 @@ export function createClassScreen({ onBack, onClasses, onGroups, onProducts }) {
       ` : ""}
     `;
     renderLucideIcons(root);
-    root.querySelector("[data-back]")?.addEventListener("click", onBack);
-    root.querySelector("[data-groups]")?.addEventListener("click", onGroups);
-    root.querySelector("[data-products]")?.addEventListener("click", onProducts);
-    root.querySelector("[data-menu-classes]")?.addEventListener("click", onClasses);
-    root.querySelector("[data-menu-groups]")?.addEventListener("click", onGroups);
-    root.querySelector("[data-menu-products]")?.addEventListener("click", onProducts);
+    bindMainMenu(root, {
+      products: onProducts,
+      "fiscal-operations": onFiscalOperations,
+      "thermal-print": onThermalPrint,
+      "ncm-cest-update": onNcmCestUpdate,
+      settings: onSettings
+    });
+    bindProductNavigation(root, { back: onBack, classes: onClasses, groups: onGroups, products: onProducts, "ncm-cest": onNcmCest });
     root.querySelector("[data-search]")?.addEventListener("input", (event) => {
       searchTerm = event.currentTarget.value;
       render();

@@ -1,4 +1,6 @@
 import { renderLucideIcons } from "../ui/icons.js";
+import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
+import { bindFiscalNavigation, renderFiscalNavigation } from "./fiscal-navigation.js";
 
 const catalogLabels = {
   cfops: "CFOP",
@@ -14,6 +16,20 @@ const catalogLabels = {
   "exemption-reasons": "Desoneração do ICMS"
 };
 
+const catalogPresentation = {
+  cfops: { code: "cfop" },
+  "tax-situations": { stripCodeFromDescription: true },
+  "icms-rates": { hideCode: true },
+  "tax-regimes": { hideCode: true },
+  "operation-types": { hideCode: true, code: "slug" },
+  contexts: { hideCode: true },
+  origins: { stripCodeFromDescription: true },
+  "ipi-situations": { stripCodeFromDescription: true },
+  "contribution-situations": { stripCodeFromDescription: true },
+  "base-modes": { hideCode: true },
+  "exemption-reasons": { stripCodeFromDescription: true }
+};
+
 const getApiUrl = () =>
   window.__PDV_API_URL__ || `http://${window.location.hostname}:3000`;
 
@@ -25,25 +41,17 @@ const escapeHtml = (value) =>
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 
-const catalogNavigation = [
-  ["cfops", "CFOP"],
-  ["tax-situations", "CST / CSOSN"],
-  ["icms-rates", "Alíquotas ICMS"],
-  ["tax-regimes", "Regimes"],
-  ["operation-types", "Tipos"],
-  ["contexts", "Contextos"],
-  ["origins", "Origens"],
-  ["ipi-situations", "IPI"],
-  ["contribution-situations", "PIS/COFINS"],
-  ["base-modes", "Bases"],
-  ["exemption-reasons", "Desoneração"]
-];
-
 export function createFiscalCatalogScreen({
   catalog,
   onBack,
   onFiscalOperations,
-  onCatalog
+  onCatalog,
+  onClasses,
+  onGroups,
+  onProducts,
+  onThermalPrint,
+  onNcmCestUpdate,
+  onSettings
 }) {
   const root = document.createElement("main");
   const title = catalogLabels[catalog] || "Cadastro fiscal";
@@ -53,10 +61,17 @@ export function createFiscalCatalogScreen({
   let editing = null;
   let error = "";
   let searchTerm = "";
+  const presentation = catalogPresentation[catalog] || {};
+  const showCodeColumn = !presentation.hideCode;
+  const formatDescription = (item) => {
+    const description = String(item.descriptionFiscalCatalogItem ?? "");
+    if (!presentation.stripCodeFromDescription) return description;
+    return description.replace(/^[^-\s]+\s*-\s*/, "");
+  };
 
   const render = () => {
     const visible = items.filter((item) =>
-      [item.codeFiscalCatalogItem, item.descriptionFiscalCatalogItem]
+      [item.codeFiscalCatalogItem, formatDescription(item)]
         .join(" ")
         .toLocaleLowerCase("pt-BR")
         .includes(searchTerm.toLocaleLowerCase("pt-BR"))
@@ -64,25 +79,16 @@ export function createFiscalCatalogScreen({
     root.className = "catalog-screen";
     root.innerHTML = `
       <header class="classic-titlebar"><strong>PDV - ${title}</strong><span>Operador: Operador</span></header>
-      <nav class="classic-menubar" aria-label="Menu principal">
-        <button type="button">Arquivo</button>
-        <details class="classic-menu-dropdown"><summary>Cadastros</summary><div class="classic-menu-panel">
-          <button type="button" data-fiscal-operations>Operações fiscais</button>
-          ${catalogNavigation.map(([value, label]) => `<button type="button" data-catalog="${value}">${label}</button>`).join("")}
-        </div></details>
-        <button type="button">Estoque</button><button type="button">Vendas</button><button type="button">Relatórios</button><button type="button">Configurações</button>
-      </nav>
-      <div class="classic-toolbar">
-        <button class="classic-tool-button" data-back type="button">← Retaguarda</button>
-        <button class="classic-tool-button" data-fiscal-operations type="button">Operações fiscais</button>
-        ${catalogNavigation.slice(0, 3).map(([value, label]) => `<button class="classic-tool-button ${value === catalog ? "is-active" : ""}" type="button" data-catalog="${value}">${label}</button>`).join("")}
-      </div>
+      ${renderMainMenu()}
+      ${renderFiscalNavigation(catalog)}
       <section class="classic-content fiscal-catalog-content">
         <form class="classic-form-panel" data-form>
           <div class="classic-panel-header">${editing ? `Alterar ${title}` : `Novo cadastro de ${title}`}</div>
           <div class="classic-form-body">
-            <label class="form-field"><span>Código</span><input name="codeFiscalCatalogItem" maxlength="30" required value="${escapeHtml(editing?.codeFiscalCatalogItem)}" /></label>
-            <label class="form-field"><span>Descrição</span><textarea name="descriptionFiscalCatalogItem" rows="5" maxlength="255" required>${escapeHtml(editing?.descriptionFiscalCatalogItem)}</textarea></label>
+            ${presentation.hideCode || presentation.code === "slug"
+              ? ""
+              : `<label class="form-field"><span>Código</span><input name="codeFiscalCatalogItem" maxlength="30" required ${presentation.code === "cfop" ? 'inputmode="numeric" pattern="\\d\\.\\d{3}" placeholder="0.000"' : ""} value="${escapeHtml(editing?.codeFiscalCatalogItem)}" /></label>`}
+            <label class="form-field"><span>Descrição</span><textarea class="catalog-description-input" name="descriptionFiscalCatalogItem" rows="5" maxlength="255" required>${escapeHtml(editing ? formatDescription(editing) : "")}</textarea></label>
             ${catalog === "icms-rates" ? `<label class="form-field"><span>Percentual da alíquota</span><input name="valueFiscalCatalogItem" type="number" min="0" max="100" step="0.0001" value="${escapeHtml(editing?.valueFiscalCatalogItem)}" /></label>` : ""}
             ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}
           </div>
@@ -90,21 +96,45 @@ export function createFiscalCatalogScreen({
         </form>
         <section class="classic-grid-panel">
           <div class="classic-panel-header classic-list-header"><span>${title}</span><input class="classic-list-search" data-search type="search" placeholder="Pesquisar código ou descrição..." value="${escapeHtml(searchTerm)}" /></div>
-          <div class="classic-grid-wrapper">${loading ? '<p class="classic-empty">Carregando cadastro...</p>' : visible.length ? `<table class="classic-table"><thead><tr><th>Código</th><th>Descrição</th>${catalog === "icms-rates" ? "<th>Alíquota</th>" : ""}<th class="actions-column">Ações</th></tr></thead><tbody>${visible.map((item) => `<tr><td>${escapeHtml(item.codeFiscalCatalogItem)}</td><td>${escapeHtml(item.descriptionFiscalCatalogItem)}</td>${catalog === "icms-rates" ? `<td>${item.valueFiscalCatalogItem == null ? "-" : `${Number(item.valueFiscalCatalogItem).toLocaleString("pt-BR")}%`}</td>` : ""}<td class="actions-column"><button class="icon-button edit" type="button" title="Editar cadastro" aria-label="Editar cadastro" data-edit="${item.idFiscalCatalogItem}"><i data-lucide="pencil"></i></button><button class="icon-button delete" type="button" title="Excluir cadastro definitivamente" aria-label="Excluir cadastro definitivamente" data-delete="${item.idFiscalCatalogItem}"><i data-lucide="trash-2"></i></button></td></tr>`).join("")}</tbody></table>` : '<p class="classic-empty">Nenhum cadastro encontrado.</p>'}</div>
+          <div class="classic-grid-wrapper">${loading ? '<p class="classic-empty">Carregando cadastro...</p>' : visible.length ? `<table class="classic-table"><thead><tr>${showCodeColumn ? "<th>Código</th>" : ""}<th>Descrição</th>${catalog === "icms-rates" ? "<th>Alíquota</th>" : ""}<th class="actions-column">Ações</th></tr></thead><tbody>${visible.map((item) => `<tr>${showCodeColumn ? `<td>${escapeHtml(item.codeFiscalCatalogItem)}</td>` : ""}<td>${escapeHtml(formatDescription(item))}</td>${catalog === "icms-rates" ? `<td>${item.valueFiscalCatalogItem == null ? "-" : `${Number(item.valueFiscalCatalogItem).toLocaleString("pt-BR")}%`}</td>` : ""}<td class="actions-column"><button class="icon-button edit" type="button" title="Editar cadastro" aria-label="Editar cadastro" data-edit="${item.idFiscalCatalogItem}"><i data-lucide="pencil"></i></button><button class="icon-button delete" type="button" title="Excluir cadastro definitivamente" aria-label="Excluir cadastro definitivamente" data-delete="${item.idFiscalCatalogItem}"><i data-lucide="trash-2"></i></button></td></tr>`).join("")}</tbody></table>` : '<p class="classic-empty">Nenhum cadastro encontrado.</p>'}</div>
         </section>
       </section>`;
     renderLucideIcons(root);
+    bindMainMenu(root, {
+      products: onProducts,
+      "fiscal-operations": onFiscalOperations,
+      "thermal-print": onThermalPrint,
+      "ncm-cest-update": onNcmCestUpdate,
+      settings: onSettings
+    });
     bind();
   };
 
   const bind = () => {
-    root.querySelector("[data-back]")?.addEventListener("click", onBack);
-    root.querySelectorAll("[data-fiscal-operations]").forEach((button) => button.addEventListener("click", onFiscalOperations));
-    root.querySelectorAll("[data-catalog]").forEach((button) => button.addEventListener("click", () => onCatalog(button.dataset.catalog)));
+    bindFiscalNavigation(root, {
+      back: onBack,
+      "fiscal-operations": onFiscalOperations,
+      cfops: () => onCatalog("cfops"),
+      "tax-situations": () => onCatalog("tax-situations"),
+      "icms-rates": () => onCatalog("icms-rates"),
+      "tax-regimes": () => onCatalog("tax-regimes"),
+      "operation-types": () => onCatalog("operation-types"),
+      contexts: () => onCatalog("contexts"),
+      origins: () => onCatalog("origins"),
+      "ipi-situations": () => onCatalog("ipi-situations"),
+      "contribution-situations": () => onCatalog("contribution-situations"),
+      "base-modes": () => onCatalog("base-modes"),
+      "exemption-reasons": () => onCatalog("exemption-reasons")
+    });
     root.querySelector("[data-search]")?.addEventListener("input", (event) => {
       searchTerm = event.currentTarget.value;
       render();
       root.querySelector("[data-search]")?.focus();
+    });
+    root.querySelector('input[name="codeFiscalCatalogItem"]')?.addEventListener("input", (event) => {
+      if (presentation.code !== "cfop") return;
+      const digits = event.currentTarget.value.replace(/\D/g, "").slice(0, 4);
+      event.currentTarget.value = digits.length > 1 ? `${digits[0]}.${digits.slice(1)}` : digits;
     });
     root.querySelector("[data-clear]")?.addEventListener("click", () => {
       editing = null;
