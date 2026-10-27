@@ -1,8 +1,8 @@
-import { createIcons, LoaderCircle, Pencil, RefreshCw, Trash2 } from "lucide";
+import { createIcons, Eye, EyeOff, LoaderCircle, Pencil, RefreshCw, Search, Trash2 } from "lucide";
 
 export const renderLucideIcons = (root) => {
   createIcons({
-    icons: { LoaderCircle, Pencil, RefreshCw, Trash2 },
+    icons: { Eye, EyeOff, LoaderCircle, Pencil, RefreshCw, Search, Trash2 },
     root
   });
 };

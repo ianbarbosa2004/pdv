@@ -10,6 +10,9 @@ import { createThermalPrintScreen } from "./tools/thermal-print-screen.js";
 import { createNcmCestUpdateScreen } from "./tools/ncm-cest-update-screen.js";
 import { createSettingsScreen } from "./settings/settings-screen.js";
 import { createNcmCestScreen } from "./catalog/ncm-cest-screen.js";
+import { createPaymentMethodScreen } from "./catalog/payment-method-screen.js";
+import { createCompanyScreen } from "./catalog/company-screen.js";
+import { createNfceScreen } from "./settings/nfce-screen.js";
 
 const app = document.querySelector("#app");
 
@@ -24,7 +27,11 @@ const common = () => ({
   onFiscalOperations: showFiscalOperations,
   onThermalPrint: showThermalPrint,
   onNcmCestUpdate: showNcmCestUpdate,
-  onSettings: showSettings
+  onSettings: showSettings,
+  onCompany: showCompany,
+  onNfce: showNfce,
+  onFinancial: showPaymentMethods,
+  onPaymentMethods: showPaymentMethods
 });
 
 const showSales = () => mount(createSaleScreen({ onBackoffice: showBackoffice }));
@@ -39,7 +46,10 @@ const showNcmCestUpdate = () =>
     onBack: showBackoffice,
     onTools: showNcmCestUpdate,
     onThermalPrint: showThermalPrint,
-    onSettings: showSettings
+    onSettings: showSettings,
+    onCompany: showCompany,
+    onNfce: showNfce,
+    onFinancial: showPaymentMethods
   }));
 const showFiscalOperations = () =>
   mount(createFiscalOperationScreen({
@@ -62,5 +72,11 @@ const showClasses = () =>
   mount(createClassScreen({ onBack: showSales, ...common() }));
 const showGroups = () =>
   mount(createGroupScreen({ onBack: showSales, ...common() }));
+const showPaymentMethods = () =>
+  mount(createPaymentMethodScreen({ onBack: showSales, ...common() }));
+const showCompany = () =>
+  mount(createCompanyScreen({ onBack: showBackoffice, ...common() }));
+const showNfce = () =>
+  mount(createNfceScreen({ onBack: showBackoffice, ...common() }));
 
 showSales();

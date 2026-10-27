@@ -1,4 +1,9 @@
 import { calculateSaleTotals } from "../shared/sale.js";
+import {
+  bindNumberMasks,
+  formatMaskedNumber,
+  normalizeMaskedNumber
+} from "../ui/number-mask.js";
 
 const formatCurrency = (value) =>
   new Intl.NumberFormat("pt-BR", {
@@ -218,8 +223,8 @@ export function createSaleScreen({ onBackoffice } = {}) {
                   </label>
                   <label class="form-field">
                     <span>Valor recebido</span>
-                    <input data-payment-amount type="number" min="0.01" step="0.01" value="${escapeHtml(
-                      paymentAmount
+                    <input data-payment-amount data-number-mask inputmode="decimal" value="${escapeHtml(
+                      formatMaskedNumber(paymentAmount)
                     )}" ${submittingPayment ? "disabled" : ""} required />
                   </label>
                   <div class="payment-total">
@@ -245,6 +250,7 @@ export function createSaleScreen({ onBackoffice } = {}) {
     `;
 
     bindEvents();
+    bindNumberMasks(root);
   };
 
   const addProduct = (idProduct) => {
@@ -375,7 +381,7 @@ export function createSaleScreen({ onBackoffice } = {}) {
   };
 
   const submitPayment = async () => {
-    const amount = Number(paymentAmount);
+    const amount = Number(normalizeMaskedNumber(paymentAmount));
     const { total } = calculateSaleTotals(cart);
     if (!idPaymentMethod || !Number.isFinite(amount) || amount <= 0) {
       paymentError = "Informe uma forma e um valor de pagamento válido.";

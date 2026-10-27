@@ -20,7 +20,11 @@ export function createSettingsScreen({
   onFiscalOperations,
   onThermalPrint,
   onNcmCestUpdate,
-  onSettings
+  onSettings,
+  onCompany,
+  onNfce,
+  onFinancial,
+  onPaymentMethods
 }) {
   const root = document.createElement("main");
   let printers = [];
@@ -93,7 +97,11 @@ export function createSettingsScreen({
       "fiscal-operations": onFiscalOperations,
       "thermal-print": onThermalPrint,
       "ncm-cest-update": onNcmCestUpdate,
-      settings: onSettings
+      settings: onSettings,
+      company: onCompany,
+      nfce: onNfce,
+      financial: onFinancial,
+      "payment-methods": onPaymentMethods
     });
     bind();
   };

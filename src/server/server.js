@@ -1,7 +1,11 @@
 import { createServer } from "node:http";
+import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import forge from "node-forge";
 import { createPool } from "./database.js";
 import { getConfig } from "./config.js";
 import { createSale, SaleValidationError } from "./sale-service.js";
+import { buildNfceDiagnostic, runNfceHomologationTest } from "./nfce-test-service.js";
 import {
   DEFAULT_CEST_SOURCE_URL,
   DEFAULT_NCM_SOURCE_URL,
@@ -12,6 +16,85 @@ import {
 const config = getConfig();
 const pool = createPool(config);
 let ncmCestUpdateRunning = false;
+
+const getCertificateEncryptionKey = () => {
+  const configured = config.certificateEncryptionKey;
+  if (!configured) throw new Error("PDV_CERTIFICATE_ENCRYPTION_KEY não configurada.");
+  const key = Buffer.from(configured, "base64");
+  if (key.length !== 32) throw new Error("PDV_CERTIFICATE_ENCRYPTION_KEY deve ser uma chave base64 de 32 bytes.");
+  return key;
+};
+
+const encryptSecret = (value) => {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", getCertificateEncryptionKey(), iv);
+  const encrypted = Buffer.concat([cipher.update(String(value), "utf8"), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString("base64");
+};
+
+const decryptSecret = (value) => {
+  const encrypted = Buffer.from(String(value), "base64");
+  if (encrypted.length <= 28) throw new Error("Dado criptografado inválido.");
+  const iv = encrypted.subarray(0, 12);
+  const authTag = encrypted.subarray(12, 28);
+  const decipher = createDecipheriv("aes-256-gcm", getCertificateEncryptionKey(), iv);
+  decipher.setAuthTag(authTag);
+  return Buffer.concat([decipher.update(encrypted.subarray(28)), decipher.final()]).toString("utf8");
+};
+
+const formatCertificateDate = (value) => {
+  if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
+    throw new Error("A validade do certificado não foi encontrada.");
+  }
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const normalizeDateValue = (value) => {
+  if (!value) return null;
+  if (typeof value === "string") return value.slice(0, 10);
+  return formatCertificateDate(value);
+};
+
+const readCertificateMetadata = (certificateData, password) => {
+  try {
+    const certificate = readCertificateWithOpenSsl(certificateData, password)
+      || readCertificateWithForge(certificateData, password);
+    if (!certificate) throw new Error("Nenhum certificado foi encontrado no arquivo.");
+    return {
+      expires: formatCertificateDate(certificate.validity.notAfter),
+      serial: certificate.serialNumber || ""
+    };
+  } catch {
+    throw new SaleValidationError("Não foi possível ler a validade do certificado. Confira o arquivo A1 e a senha.");
+  }
+};
+
+const readCertificateWithOpenSsl = (certificateData, password) => {
+  const result = spawnSync(
+    "openssl",
+    ["pkcs12", "-in", "-", "-passin", "env:PDV_PKCS12_PASSWORD", "-clcerts", "-nokeys"],
+    {
+      input: Buffer.from(String(certificateData), "base64"),
+      encoding: "utf8",
+      env: { ...process.env, PDV_PKCS12_PASSWORD: String(password) },
+      windowsHide: true
+    }
+  );
+  if (result.error || result.status !== 0) return null;
+  const pem = String(result.stdout).match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/);
+  return pem ? forge.pki.certificateFromPem(pem[0]) : null;
+};
+
+const readCertificateWithForge = (certificateData, password) => {
+  const asn1 = forge.asn1.fromDer(forge.util.decode64(String(certificateData)));
+  const p12 = forge.pkcs12.pkcs12FromAsn1(asn1, false, String(password));
+  const bags = p12.getBags({ bagType: forge.pki.oids.certBag });
+  const certificateBag = (bags[forge.pki.oids.certBag] || []).find((bag) => bag.cert);
+  return certificateBag?.cert ? forge.pki.certificateFromAsn1(certificateBag.cert) : null;
+};
 
 const json = (response, status, payload) => {
   response.writeHead(status, {
@@ -27,7 +110,7 @@ const readJsonBody = async (request) => {
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > 1024 * 1024) throw new SaleValidationError("Corpo da requisição muito grande.", 413);
+  if (size > 5 * 1024 * 1024) throw new SaleValidationError("Corpo da requisição muito grande.", 413);
     chunks.push(chunk);
   }
   try {
@@ -291,14 +374,110 @@ const ensurePrinterSettingsSchema = async () => {
     idPrinterSetting TINYINT UNSIGNED NOT NULL,
     receiptPrinterName VARCHAR(255) NULL,
     reportsPrinterName VARCHAR(255) NULL,
+    receiptLayoutPrinterSetting JSON NULL,
     updatedAtPrinterSetting TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (idPrinterSetting)
   ) ENGINE=InnoDB`);
+  const [columns] = await pool.query(
+   `SELECT COLUMN_NAME FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'printer_settings'`
+  );
+  if (!columns.some(({ COLUMN_NAME }) => COLUMN_NAME === "receiptLayoutPrinterSetting")) {
+   await pool.query("ALTER TABLE printer_settings ADD COLUMN receiptLayoutPrinterSetting JSON NULL");
+  }
   await pool.query(
     `INSERT INTO printer_settings (idPrinterSetting)
      VALUES (1)
      ON DUPLICATE KEY UPDATE idPrinterSetting = idPrinterSetting`
   );
+};
+
+const ensureCompanySchema = async () => {
+  await pool.query(`CREATE TABLE IF NOT EXISTS company_settings (
+    idCompanySetting TINYINT UNSIGNED NOT NULL,
+    companyTypeCompany ENUM('juridica', 'fisica') NOT NULL DEFAULT 'juridica',
+    documentCompany VARCHAR(20) NOT NULL DEFAULT '',
+    corporateNameCompany VARCHAR(180) NOT NULL DEFAULT '',
+    tradeNameCompany VARCHAR(120) NOT NULL DEFAULT '',
+    stateRegistrationCompany VARCHAR(30) NOT NULL DEFAULT '',
+    municipalRegistrationCompany VARCHAR(30) NOT NULL DEFAULT '',
+    cnaeCompany VARCHAR(20) NOT NULL DEFAULT '',
+    zipCodeCompany VARCHAR(9) NOT NULL DEFAULT '',
+    addressCompany VARCHAR(180) NOT NULL DEFAULT '',
+    addressNumberCompany VARCHAR(20) NOT NULL DEFAULT '',
+    addressComplementCompany VARCHAR(80) NOT NULL DEFAULT '',
+    neighborhoodCompany VARCHAR(100) NOT NULL DEFAULT '',
+    countryCompany VARCHAR(80) NOT NULL DEFAULT 'Brasil',
+    stateCompany CHAR(2) NOT NULL DEFAULT '',
+    cityCompany VARCHAR(100) NOT NULL DEFAULT '',
+    municipalityCodeCompany CHAR(7) NOT NULL DEFAULT '3148004',
+    phoneCompany VARCHAR(25) NOT NULL DEFAULT '',
+    mobileCompany VARCHAR(25) NOT NULL DEFAULT '',
+    websiteCompany VARCHAR(180) NOT NULL DEFAULT '',
+    emailCompany VARCHAR(180) NOT NULL DEFAULT '',
+    nfceStateCompany CHAR(2) NOT NULL DEFAULT 'MG',
+    nfceModelCompany SMALLINT UNSIGNED NOT NULL DEFAULT 65,
+    nfceEnvironmentCompany ENUM('homologation', 'production') NOT NULL DEFAULT 'homologation',
+    nfceSeriesCompany SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+    nfceInitialNumberCompany INT UNSIGNED NOT NULL DEFAULT 1,
+    nfceContingencyCompany ENUM('none', 'offline') NOT NULL DEFAULT 'none',
+    nfceCscCompany VARCHAR(255) NOT NULL DEFAULT '',
+    nfceTokenCompany VARCHAR(255) NOT NULL DEFAULT '',
+    nfceHomologationCscCompany VARCHAR(255) NOT NULL DEFAULT '',
+    nfceHomologationTokenCompany VARCHAR(255) NOT NULL DEFAULT '',
+    nfceCertificateTypeCompany ENUM('A1', 'A3') NOT NULL DEFAULT 'A1',
+    nfceCertificatePathCompany VARCHAR(255) NOT NULL DEFAULT '',
+    nfceCertificateExpiresCompany DATE NULL,
+    nfceCertificateSerialCompany VARCHAR(255) NOT NULL DEFAULT '',
+    logoMimeCompany VARCHAR(50) NOT NULL DEFAULT '',
+    logoDataCompany MEDIUMTEXT NULL,
+    createdAtCompanySetting TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updatedAtCompanySetting TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (idCompanySetting)
+  ) ENGINE=InnoDB`);
+  await pool.query(
+    `INSERT INTO company_settings (idCompanySetting)
+     VALUES (1)
+     ON DUPLICATE KEY UPDATE idCompanySetting = idCompanySetting`
+  );
+  const [columns] = await pool.query(
+    `SELECT COLUMN_NAME
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'company_settings'
+       AND COLUMN_NAME IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+    [config.database.name, "nfceStateCompany", "nfceModelCompany", "nfceEnvironmentCompany",
+      "nfceContingencyCompany", "nfceCertificateTypeCompany", "nfceCertificatePathCompany",
+      "nfceCertificateExpiresCompany", "nfceCertificateSerialCompany", "nfceCertificateNameCompany",
+      "nfceCertificateDataCompany", "nfceCertificatePasswordCompany", "logoMimeCompany", "logoDataCompany",
+      "municipalityCodeCompany"]
+  );
+  const existing = new Set(columns.map(({ COLUMN_NAME }) => COLUMN_NAME));
+  const missingColumns = [
+    ["nfceStateCompany", "ALTER TABLE company_settings ADD COLUMN nfceStateCompany CHAR(2) NOT NULL DEFAULT 'MG'"],
+    ["nfceModelCompany", "ALTER TABLE company_settings ADD COLUMN nfceModelCompany SMALLINT UNSIGNED NOT NULL DEFAULT 65"],
+    ["nfceEnvironmentCompany", "ALTER TABLE company_settings ADD COLUMN nfceEnvironmentCompany ENUM('homologation', 'production') NOT NULL DEFAULT 'homologation'"],
+    ["nfceContingencyCompany", "ALTER TABLE company_settings ADD COLUMN nfceContingencyCompany ENUM('none', 'offline') NOT NULL DEFAULT 'none'"],
+    ["nfceCertificateTypeCompany", "ALTER TABLE company_settings ADD COLUMN nfceCertificateTypeCompany ENUM('A1', 'A3') NOT NULL DEFAULT 'A1'"],
+    ["nfceCertificatePathCompany", "ALTER TABLE company_settings ADD COLUMN nfceCertificatePathCompany VARCHAR(255) NOT NULL DEFAULT ''"],
+    ["nfceCertificateExpiresCompany", "ALTER TABLE company_settings ADD COLUMN nfceCertificateExpiresCompany DATE NULL"],
+    ["nfceCertificateNameCompany", "ALTER TABLE company_settings ADD COLUMN nfceCertificateNameCompany VARCHAR(255) NOT NULL DEFAULT ''"],
+    ["nfceCertificateDataCompany", "ALTER TABLE company_settings ADD COLUMN nfceCertificateDataCompany MEDIUMTEXT NULL"],
+    ["nfceCertificatePasswordCompany", "ALTER TABLE company_settings ADD COLUMN nfceCertificatePasswordCompany MEDIUMTEXT NULL"],
+    ["municipalityCodeCompany", "ALTER TABLE company_settings ADD COLUMN municipalityCodeCompany CHAR(7) NOT NULL DEFAULT '3148004'"]
+  ];
+  for (const [name, statement] of missingColumns) {
+    if (!existing.has(name)) await pool.query(statement);
+  }
+  if (!existing.has("logoMimeCompany")) {
+    await pool.query(
+      "ALTER TABLE company_settings ADD COLUMN logoMimeCompany VARCHAR(50) NOT NULL DEFAULT '' AFTER nfceCertificateSerialCompany"
+    );
+  }
+  if (!existing.has("logoDataCompany")) {
+    await pool.query(
+      "ALTER TABLE company_settings ADD COLUMN logoDataCompany MEDIUMTEXT NULL AFTER logoMimeCompany"
+    );
+  }
 };
 
 const ensureFiscalOperationSchema = async () => {
@@ -491,6 +670,100 @@ const ensureNavigationSchema = async () => {
       order: fiscalBarItems.findIndex(([itemKey]) => itemKey === key) + 1
     });
   }
+  const financialId = await ensureNavigationItem({
+    type: "item",
+    key: "financial",
+    label: "Financeiros",
+    route: null,
+    order: 3
+  });
+  await pool.query(
+    `UPDATE navigation_items
+     SET isActiveNavigationItem = 0
+     WHERE idNavigationMenu = ? AND idParentNavigationItem = ?
+       AND keyNavigationItem = 'company'`,
+    [financialId, financialId]
+  );
+  await ensureNavigationItem({
+    parentId: financialId,
+    type: "bar",
+    key: "payment-methods",
+    label: "Formas de pagamento",
+    route: "payment-methods",
+    order: 1
+  });
+  await pool.query(
+    `INSERT INTO navigation_menus (keyNavigationMenu, labelNavigationMenu, orderNavigationMenu)
+     VALUES ('settings', 'Configurações', 3)
+     ON DUPLICATE KEY UPDATE labelNavigationMenu = VALUES(labelNavigationMenu), orderNavigationMenu = VALUES(orderNavigationMenu)`
+  );
+  const [settingsMenus] = await pool.query(
+    `SELECT idNavigationMenu FROM navigation_menus WHERE keyNavigationMenu = 'settings'`
+  );
+  const settingsMenuId = settingsMenus[0]?.idNavigationMenu;
+  if (!settingsMenuId) throw new Error("Menu Configurações não foi criado.");
+  const ensureSettingsItem = async ({ key, label, route, order }) => {
+    const [existing] = await pool.query(
+      `SELECT idNavigationItem FROM navigation_items
+       WHERE idNavigationMenu = ? AND idParentNavigationItem IS NULL
+         AND keyNavigationItem = ? LIMIT 1`,
+      [settingsMenuId, key]
+    );
+    if (existing[0]) {
+      await pool.query(
+        `UPDATE navigation_items
+         SET typeNavigationItem = 'item', labelNavigationItem = ?,
+             routeNavigationItem = ?, orderNavigationItem = ?
+         WHERE idNavigationItem = ?`,
+        [label, route, order, existing[0].idNavigationItem]
+      );
+      return;
+    }
+    await pool.query(
+      `INSERT INTO navigation_items
+        (idNavigationMenu, idParentNavigationItem, typeNavigationItem,
+         keyNavigationItem, labelNavigationItem, routeNavigationItem, orderNavigationItem)
+       VALUES (?, NULL, 'item', ?, ?, ?, ?)`,
+      [settingsMenuId, key, label, route, order]
+    );
+  };
+  await ensureSettingsItem({ key: "settings", label: "Impressoras", route: "settings", order: 1 });
+  await ensureSettingsItem({ key: "company", label: "Dados da Empresa", route: "company", order: 2 });
+  await ensureSettingsItem({ key: "nfce", label: "NFC-e", route: "nfce", order: 3 });
+};
+
+const ensurePaymentMethodSchema = async () => {
+  await pool.query(`CREATE TABLE IF NOT EXISTS payment_methods (
+    idPaymentMethod BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    namePaymentMethod VARCHAR(80) NOT NULL,
+    cashFlowAccountPaymentMethod ENUM('Banco', 'Caixa') NOT NULL DEFAULT 'Caixa',
+    termDaysPaymentMethod SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    discountValuePaymentMethod DECIMAL(12,2) NOT NULL DEFAULT 0,
+    discountTypePaymentMethod ENUM('percent', 'fixed') NOT NULL DEFAULT 'percent',
+    surchargeValuePaymentMethod DECIMAL(12,2) NOT NULL DEFAULT 0,
+    surchargeTypePaymentMethod ENUM('percent', 'fixed') NOT NULL DEFAULT 'percent',
+    isActivePaymentMethod TINYINT(1) NOT NULL DEFAULT 1,
+    PRIMARY KEY (idPaymentMethod),
+    UNIQUE KEY uqPaymentMethodsNamePaymentMethod (namePaymentMethod)
+  ) ENGINE=InnoDB`);
+  const [columns] = await pool.query(
+    `SELECT COLUMN_NAME
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'payment_methods'`
+  );
+  const existing = new Set(columns.map(({ COLUMN_NAME }) => COLUMN_NAME));
+  const additions = [
+    ["cashFlowAccountPaymentMethod", "ALTER TABLE payment_methods ADD COLUMN cashFlowAccountPaymentMethod ENUM('Banco', 'Caixa') NOT NULL DEFAULT 'Caixa' AFTER namePaymentMethod"],
+    ["termDaysPaymentMethod", "ALTER TABLE payment_methods ADD COLUMN termDaysPaymentMethod SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER cashFlowAccountPaymentMethod"],
+    ["discountValuePaymentMethod", "ALTER TABLE payment_methods ADD COLUMN discountValuePaymentMethod DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER termDaysPaymentMethod"],
+    ["discountTypePaymentMethod", "ALTER TABLE payment_methods ADD COLUMN discountTypePaymentMethod ENUM('percent', 'fixed') NOT NULL DEFAULT 'percent' AFTER discountValuePaymentMethod"],
+    ["surchargeValuePaymentMethod", "ALTER TABLE payment_methods ADD COLUMN surchargeValuePaymentMethod DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER discountTypePaymentMethod"],
+    ["surchargeTypePaymentMethod", "ALTER TABLE payment_methods ADD COLUMN surchargeTypePaymentMethod ENUM('percent', 'fixed') NOT NULL DEFAULT 'percent' AFTER surchargeValuePaymentMethod"]
+  ];
+  for (const [column, statement] of additions) {
+    if (!existing.has(column)) await pool.query(statement);
+  }
 };
 
 const catalogValues = async (catalog) => {
@@ -567,18 +840,452 @@ const server = createServer(async (request, response) => {
     try {
       await ensurePrinterSettingsSchema();
       const [rows] = await pool.query(
-        `SELECT receiptPrinterName, reportsPrinterName
+        `SELECT receiptPrinterName, reportsPrinterName, receiptLayoutPrinterSetting
          FROM printer_settings
          WHERE idPrinterSetting = 1`
       );
       json(response, 200, {
         receiptPrinterName: rows[0]?.receiptPrinterName || "",
-        reportsPrinterName: rows[0]?.reportsPrinterName || ""
+        reportsPrinterName: rows[0]?.reportsPrinterName || "",
+        receiptLayout: rows[0]?.receiptLayoutPrinterSetting
+          ? (typeof rows[0].receiptLayoutPrinterSetting === "string"
+            ? JSON.parse(rows[0].receiptLayoutPrinterSetting)
+            : rows[0].receiptLayoutPrinterSetting)
+          : null
       });
     } catch (error) {
       handleError(response, error, {
         log: "Falha ao consultar configurações de impressora:",
         message: "Não foi possível consultar as configurações de impressora.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/api/company") {
+    try {
+      await ensureCompanySchema();
+      const [rows] = await pool.query(
+        `SELECT companyTypeCompany, documentCompany, corporateNameCompany,
+                tradeNameCompany, stateRegistrationCompany, municipalRegistrationCompany,
+                cnaeCompany, zipCodeCompany, addressCompany, addressNumberCompany,
+                addressComplementCompany, neighborhoodCompany, countryCompany,
+                stateCompany, cityCompany, municipalityCodeCompany, phoneCompany, mobileCompany,
+                websiteCompany, emailCompany, nfceStateCompany, nfceModelCompany,
+                nfceEnvironmentCompany, nfceSeriesCompany,
+                nfceInitialNumberCompany, nfceCscCompany, nfceTokenCompany,
+                nfceHomologationCscCompany, nfceHomologationTokenCompany,
+                nfceContingencyCompany, nfceCertificateTypeCompany,
+                nfceCertificatePathCompany, nfceCertificateExpiresCompany,
+                nfceCertificateSerialCompany, logoMimeCompany, logoDataCompany
+         FROM company_settings
+         WHERE idCompanySetting = 1`
+      );
+      json(response, 200, { company: rows[0] || null });
+    } catch (error) {
+      handleError(response, error, {
+        log: "Falha ao consultar cadastro da empresa:",
+        message: "Não foi possível consultar o cadastro da empresa.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/api/company/nfce") {
+    try {
+      await ensureCompanySchema();
+      const [rows] = await pool.query(
+        `SELECT nfceStateCompany, nfceModelCompany, nfceEnvironmentCompany,
+                nfceSeriesCompany, nfceInitialNumberCompany, nfceContingencyCompany,
+                nfceCscCompany, nfceTokenCompany, nfceHomologationCscCompany,
+                nfceHomologationTokenCompany, nfceCertificateTypeCompany,
+                nfceCertificatePathCompany, nfceCertificateExpiresCompany,
+                nfceCertificateSerialCompany, nfceCertificateNameCompany,
+                (nfceCertificateDataCompany IS NOT NULL AND nfceCertificateDataCompany <> '') AS hasCertificateCompany,
+                (nfceCertificatePasswordCompany IS NOT NULL AND nfceCertificatePasswordCompany <> '') AS hasCertificatePasswordCompany,
+                nfceCertificateDataCompany, nfceCertificatePasswordCompany
+         FROM company_settings
+         WHERE idCompanySetting = 1`
+      );
+      const row = rows[0] || null;
+      if (row && row.hasCertificateCompany && row.hasCertificatePasswordCompany
+        && (!row.nfceCertificateExpiresCompany || !row.nfceCertificateSerialCompany)
+        && config.certificateEncryptionKey) {
+        try {
+          const metadata = readCertificateMetadata(
+            decryptSecret(row.nfceCertificateDataCompany),
+            decryptSecret(row.nfceCertificatePasswordCompany)
+          );
+          await pool.query(
+            `UPDATE company_settings
+             SET nfceCertificateExpiresCompany = ?, nfceCertificateSerialCompany = ?
+             WHERE idCompanySetting = 1`,
+            [row.nfceCertificateExpiresCompany || metadata.expires, row.nfceCertificateSerialCompany || metadata.serial]
+          );
+          row.nfceCertificateExpiresCompany ||= metadata.expires;
+          row.nfceCertificateSerialCompany ||= metadata.serial;
+        } catch (metadataError) {
+          console.error("Não foi possível extrair os metadados do certificado armazenado:", metadataError);
+        }
+      }
+      if (row) {
+        row.nfceCertificateExpiresCompany = normalizeDateValue(row.nfceCertificateExpiresCompany);
+        delete row.nfceCertificateDataCompany;
+        delete row.nfceCertificatePasswordCompany;
+      }
+      json(response, 200, { nfce: row });
+    } catch (error) {
+      handleError(response, error, {
+        log: "Falha ao consultar configurações NFC-e:",
+        message: "Não foi possível consultar as configurações NFC-e.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
+  if (request.method === "POST"
+    && ["/api/company/nfce/diagnostic", "/api/company/nfce/test"].includes(request.url)) {
+    try {
+      await ensureCompanySchema();
+      await ensureProductFiscalSchema();
+      const [companyRows] = await pool.query(
+        `SELECT documentCompany, corporateNameCompany, tradeNameCompany,
+                stateRegistrationCompany, zipCodeCompany, addressCompany,
+                addressNumberCompany, neighborhoodCompany, cityCompany, municipalityCodeCompany,
+                stateCompany, nfceEnvironmentCompany, nfceSeriesCompany,
+                nfceInitialNumberCompany, nfceCertificateTypeCompany,
+                nfceHomologationCscCompany, nfceHomologationTokenCompany,
+                nfceCertificateDataCompany, nfceCertificatePasswordCompany
+         FROM company_settings
+         WHERE idCompanySetting = 1`
+      );
+      const company = companyRows[0];
+      if (!company) throw new SaleValidationError("Cadastro da empresa não encontrado.", 404);
+      if (!company.nfceCertificateDataCompany || !company.nfceCertificatePasswordCompany) {
+        throw new SaleValidationError("Armazene o certificado A1 e a senha antes de executar o teste.");
+      }
+      const [productRows] = await pool.query(
+        `SELECT idProduct, skuProduct, nameProduct, ncmProduct, priceProduct
+         FROM products
+         WHERE isActiveProduct = 1
+           AND ncmProduct REGEXP '^[0-9]{8}$'
+           AND priceProduct > 0
+         ORDER BY idProduct
+         LIMIT 1`
+      );
+      if (!productRows.length) {
+        throw new SaleValidationError("Cadastre um produto ativo com NCM de oito dígitos e preço maior que zero.");
+      }
+      const [operationRows] = await pool.query(
+        `SELECT operationNatureFiscalOperation, taxSituationFiscalOperation,
+                originFiscalOperation, cfopFiscalOperation
+         FROM fiscal_operations
+         WHERE typeFiscalOperation = 'exit' AND isActiveFiscalOperation = 1
+         ORDER BY idFiscalOperation
+         LIMIT 1`
+      );
+      const certificateData = decryptSecret(company.nfceCertificateDataCompany);
+      const certificatePassword = decryptSecret(company.nfceCertificatePasswordCompany);
+      const isDiagnostic = request.url.endsWith("/diagnostic");
+      const result = isDiagnostic
+        ? await buildNfceDiagnostic({
+          company,
+          product: productRows[0],
+          operation: operationRows[0] || null,
+          certificateData,
+          certificatePassword
+        })
+        : await runNfceHomologationTest({
+          company,
+          product: productRows[0],
+          operation: operationRows[0] || null,
+          certificateData,
+          certificatePassword
+        });
+      json(response, 200, isDiagnostic ? { diagnostic: result } : { test: result });
+    } catch (error) {
+      handleError(response, error, {
+        log: "Falha no teste de emissão NFC-e:",
+        message: "Não foi possível testar a emissão NFC-e.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
+  if (request.method === "PUT" && request.url === "/api/company/nfce") {
+    try {
+      const payload = await readJsonBody(request);
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+        throw new SaleValidationError("Configuração NFC-e inválida.");
+      }
+      const text = (value, fieldName, maxLength) => {
+        if (typeof value !== "string") {
+          if (value === undefined || value === null) value = "";
+          else throw new SaleValidationError(`${fieldName} inválido.`);
+        }
+        const result = value.trim();
+        if (result.length > maxLength) throw new SaleValidationError(`${fieldName} excede o limite permitido.`);
+        return result;
+      };
+      const positiveInteger = (value, fieldName, maximum) => {
+        const number = Number(value);
+        if (!Number.isSafeInteger(number) || number < 1 || number > maximum) {
+          throw new SaleValidationError(`${fieldName} inválido.`);
+        }
+        return number;
+      };
+      const enumValue = (value, fieldName, allowed, fallback) => {
+        const result = text(value ?? fallback, fieldName, 30);
+        if (!allowed.includes(result)) throw new SaleValidationError(`${fieldName} inválido.`);
+        return result;
+      };
+      const nfceStateCompany = text(payload.nfceStateCompany || "MG", "UF de emissão", 2);
+      if (nfceStateCompany !== "MG") throw new SaleValidationError("A configuração atual atende somente NFC-e de Minas Gerais (MG).");
+      const nfceModelCompany = positiveInteger(payload.nfceModelCompany || 65, "Modelo NFC-e", 65);
+      if (nfceModelCompany !== 65) throw new SaleValidationError("O modelo da configuração NFC-e deve ser 65.");
+      const nfceEnvironmentCompany = enumValue(payload.nfceEnvironmentCompany, "Ambiente de emissão", ["homologation", "production"], "homologation");
+      const nfceSeriesCompany = positiveInteger(payload.nfceSeriesCompany, "Série NFC-e", 999);
+      const nfceInitialNumberCompany = positiveInteger(payload.nfceInitialNumberCompany, "Número inicial NFC-e", 999999999);
+      const nfceContingencyCompany = enumValue(payload.nfceContingencyCompany, "Contingência", ["none", "offline"], "none");
+      const nfceCscCompany = text(payload.nfceCscCompany, "CSC", 255);
+      const nfceTokenCompany = text(payload.nfceTokenCompany, "Token", 255);
+      const nfceHomologationCscCompany = text(payload.nfceHomologationCscCompany, "CSC homologação", 255);
+      const nfceHomologationTokenCompany = text(payload.nfceHomologationTokenCompany, "Token homologação", 255);
+      const nfceCertificateTypeCompany = enumValue(payload.nfceCertificateTypeCompany, "Tipo de certificado", ["A1", "A3"], "A1");
+      const nfceCertificatePathCompany = text(payload.nfceCertificatePathCompany, "Arquivo/local do certificado", 255);
+      const nfceCertificateExpiresCompany = text(payload.nfceCertificateExpiresCompany, "Validade do certificado", 10);
+      if (nfceCertificateExpiresCompany && !/^\d{4}-\d{2}-\d{2}$/.test(nfceCertificateExpiresCompany)) {
+        throw new SaleValidationError("Validade do certificado inválida.");
+      }
+      const nfceCertificateSerialCompany = text(payload.nfceCertificateSerialCompany, "Número de série do certificado digital", 255);
+      const nfceCertificateFileDataCompany = text(payload.nfceCertificateFileDataCompany, "Arquivo do certificado", 3000000);
+      const nfceCertificateNameCompany = text(payload.nfceCertificateNameCompany, "Nome do certificado", 255);
+      const nfceCertificatePasswordCompany = text(payload.nfceCertificatePasswordCompany, "Senha do certificado", 255);
+      if (nfceCertificateFileDataCompany && !nfceCertificatePasswordCompany) {
+        throw new SaleValidationError("Informe a senha do certificado ao enviar um novo arquivo.");
+      }
+      if (nfceCertificateFileDataCompany && !/^[A-Za-z0-9+/]+={0,2}$/.test(nfceCertificateFileDataCompany)) {
+        throw new SaleValidationError("Arquivo do certificado inválido.");
+      }
+      if (nfceCertificateFileDataCompany.length > 2800000) {
+        throw new SaleValidationError("O certificado deve ter no máximo 2 MB.");
+      }
+      let certificateMetadata = null;
+      if (nfceCertificateFileDataCompany) {
+        certificateMetadata = readCertificateMetadata(
+          nfceCertificateFileDataCompany,
+          nfceCertificatePasswordCompany
+        );
+      }
+      const encryptedCertificate = nfceCertificateFileDataCompany
+        ? encryptSecret(nfceCertificateFileDataCompany)
+        : null;
+      const encryptedCertificatePassword = nfceCertificatePasswordCompany
+        ? encryptSecret(nfceCertificatePasswordCompany)
+        : null;
+      await ensureCompanySchema();
+      await pool.query(
+        `UPDATE company_settings
+         SET nfceStateCompany = ?, nfceModelCompany = ?, nfceEnvironmentCompany = ?,
+             nfceSeriesCompany = ?, nfceInitialNumberCompany = ?, nfceContingencyCompany = ?,
+             nfceCscCompany = ?, nfceTokenCompany = ?, nfceHomologationCscCompany = ?,
+             nfceHomologationTokenCompany = ?, nfceCertificateTypeCompany = ?,
+             nfceCertificatePathCompany = ?, nfceCertificateExpiresCompany = ?,
+             nfceCertificateSerialCompany = ?, nfceCertificateNameCompany = COALESCE(NULLIF(?, ''), nfceCertificateNameCompany),
+             nfceCertificateDataCompany = COALESCE(?, nfceCertificateDataCompany),
+             nfceCertificatePasswordCompany = COALESCE(?, nfceCertificatePasswordCompany)
+         WHERE idCompanySetting = 1`,
+        [
+          nfceStateCompany, nfceModelCompany, nfceEnvironmentCompany,
+          nfceSeriesCompany, nfceInitialNumberCompany, nfceContingencyCompany,
+          nfceCscCompany, nfceTokenCompany, nfceHomologationCscCompany,
+          nfceHomologationTokenCompany, nfceCertificateTypeCompany,
+          nfceCertificatePathCompany, certificateMetadata?.expires || nfceCertificateExpiresCompany || null,
+          certificateMetadata?.serial || nfceCertificateSerialCompany, nfceCertificateNameCompany,
+          encryptedCertificate, encryptedCertificatePassword
+        ]
+      );
+      const [rows] = await pool.query(
+        `SELECT nfceStateCompany, nfceModelCompany, nfceEnvironmentCompany,
+                nfceSeriesCompany, nfceInitialNumberCompany, nfceContingencyCompany,
+                nfceCscCompany, nfceTokenCompany, nfceHomologationCscCompany,
+                nfceHomologationTokenCompany, nfceCertificateTypeCompany,
+                nfceCertificatePathCompany, nfceCertificateExpiresCompany,
+                nfceCertificateSerialCompany, nfceCertificateNameCompany,
+                (nfceCertificateDataCompany IS NOT NULL AND nfceCertificateDataCompany <> '') AS hasCertificateCompany,
+                (nfceCertificatePasswordCompany IS NOT NULL AND nfceCertificatePasswordCompany <> '') AS hasCertificatePasswordCompany
+         FROM company_settings
+         WHERE idCompanySetting = 1`
+      );
+      const row = rows[0] || null;
+      if (row) row.nfceCertificateExpiresCompany = normalizeDateValue(row.nfceCertificateExpiresCompany);
+      json(response, 200, { nfce: row });
+    } catch (error) {
+      handleError(response, error, {
+        log: "Falha ao salvar configurações NFC-e:",
+        message: "Não foi possível salvar as configurações NFC-e.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
+  if (request.method === "PUT" && request.url === "/api/company") {
+    try {
+      const payload = await readJsonBody(request);
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+        throw new SaleValidationError("Cadastro da empresa inválido.");
+      }
+      await ensureCompanySchema();
+      const [currentCompanyRows] = await pool.query(
+        `SELECT nfceStateCompany, nfceModelCompany, nfceEnvironmentCompany,
+                nfceSeriesCompany, nfceInitialNumberCompany, nfceContingencyCompany,
+                nfceCscCompany, nfceTokenCompany, nfceHomologationCscCompany,
+                nfceHomologationTokenCompany, nfceCertificateTypeCompany,
+                nfceCertificatePathCompany, nfceCertificateExpiresCompany,
+                nfceCertificateSerialCompany
+         FROM company_settings
+         WHERE idCompanySetting = 1`
+      );
+      const currentCompany = currentCompanyRows[0] || {};
+      const text = (value, fieldName, maxLength, required = false) => {
+        if (typeof value !== "string") {
+          if (value === undefined || value === null) value = "";
+          else throw new SaleValidationError(`${fieldName} inválido.`);
+        }
+        const result = value.trim();
+        if (result.length > maxLength) throw new SaleValidationError(`${fieldName} excede o limite permitido.`);
+        if (required && !result) throw new SaleValidationError(`${fieldName} é obrigatório.`);
+        return result;
+      };
+      const companyTypeCompany = text(payload.companyTypeCompany, "Tipo de pessoa", 10, true);
+      if (!["juridica", "fisica"].includes(companyTypeCompany)) {
+        throw new SaleValidationError("Tipo de pessoa inválido.");
+      }
+      const documentCompany = text(payload.documentCompany, "CNPJ / CPF", 20, true);
+      const corporateNameCompany = text(payload.corporateNameCompany, "Razão social / Nome", 180, true);
+      const tradeNameCompany = text(payload.tradeNameCompany, "Nome fantasia", 120);
+      const stateRegistrationCompany = text(payload.stateRegistrationCompany, "Inscrição Estadual", 30);
+      const municipalRegistrationCompany = text(payload.municipalRegistrationCompany, "Inscrição Municipal", 30);
+      const cnaeCompany = text(payload.cnaeCompany, "CNAE", 20);
+      const zipCodeCompany = text(payload.zipCodeCompany, "CEP", 9);
+      const addressCompany = text(payload.addressCompany, "Endereço", 180);
+      const addressNumberCompany = text(payload.addressNumberCompany, "Número", 20);
+      const addressComplementCompany = text(payload.addressComplementCompany, "Complemento", 80);
+      const neighborhoodCompany = text(payload.neighborhoodCompany, "Bairro", 100);
+      const countryCompany = text(payload.countryCompany, "País", 80, true);
+      const stateCompany = text(payload.stateCompany, "UF", 2);
+      const cityCompany = text(payload.cityCompany, "Cidade", 100);
+      const municipalityCodeCompany = text(
+        payload.municipalityCodeCompany ?? currentCompany.municipalityCodeCompany ?? "3148004",
+        "Código IBGE do município",
+        7,
+        true
+      );
+      if (!/^\d{7}$/.test(municipalityCodeCompany)) {
+        throw new SaleValidationError("Código IBGE do município inválido.");
+      }
+      const phoneCompany = text(payload.phoneCompany, "Telefone", 25);
+      const mobileCompany = text(payload.mobileCompany, "Celular", 25);
+      const websiteCompany = text(payload.websiteCompany, "Site", 180);
+      const emailCompany = text(payload.emailCompany, "E-mail", 180);
+      if (emailCompany && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailCompany)) {
+        throw new SaleValidationError("E-mail inválido.");
+      }
+      const positiveInteger = (value, fieldName, maximum) => {
+        const number = Number(value);
+        if (!Number.isSafeInteger(number) || number < 1 || number > maximum) {
+          throw new SaleValidationError(`${fieldName} inválido.`);
+        }
+        return number;
+      };
+      const enumValue = (value, fieldName, allowed, fallback) => {
+        const result = text(value ?? fallback, fieldName, 30, true);
+        if (!allowed.includes(result)) throw new SaleValidationError(`${fieldName} inválido.`);
+        return result;
+      };
+      const nfceStateCompany = text(payload.nfceStateCompany ?? currentCompany.nfceStateCompany ?? "MG", "UF de emissão", 2, true);
+      if (nfceStateCompany !== "MG") throw new SaleValidationError("A configuração atual atende somente NFC-e de Minas Gerais (MG).");
+      const nfceModelCompany = positiveInteger(payload.nfceModelCompany ?? currentCompany.nfceModelCompany ?? 65, "Modelo NFC-e", 65);
+      if (nfceModelCompany !== 65) throw new SaleValidationError("O modelo da configuração NFC-e deve ser 65.");
+      const nfceEnvironmentCompany = enumValue(payload.nfceEnvironmentCompany ?? currentCompany.nfceEnvironmentCompany, "Ambiente de emissão", ["homologation", "production"], "homologation");
+      const nfceSeriesCompany = positiveInteger(payload.nfceSeriesCompany ?? currentCompany.nfceSeriesCompany, "Série NFC-e", 999);
+      const nfceInitialNumberCompany = positiveInteger(payload.nfceInitialNumberCompany ?? currentCompany.nfceInitialNumberCompany, "Número inicial NFC-e", 999999999);
+      const nfceContingencyCompany = enumValue(payload.nfceContingencyCompany ?? currentCompany.nfceContingencyCompany, "Contingência", ["none", "offline"], "none");
+      const nfceCscCompany = text(payload.nfceCscCompany ?? currentCompany.nfceCscCompany, "CSC", 255);
+      const nfceTokenCompany = text(payload.nfceTokenCompany ?? currentCompany.nfceTokenCompany, "Token", 255);
+      const nfceHomologationCscCompany = text(payload.nfceHomologationCscCompany ?? currentCompany.nfceHomologationCscCompany, "CSC homologação", 255);
+      const nfceHomologationTokenCompany = text(payload.nfceHomologationTokenCompany ?? currentCompany.nfceHomologationTokenCompany, "Token homologação", 255);
+      const nfceCertificateTypeCompany = enumValue(payload.nfceCertificateTypeCompany ?? currentCompany.nfceCertificateTypeCompany, "Tipo de certificado", ["A1", "A3"], "A1");
+      const nfceCertificatePathCompany = text(payload.nfceCertificatePathCompany ?? currentCompany.nfceCertificatePathCompany, "Arquivo/local do certificado", 255);
+      const nfceCertificateExpiresCompany = text(payload.nfceCertificateExpiresCompany ?? currentCompany.nfceCertificateExpiresCompany, "Validade do certificado", 10);
+      if (nfceCertificateExpiresCompany && !/^\d{4}-\d{2}-\d{2}$/.test(nfceCertificateExpiresCompany)) {
+        throw new SaleValidationError("Validade do certificado inválida.");
+      }
+      const nfceCertificateSerialCompany = text(payload.nfceCertificateSerialCompany ?? currentCompany.nfceCertificateSerialCompany, "Número de série do certificado digital", 255);
+      const logoMimeCompany = text(payload.logoMimeCompany, "Formato do logotipo", 50);
+      const logoDataCompany = text(payload.logoDataCompany, "Conteúdo do logotipo", 3000000);
+      const allowedLogoMimes = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+      if (logoDataCompany && (!allowedLogoMimes.has(logoMimeCompany) ||
+        !logoDataCompany.startsWith(`data:${logoMimeCompany};base64,`) ||
+        logoDataCompany.length > 2800000)) {
+        throw new SaleValidationError("Logotipo inválido ou maior que 2 MB.");
+      }
+      await pool.query(
+        `UPDATE company_settings
+         SET companyTypeCompany = ?, documentCompany = ?, corporateNameCompany = ?,
+             tradeNameCompany = ?, stateRegistrationCompany = ?, municipalRegistrationCompany = ?,
+             cnaeCompany = ?, zipCodeCompany = ?, addressCompany = ?, addressNumberCompany = ?,
+             addressComplementCompany = ?, neighborhoodCompany = ?, countryCompany = ?,
+             stateCompany = ?, cityCompany = ?, municipalityCodeCompany = ?, phoneCompany = ?,
+             mobileCompany = ?, websiteCompany = ?, emailCompany = ?,
+             nfceStateCompany = ?, nfceModelCompany = ?, nfceEnvironmentCompany = ?,
+             nfceSeriesCompany = ?, nfceInitialNumberCompany = ?, nfceContingencyCompany = ?,
+             nfceCscCompany = ?,
+             nfceTokenCompany = ?, nfceHomologationCscCompany = ?,
+             nfceHomologationTokenCompany = ?, nfceCertificateTypeCompany = ?,
+             nfceCertificatePathCompany = ?, nfceCertificateExpiresCompany = ?,
+             nfceCertificateSerialCompany = ?,
+             logoMimeCompany = ?, logoDataCompany = ?
+         WHERE idCompanySetting = 1`,
+        [
+          companyTypeCompany, documentCompany, corporateNameCompany, tradeNameCompany,
+          stateRegistrationCompany, municipalRegistrationCompany, cnaeCompany,
+          zipCodeCompany, addressCompany, addressNumberCompany, addressComplementCompany,
+          neighborhoodCompany, countryCompany, stateCompany, cityCompany, municipalityCodeCompany, phoneCompany,
+          mobileCompany, websiteCompany, emailCompany,
+          nfceStateCompany, nfceModelCompany, nfceEnvironmentCompany,
+          nfceSeriesCompany, nfceInitialNumberCompany, nfceContingencyCompany,
+          nfceCscCompany, nfceTokenCompany, nfceHomologationCscCompany, nfceHomologationTokenCompany,
+          nfceCertificateTypeCompany, nfceCertificatePathCompany, nfceCertificateExpiresCompany || null,
+          nfceCertificateSerialCompany, logoMimeCompany, logoDataCompany || null
+        ]
+      );
+      const [rows] = await pool.query(
+        `SELECT companyTypeCompany, documentCompany, corporateNameCompany,
+                tradeNameCompany, stateRegistrationCompany, municipalRegistrationCompany,
+                cnaeCompany, zipCodeCompany, addressCompany, addressNumberCompany,
+                addressComplementCompany, neighborhoodCompany, countryCompany,
+                stateCompany, cityCompany, municipalityCodeCompany, phoneCompany, mobileCompany,
+                websiteCompany, emailCompany, nfceStateCompany, nfceModelCompany,
+                nfceEnvironmentCompany, nfceSeriesCompany,
+                nfceInitialNumberCompany, nfceCscCompany, nfceTokenCompany,
+                nfceHomologationCscCompany, nfceHomologationTokenCompany,
+                nfceContingencyCompany, nfceCertificateTypeCompany,
+                nfceCertificatePathCompany, nfceCertificateExpiresCompany,
+                nfceCertificateSerialCompany, logoMimeCompany, logoDataCompany
+         FROM company_settings
+         WHERE idCompanySetting = 1`
+      );
+      json(response, 200, { company: rows[0] });
+    } catch (error) {
+      handleError(response, error, {
+        log: "Falha ao salvar cadastro da empresa:",
+        message: "Não foi possível salvar o cadastro da empresa.",
         duplicate: ""
       });
     }
@@ -661,14 +1368,26 @@ const server = createServer(async (request, response) => {
       };
       const receiptPrinterName = parsePrinterName(payload.receiptPrinterName, "Impressora de cupom");
       const reportsPrinterName = parsePrinterName(payload.reportsPrinterName, "Impressora de relatórios");
+      let receiptLayout = null;
+      if (payload.receiptLayout !== undefined && payload.receiptLayout !== null) {
+        if (!Array.isArray(payload.receiptLayout) || payload.receiptLayout.length > 80) {
+         throw new SaleValidationError("Layout do cupom inválido.");
+        }
+        receiptLayout = JSON.stringify(payload.receiptLayout);
+      }
       await ensurePrinterSettingsSchema();
       await pool.query(
         `UPDATE printer_settings
-         SET receiptPrinterName = ?, reportsPrinterName = ?
+         SET receiptPrinterName = ?, reportsPrinterName = ?,
+             receiptLayoutPrinterSetting = COALESCE(?, receiptLayoutPrinterSetting)
          WHERE idPrinterSetting = 1`,
-        [receiptPrinterName, reportsPrinterName]
+        [receiptPrinterName, reportsPrinterName, receiptLayout]
       );
-      json(response, 200, { receiptPrinterName: receiptPrinterName || "", reportsPrinterName: reportsPrinterName || "" });
+      json(response, 200, {
+        receiptPrinterName: receiptPrinterName || "",
+        reportsPrinterName: reportsPrinterName || "",
+        receiptLayout: payload.receiptLayout ?? null
+      });
     } catch (error) {
       handleError(response, error, {
         log: "Falha ao salvar configurações de impressora:",
@@ -1158,12 +1877,119 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (request.method === "GET" && request.url === "/api/payment-methods") {
+  if (request.method === "GET" && request.url.startsWith("/api/payment-methods")) {
     try {
-      const [paymentMethods] = await pool.query("SELECT idPaymentMethod, namePaymentMethod FROM payment_methods WHERE isActivePaymentMethod = 1 ORDER BY idPaymentMethod");
+      await ensurePaymentMethodSchema();
+      const includeInactive = new URL(request.url, "http://localhost").searchParams.get("includeInactive") === "1";
+      const [paymentMethods] = await pool.query(
+        `SELECT idPaymentMethod, namePaymentMethod, cashFlowAccountPaymentMethod,
+                termDaysPaymentMethod, discountValuePaymentMethod,
+                discountTypePaymentMethod, surchargeValuePaymentMethod,
+                surchargeTypePaymentMethod, isActivePaymentMethod
+         FROM payment_methods
+         ${includeInactive ? "" : "WHERE isActivePaymentMethod = 1"}
+         ORDER BY idPaymentMethod`
+      );
       json(response, 200, { paymentMethods });
     } catch (error) {
       handleError(response, error, { log: "Falha ao listar formas de pagamento:", message: "Não foi possível consultar as formas de pagamento.", duplicate: "" });
+    }
+    return;
+  }
+
+  if (request.method === "POST" || request.method === "PUT") {
+    const isPaymentMethodWrite = request.url === "/api/payment-methods";
+    if (isPaymentMethodWrite) {
+      try {
+        await ensurePaymentMethodSchema();
+        const payload = await readJsonBody(request);
+        const idPaymentMethod = request.method === "PUT" ? parsePositiveId(payload.idPaymentMethod) : null;
+        const namePaymentMethod = typeof payload.namePaymentMethod === "string" ? payload.namePaymentMethod.trim() : "";
+        const cashFlowAccountPaymentMethod = payload.cashFlowAccountPaymentMethod;
+        const termDaysPaymentMethod = Number(payload.termDaysPaymentMethod);
+        const discountValuePaymentMethod = Number(payload.discountValuePaymentMethod);
+        const discountTypePaymentMethod = payload.discountTypePaymentMethod;
+        const surchargeValuePaymentMethod = Number(payload.surchargeValuePaymentMethod);
+        const surchargeTypePaymentMethod = payload.surchargeTypePaymentMethod;
+        const isActivePaymentMethod = payload.isActivePaymentMethod === false || payload.isActivePaymentMethod === 0 ? 0 : 1;
+        if (
+          (request.method === "PUT" && !idPaymentMethod) ||
+          !namePaymentMethod ||
+          namePaymentMethod.length > 80 ||
+          !["Banco", "Caixa"].includes(cashFlowAccountPaymentMethod) ||
+          !Number.isSafeInteger(termDaysPaymentMethod) ||
+          termDaysPaymentMethod < 0 ||
+          !Number.isFinite(discountValuePaymentMethod) ||
+          discountValuePaymentMethod < 0 ||
+          !["percent", "fixed"].includes(discountTypePaymentMethod) ||
+          !Number.isFinite(surchargeValuePaymentMethod) ||
+          surchargeValuePaymentMethod < 0 ||
+          !["percent", "fixed"].includes(surchargeTypePaymentMethod) ||
+          (discountTypePaymentMethod === "percent" && discountValuePaymentMethod > 100) ||
+          (surchargeTypePaymentMethod === "percent" && surchargeValuePaymentMethod > 100)
+        ) {
+          throw new SaleValidationError("Dados da forma de pagamento inválidos.");
+        }
+        if (request.method === "POST") {
+          const [result] = await pool.query(
+            `INSERT INTO payment_methods
+             (namePaymentMethod, cashFlowAccountPaymentMethod, termDaysPaymentMethod,
+              discountValuePaymentMethod, discountTypePaymentMethod,
+              surchargeValuePaymentMethod, surchargeTypePaymentMethod, isActivePaymentMethod)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [namePaymentMethod, cashFlowAccountPaymentMethod, termDaysPaymentMethod, discountValuePaymentMethod, discountTypePaymentMethod, surchargeValuePaymentMethod, surchargeTypePaymentMethod, isActivePaymentMethod]
+          );
+          json(response, 201, { idPaymentMethod: result.insertId });
+        } else {
+          const [result] = await pool.query(
+            `UPDATE payment_methods
+             SET namePaymentMethod = ?, cashFlowAccountPaymentMethod = ?, termDaysPaymentMethod = ?,
+                 discountValuePaymentMethod = ?, discountTypePaymentMethod = ?,
+                 surchargeValuePaymentMethod = ?, surchargeTypePaymentMethod = ?, isActivePaymentMethod = ?
+             WHERE idPaymentMethod = ?`,
+            [namePaymentMethod, cashFlowAccountPaymentMethod, termDaysPaymentMethod, discountValuePaymentMethod, discountTypePaymentMethod, surchargeValuePaymentMethod, surchargeTypePaymentMethod, isActivePaymentMethod, idPaymentMethod]
+          );
+          if (!result.affectedRows) throw new SaleValidationError("Forma de pagamento não encontrada.", 404);
+          json(response, 200, { idPaymentMethod });
+        }
+      } catch (error) {
+        handleError(response, error, { log: "Falha ao salvar forma de pagamento:", message: "Não foi possível salvar a forma de pagamento.", duplicate: "Essa forma de pagamento já existe." });
+      }
+      return;
+    }
+  }
+
+  if (request.method === "DELETE" && request.url === "/api/payment-methods") {
+    try {
+      await ensurePaymentMethodSchema();
+      const payload = await readJsonBody(request);
+      const idPaymentMethod = parsePositiveId(payload.idPaymentMethod);
+      if (!idPaymentMethod) throw new SaleValidationError("Forma de pagamento inválida.");
+      const [result] = await pool.query("DELETE FROM payment_methods WHERE idPaymentMethod = ?", [idPaymentMethod]);
+      if (!result.affectedRows) throw new SaleValidationError("Forma de pagamento não encontrada.", 404);
+      json(response, 200, { ok: true, idPaymentMethod });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao excluir forma de pagamento:", message: "Não foi possível excluir a forma de pagamento.", duplicate: "" });
+    }
+    return;
+  }
+
+  if (request.method === "PUT" && request.url === "/api/payment-methods/status") {
+    try {
+      await ensurePaymentMethodSchema();
+      const payload = await readJsonBody(request);
+      const idPaymentMethod = parsePositiveId(payload.idPaymentMethod);
+      const validStatus = [true, false, 0, 1].includes(payload.isActivePaymentMethod);
+      const isActivePaymentMethod = payload.isActivePaymentMethod === true || payload.isActivePaymentMethod === 1;
+      if (!idPaymentMethod || !validStatus) throw new SaleValidationError("Forma de pagamento ou status inválido.");
+      const [result] = await pool.query(
+        "UPDATE payment_methods SET isActivePaymentMethod = ? WHERE idPaymentMethod = ?",
+        [isActivePaymentMethod ? 1 : 0, idPaymentMethod]
+      );
+      if (!result.affectedRows) throw new SaleValidationError("Forma de pagamento não encontrada.", 404);
+      json(response, 200, { ok: true, idPaymentMethod, isActivePaymentMethod: isActivePaymentMethod ? 1 : 0 });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao alterar status da forma de pagamento:", message: "Não foi possível alterar o status da forma de pagamento.", duplicate: "" });
     }
     return;
   }
@@ -1470,6 +2296,9 @@ server.listen(config.apiPort, config.apiHost, () => {
   });
   void ensurePrinterSettingsSchema().catch((error) => {
     console.error("Falha ao preparar as configurações de impressora:", error);
+  });
+  void ensureCompanySchema().catch((error) => {
+    console.error("Falha ao preparar o cadastro da empresa:", error);
   });
   void ensureNavigationSchema().catch((error) => {
     console.error("Falha ao preparar a estrutura de navegação:", error);

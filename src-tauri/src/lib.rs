@@ -5,7 +5,7 @@ use std::thread;
 use std::time::Duration;
 use tauri::Manager;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PrintRequest {
     transport: String,
@@ -14,20 +14,40 @@ struct PrintRequest {
     port: Option<u16>,
     data_base64: String,
     text: Option<String>,
+    lines: Option<Vec<PrintLine>>,
     font_family: Option<String>,
     font_size: Option<i32>,
     bold: Option<bool>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PrintLine {
+    text: String,
+    align: String,
+    #[serde(default = "default_font_family")]
+    font_family: String,
+    #[serde(default = "default_font_size")]
+    font_size: i32,
+    bold: bool,
+}
+
+fn default_font_family() -> String {
+    "Courier New".to_string()
+}
+
+fn default_font_size() -> i32 {
+    11
+}
+
 #[tauri::command]
 fn send_raw_print(request: PrintRequest) -> Result<String, String> {
-    let data = decode_base64(&request.data_base64)?;
-    if data.is_empty() {
-        return Err("O conteúdo da impressão está vazio.".to_string());
-    }
-
     match request.transport.as_str() {
         "network" => {
+            let data = decode_base64(&request.data_base64)?;
+            if data.is_empty() {
+                return Err("O conteúdo da impressão está vazio.".to_string());
+            }
             let host = request.host.as_deref().unwrap_or("").trim();
             if host.is_empty() {
                 return Err("Informe o endereço IP ou nome da impressora.".to_string());
@@ -66,11 +86,12 @@ fn send_raw_print(request: PrintRequest) -> Result<String, String> {
             send_to_windows_driver(
                 printer_name,
                 text,
+                request.lines.as_deref(),
                 request.font_family.as_deref().unwrap_or("Courier New"),
                 request.font_size.unwrap_or(14),
                 request.bold.unwrap_or(false),
             )?;
-            Ok(format!("Teste enviado para {printer_name}."))
+            Ok(format!("Cupom renderizado pelo driver e enviado para {printer_name}."))
         }
         _ => Err("Transporte de impressão inválido.".to_string()),
     }
@@ -220,6 +241,7 @@ fn decode_base64(value: &str) -> Result<Vec<u8>, String> {
 fn send_to_windows_driver(
     printer_name: &str,
     text: &str,
+    lines: Option<&[PrintLine]>,
     font_family: &str,
     font_size: i32,
     bold: bool,
@@ -228,9 +250,11 @@ fn send_to_windows_driver(
     use std::os::windows::ffi::OsStrExt;
     use windows::Win32::Graphics::Gdi::{
         CLIP_DEFAULT_PRECIS, CreateDCW, CreateFontW, DEFAULT_CHARSET, DEFAULT_PITCH,
-        DEFAULT_QUALITY, DeleteObject, FF_DONTCARE, GetDeviceCaps, GetTextMetricsW, LOGPIXELSY,
-        OUT_DEFAULT_PRECIS, SelectObject, TEXTMETRICW,
+        DEFAULT_QUALITY, DeleteObject, FF_DONTCARE, GetDeviceCaps, GetTextExtentPoint32W,
+        GetTextMetricsW, HORZRES, OUT_DEFAULT_PRECIS, SelectObject,
+        TextOutW, TEXTMETRICW,
     };
+    use windows::Win32::Foundation::SIZE;
     use windows::Win32::Storage::Xps::{DOCINFOW, EndDoc, EndPage, StartDocW, StartPage};
     use windows::core::PCWSTR;
 
@@ -248,7 +272,6 @@ fn send_to_windows_driver(
         .collect();
 
     unsafe {
-        let safe_size = font_size.clamp(8, 48);
         let device = CreateDCW(
             PCWSTR(driver.as_ptr()),
             PCWSTR(printer.as_ptr()),
@@ -276,64 +299,72 @@ fn send_to_windows_driver(
             return Err("O driver não iniciou a página de impressão.".to_string());
         }
 
-        let dpi_y = GetDeviceCaps(Some(device), LOGPIXELSY).max(96);
-        let height = -(safe_size * dpi_y / 72);
-        let family: Vec<u16> = std::ffi::OsStr::new(font_family)
-            .encode_wide()
-            .chain(once(0))
-            .collect();
-        let font = CreateFontW(
-            height,
-            0,
-            0,
-            0,
-            if bold { 700 } else { 400 },
-            0,
-            0,
-            0,
-            DEFAULT_CHARSET,
-            OUT_DEFAULT_PRECIS,
-            CLIP_DEFAULT_PRECIS,
-            DEFAULT_QUALITY,
-            DEFAULT_PITCH.0 as u32 | FF_DONTCARE.0 as u32,
-            PCWSTR(family.as_ptr()),
-        );
-        if font.is_invalid() {
-            let _ = EndPage(device);
-            let _ = EndDoc(device);
-            let _ = windows::Win32::Graphics::Gdi::DeleteDC(device);
-            return Err("Não foi possível criar a fonte selecionada.".to_string());
-        }
-        let _ = SelectObject(device, font.into());
-
-        let mut metrics = TEXTMETRICW::default();
-        if GetTextMetricsW(device, &mut metrics).0 == 0 {
-            let _ = EndPage(device);
-            let _ = EndDoc(device);
-            let _ = DeleteObject(font.into());
-            let _ = windows::Win32::Graphics::Gdi::DeleteDC(device);
-            return Err("Não foi possível obter as métricas da fonte selecionada.".to_string());
-        }
-        let line_height = (metrics.tmHeight + metrics.tmExternalLeading + 2).max(16);
+        let printable_lines = lines.map(|items| items.to_vec()).unwrap_or_else(|| {
+            text.lines().map(|value| PrintLine {
+                text: value.to_string(),
+                align: "left".to_string(),
+                font_family: font_family.to_string(),
+                font_size,
+                bold,
+            }).collect()
+        });
+        let page_width = GetDeviceCaps(Some(device), HORZRES).max(1);
         let mut y = 0i32;
-        for line in text.lines() {
-            let line: Vec<u16> = std::ffi::OsStr::new(line).encode_wide().collect();
-            if windows::Win32::Graphics::Gdi::TextOutW(device, 0, y, &line).0 == 0 {
+        for item in printable_lines {
+            let item_size = item.font_size.clamp(6, 48);
+            let height = -item_size;
+            let family: Vec<u16> = std::ffi::OsStr::new(&item.font_family)
+                .encode_wide().chain(once(0)).collect();
+            let font = CreateFontW(
+                height, 0, 0, 0, if item.bold { 700 } else { 400 }, 0, 0, 0,
+                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                DEFAULT_QUALITY, DEFAULT_PITCH.0 as u32 | FF_DONTCARE.0 as u32,
+                PCWSTR(family.as_ptr()),
+            );
+            if font.is_invalid() {
                 let _ = EndPage(device);
                 let _ = EndDoc(device);
+                let _ = windows::Win32::Graphics::Gdi::DeleteDC(device);
+                return Err("Não foi possível criar a fonte selecionada.".to_string());
+            }
+            let _ = SelectObject(device, font.into());
+            let mut metrics = TEXTMETRICW::default();
+            if GetTextMetricsW(device, &mut metrics).0 == 0 {
                 let _ = DeleteObject(font.into());
+                let _ = EndPage(device);
+                let _ = EndDoc(device);
+                let _ = windows::Win32::Graphics::Gdi::DeleteDC(device);
+                return Err("Não foi possível obter as métricas da fonte selecionada.".to_string());
+            }
+            let line: Vec<u16> = std::ffi::OsStr::new(&item.text).encode_wide().collect();
+            let mut extent = SIZE::default();
+            if GetTextExtentPoint32W(device, &line, &mut extent).0 == 0 {
+                let _ = DeleteObject(font.into());
+                let _ = EndPage(device);
+                let _ = EndDoc(device);
+                let _ = windows::Win32::Graphics::Gdi::DeleteDC(device);
+                return Err("Não foi possível medir uma linha do cupom.".to_string());
+            }
+            let x = match item.align.as_str() {
+                "center" => ((page_width - extent.cx) / 2).max(0),
+                "right" => (page_width - extent.cx).max(0),
+                _ => 0,
+            };
+            if TextOutW(device, x, y, &line).0 == 0 {
+                let _ = DeleteObject(font.into());
+                let _ = EndPage(device);
+                let _ = EndDoc(device);
                 let _ = windows::Win32::Graphics::Gdi::DeleteDC(device);
                 return Err("O driver não conseguiu renderizar uma linha.".to_string());
             }
-            y += line_height;
+            y += (metrics.tmHeight + metrics.tmExternalLeading + 2).max(16);
+            let _ = DeleteObject(font.into());
         }
 
         if EndPage(device) <= 0 || EndDoc(device) <= 0 {
-            let _ = DeleteObject(font.into());
             let _ = windows::Win32::Graphics::Gdi::DeleteDC(device);
             return Err("O driver não concluiu o trabalho de impressão.".to_string());
         }
-        let _ = DeleteObject(font.into());
         let _ = windows::Win32::Graphics::Gdi::DeleteDC(device);
         Ok(())
     }
@@ -343,6 +374,7 @@ fn send_to_windows_driver(
 fn send_to_windows_driver(
     _printer_name: &str,
     _text: &str,
+    _lines: Option<&[PrintLine]>,
     _font_family: &str,
     _font_size: i32,
     _bold: bool,

@@ -1,6 +1,11 @@
 import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { bindFiscalNavigation, renderFiscalNavigation } from "./fiscal-navigation.js";
+import {
+  bindNumberMasks,
+  formatMaskedNumber,
+  normalizeMaskedNumber
+} from "../ui/number-mask.js";
 
 const catalogLabels = {
   cfops: "CFOP",
@@ -51,7 +56,11 @@ export function createFiscalCatalogScreen({
   onProducts,
   onThermalPrint,
   onNcmCestUpdate,
-  onSettings
+  onSettings,
+  onCompany,
+  onNfce,
+  onFinancial,
+  onPaymentMethods
 }) {
   const root = document.createElement("main");
   const title = catalogLabels[catalog] || "Cadastro fiscal";
@@ -89,7 +98,7 @@ export function createFiscalCatalogScreen({
               ? ""
               : `<label class="form-field"><span>Código</span><input name="codeFiscalCatalogItem" maxlength="30" required ${presentation.code === "cfop" ? 'inputmode="numeric" pattern="\\d\\.\\d{3}" placeholder="0.000"' : ""} value="${escapeHtml(editing?.codeFiscalCatalogItem)}" /></label>`}
             <label class="form-field"><span>Descrição</span><textarea class="catalog-description-input" name="descriptionFiscalCatalogItem" rows="5" maxlength="255" required>${escapeHtml(editing ? formatDescription(editing) : "")}</textarea></label>
-            ${catalog === "icms-rates" ? `<label class="form-field"><span>Percentual da alíquota</span><input name="valueFiscalCatalogItem" type="number" min="0" max="100" step="0.0001" value="${escapeHtml(editing?.valueFiscalCatalogItem)}" /></label>` : ""}
+            ${catalog === "icms-rates" ? `<label class="form-field"><span>Percentual da alíquota</span><input name="valueFiscalCatalogItem" data-number-mask inputmode="decimal" value="${escapeHtml(formatMaskedNumber(editing?.valueFiscalCatalogItem))}" /></label>` : ""}
             ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}
           </div>
           <div class="classic-form-actions"><button class="classic-button primary" type="submit" ${submitting ? "disabled" : ""}>${submitting ? "Salvando..." : editing ? "Salvar alterações" : "Salvar"}</button><button class="classic-button" data-clear type="button" ${submitting ? "disabled" : ""}>Limpar</button></div>
@@ -100,12 +109,17 @@ export function createFiscalCatalogScreen({
         </section>
       </section>`;
     renderLucideIcons(root);
+    bindNumberMasks(root);
     bindMainMenu(root, {
       products: onProducts,
       "fiscal-operations": onFiscalOperations,
       "thermal-print": onThermalPrint,
       "ncm-cest-update": onNcmCestUpdate,
-      settings: onSettings
+      settings: onSettings,
+      company: onCompany,
+      nfce: onNfce,
+      financial: onFinancial,
+      "payment-methods": onPaymentMethods
     });
     bind();
   };
@@ -178,6 +192,7 @@ export function createFiscalCatalogScreen({
       const payload = {
         ...form,
         catalogFiscalCatalogItem: catalog,
+        valueFiscalCatalogItem: normalizeMaskedNumber(form.valueFiscalCatalogItem),
         ...(editing ? { idFiscalCatalogItem: editing.idFiscalCatalogItem } : {})
       };
       const response = await fetch(`${getApiUrl()}/api/fiscal-catalogs`, {
@@ -194,6 +209,7 @@ export function createFiscalCatalogScreen({
       render();
     } finally {
       submitting = false;
+      render();
     }
   };
 

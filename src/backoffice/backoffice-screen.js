@@ -1,6 +1,6 @@
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 
-export function createBackofficeScreen({ onBack, onClasses, onGroups, onProducts, onFiscalOperations, onThermalPrint, onNcmCestUpdate, onSettings }) {
+export function createBackofficeScreen({ onBack, onClasses, onGroups, onProducts, onFiscalOperations, onFinancial, onThermalPrint, onNcmCestUpdate, onSettings, onCompany, onNfce, onPaymentMethods }) {
   const root = document.createElement("main");
 
   root.className = "catalog-screen";
@@ -37,6 +37,10 @@ export function createBackofficeScreen({ onBack, onClasses, onGroups, onProducts
           <strong>Operações fiscais</strong>
           <span>Cadastre CFOP, CST, PIS, COFINS, ICMS e regras fiscais.</span>
         </button>
+        <button class="backoffice-shortcut" data-financial type="button">
+          <strong>Financeiros</strong>
+          <span>Gerencie formas de pagamento e tabelas financeiras.</span>
+        </button>
         <button class="backoffice-shortcut" data-thermal-print type="button">
           <strong>Impressão térmica</strong>
           <span>Teste caracteres, tamanhos e alinhamento em papel de 80 mm.</span>
@@ -52,9 +56,13 @@ export function createBackofficeScreen({ onBack, onClasses, onGroups, onProducts
   bindMainMenu(root, {
     products: onProducts,
     "fiscal-operations": onFiscalOperations,
+    financial: onFinancial,
     "thermal-print": onThermalPrint,
     "ncm-cest-update": onNcmCestUpdate,
-    settings: onSettings
+    settings: onSettings,
+    company: onCompany,
+    nfce: onNfce,
+    "payment-methods": onPaymentMethods
   });
   root.querySelector("[data-back]")?.addEventListener("click", onBack);
   root.querySelectorAll("[data-classes]").forEach((button) =>
@@ -68,6 +76,9 @@ export function createBackofficeScreen({ onBack, onClasses, onGroups, onProducts
   );
   root.querySelectorAll("[data-fiscal-operations]").forEach((button) =>
     button.addEventListener("click", onFiscalOperations)
+  );
+  root.querySelectorAll("[data-financial]").forEach((button) =>
+    button.addEventListener("click", onFinancial)
   );
   root.querySelectorAll("[data-thermal-print]").forEach((button) =>
     button.addEventListener("click", onThermalPrint)

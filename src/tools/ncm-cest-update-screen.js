@@ -17,7 +17,7 @@ const formatDate = (value) => {
   return new Date(value).toLocaleString("pt-BR");
 };
 
-export function createNcmCestUpdateScreen({ onBack, onTools, onThermalPrint, onSettings }) {
+export function createNcmCestUpdateScreen({ onBack, onTools, onThermalPrint, onSettings, onCompany, onNfce, onFinancial, onPaymentMethods }) {
   const root = document.createElement("main");
   let statusLoading = true;
   let updating = false;
@@ -114,7 +114,11 @@ export function createNcmCestUpdateScreen({ onBack, onTools, onThermalPrint, onS
     bindMainMenu(root, {
       "thermal-print": onThermalPrint,
       "ncm-cest-update": onTools,
-      settings: onSettings
+      settings: onSettings,
+      company: onCompany,
+      nfce: onNfce,
+      financial: onFinancial,
+      "payment-methods": onPaymentMethods
     });
     root.querySelector("[data-back]")?.addEventListener("click", onBack);
     root.querySelector("[data-update]")?.addEventListener("click", update);
