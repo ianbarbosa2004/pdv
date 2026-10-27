@@ -73,12 +73,137 @@ submenus e entradas da barra (`item`, `submenu` e `bar`), enquanto
 `orderNavigationItem` controla a ordem. A API expõe a leitura dessa estrutura
 em `GET /api/navigation`.
 
+### Estrutura dos menus e barras contextuais
+
+Os menus do PDV seguem três níveis de navegação:
+
+1. **Menu**: agrupador principal da barra, como **Cadastros**.
+2. **Item do menu**: entrada que representa uma área de cadastro, como
+   **Produtos**, **Operações Fiscais** ou **Financeiros**.
+3. **Subitens do item**: telas relacionadas àquela área, exibidas em uma barra
+   contextual própria, como **Classes**, **Grupos** e **NCM / CEST** dentro de
+   **Produtos**.
+
+Ao clicar em um item do menu, a aplicação abre automaticamente o primeiro
+subitem na tela e exibe, na barra contextual, os links para os demais
+subitens. A tela ativa é destacada nessa barra. O título do grupo permanece no
+cabeçalho da tela e não deve ser repetido como um subitem ou como uma segunda
+ divisão visual da barra.
+
+Esse padrão deve ser mantido para novos grupos:
+
+```text
+Cadastros
+└── Produtos
+    ├── Produtos       ← primeira tela aberta ao clicar no item
+    ├── Classes
+    ├── Grupos
+    └── NCM / CEST
+
+Cadastros
+└── Operações Fiscais
+    ├── Operações Fiscais
+    ├── CFOP
+    ├── CST / CSOSN
+    └── demais catálogos fiscais
+
+Cadastros
+└── Financeiros
+    ├── Formas de pagamento  ← primeira tela aberta ao clicar no item
+    └── demais tabelas financeiras
+
+Configurações
+├── Impressoras
+├── Dados da Empresa
+└── NFC-e
+```
+
+Portanto, um novo cadastro relacionado a um grupo não deve criar um menu
+principal independente nem uma tela intermediária do grupo. Ele deve ser
+registrado como subitem do grupo, incluído na barra contextual correspondente,
+receber uma rota de navegação e ter sua ordem persistida em
+`navigation_items`.
+
 As telas de **Operações Fiscais** e dos catálogos fiscais compartilham a barra
 contextual do item **Cadastros > Operações Fiscais**, na ordem **Operações
 Fiscais**, **CFOP**, **CST / CSOSN**, **Alíquotas ICMS**, **Regimes**, **Tipos**,
 **Contextos**, **Origens**, **IPI**, **PIS / COFINS**, **Bases** e
 **Desoneração**. A barra é renderizada por
 `src/catalog/fiscal-navigation.js`.
+
+O item **Cadastros > Financeiros** abre a primeira tela do grupo, **Formas de
+pagamento**, e renderiza a barra contextual financeira. A empresa não pertence
+mais a essa barra: seu cadastro fica exclusivamente em **Configurações > Dados
+da Empresa**. Assim como em
+**Cadastros > Produtos**, o título **Financeiros** é o item de entrada e os
+cadastros financeiros são links da barra contextual. A barra é renderizada por
+`src/catalog/financial-navigation.js`; novos cadastros devem ser acrescentados
+nela e na navegação persistida, sem criar um menu principal paralelo.
+
+A tela **Configurações > Dados da Empresa** mantém um único registro em
+`company_settings`, identificado por `idCompanySetting = 1`, e reúne somente
+identificação, endereço, contatos, e-mail, site e logotipo. CNPJ ou CPF,
+inscrição estadual, CNAE, CEP e telefones usam máscaras brasileiras; o CEP pode
+consultar a base ViaCEP e preencher logradouro, bairro, cidade e UF. O campo de
+logotipo aceita PNG, JPEG, WebP ou GIF de até 2 MB, é armazenado no servidor e
+retornado junto ao cadastro para uso futuro em relatórios e cupons.
+
+A tela **Configurações > NFC-e** administra os parâmetros da NFC-e modelo 65
+para Minas Gerais: UF de emissão `MG`, ambiente de homologação ou produção,
+série, próximo número, contingência, CSC e ID Token por ambiente, tipo/local e
+validade do certificado ICP-Brasil e número de série do certificado. A tabela
+da tela resume os ambientes de produção e homologação sem exibir os segredos
+completos. O CSC e o ID Token devem ser obtidos no credenciamento da empresa
+na SEF/MG; homologação é para testes e produção possui validade fiscal.
+
+Ela utiliza o mesmo registro singleton `company_settings`, mas mantém esses
+campos separados visualmente dos dados cadastrais. A tela cadastral usa
+`GET /api/company` e `PUT /api/company`, enquanto a tela fiscal usa
+`GET /api/company/nfce` e `PUT /api/company/nfce`. O endpoint fiscal atualiza
+somente as colunas NFC-e, sem tocar nos dados cadastrais, logotipo ou outros
+campos da empresa. O
+cadastro da empresa mantém cidade e código IBGE do município separadamente;
+para Patos de Minas, o código é `3148004`, usado no XML como `cMunFG` e
+`enderEmit/cMun`. O
+certificado não é enviado como arquivo nesta etapa e sua senha não é
+persistida pelo cadastro. A autorização ainda depende do credenciamento e da
+integração fiscal com os webservices da SEF/MG.
+
+Os campos CSC, ID Token e senha do certificado são mascarados e possuem
+controle de visualização temporária. O certificado A1 pode ser selecionado em
+arquivo `.pfx` ou `.p12`; o conteúdo e a senha são criptografados com
+`PDV_CERTIFICATE_ENCRYPTION_KEY` antes de serem armazenados. Ao enviar um novo
+certificado A1, a API lê automaticamente a validade e o número de série do
+PKCS#12; a API também tenta preencher esses metadados para certificados
+antigos que estejam armazenados sem esses campos.
+
+A tela consulta as formas ativas pela rota `GET /api/payment-methods`,
+compartilhada com o fluxo de pagamento da venda. A hierarquia também é
+registrada em `navigation_menus` e `navigation_items`, usando
+`typeNavigationItem = 'item'` para **Financeiros** e
+`typeNavigationItem = 'bar'` para **Formas de pagamento** e futuras tabelas.
+
+O botão **Testar emissão em homologação** executa somente quando o ambiente
+NFC-e está em homologação. A API descriptografa o certificado A1 no servidor,
+seleciona o primeiro produto ativo com NCM válido, gera e assina uma NFC-e de
+teste, envia o XML à SEF/MG e exibe o código de retorno, mensagem, protocolo e
+chave. O certificado, a senha e o XML assinado não são devolvidos ao terminal.
+O teste não é permitido no ambiente de produção.
+
+O botão **Gerar XML para diagnóstico** usa os mesmos dados e validações, mas
+somente gera e assina o XML no servidor; ele não faz chamada à SEF/MG nem
+persiste o documento. O XML é exibido apenas para conferência local de
+estrutura, assinatura, data/hora, município e QR Code. A emissão continua
+dependendo do botão de teste em homologação.
+
+O cadastro de **Formas de pagamento** segue o padrão dos demais cadastros:
+possui formulário de inclusão, edição por ícone de lápis e exclusão por ícone
+de lixeira. Cada registro mantém o nome, a conta do Fluxo de Caixa
+(**Banco** ou **Caixa**), os dias/prazo, a taxa de desconto e o acréscimo.
+Desconto e acréscimo possuem valor e unidade independente, podendo ser
+percentual ou valor fixo em reais. A API valida esses campos no servidor e a
+tabela `payment_methods` recebe as colunas correspondentes por meio da
+migração compatível executada por `ensurePaymentMethodSchema`.
 
 Nos catálogos CFOP, CST/CSOSN, alíquotas, regimes, tipos, contextos, origens,
 IPI, PIS/COFINS, bases e desoneração, o servidor aplica as regras específicas
@@ -109,12 +234,12 @@ select de CEST é carregado somente com as relações possíveis para o NCM
 escolhido; quando não há relação, o campo fica desabilitado e sem opções.
 O servidor valida novamente essa relação antes de persistir o produto.
 
-Na tela de cadastro **NCM / CEST**, os catálogos são exibidos em três visões:
-**NCM**, **CEST** e **Relações NCM / CEST**. Os cartões de resumo mostram as
-quantidades carregadas, a pesquisa filtra código, descrição e segmento, e a
-visão de relações mantém as ações de edição e exclusão. A tela consulta os
-catálogos separadamente para não confundir um registro individual com uma
-relação entre tabelas.
+Na tela de cadastro **NCM / CEST**, os catálogos são exibidos em duas visões:
+**NCM** e **CEST**. Os cartões de resumo mostram as quantidades carregadas, a
+pesquisa filtra código, descrição e segmento, e a tabela possui paginação para
+evitar renderizar milhares de registros de uma vez. As relações continuam
+disponíveis pela API para o cadastro de produtos, mas não são uma aba de
+manutenção nessa tela.
 
 #### Atualização oficial dos catálogos
 
@@ -145,40 +270,51 @@ da empresa e em futuras configurações estaduais.
 
 ### Bancada de impressão térmica
 
-A Retaguarda possui o menu **Ferramentas > Impressão térmica**. A primeira
-etapa é uma bancada visual para validar caracteres, alinhamento, negrito,
-tamanhos e largura de papel de 80 mm. O botão de impressão usa o diálogo do
-sistema com `@page size: 80mm`, e o botão de download gera um arquivo ESC/POS
-mínimo para testes controlados.
+A Retaguarda possui o menu **Ferramentas > Impressão térmica**. A tela funciona
+como editor do cupom de venda: a biblioteca lateral inclui campos dinâmicos da
+empresa, venda, itens, pagamentos e NFC-e; a lista central permite inserir,
+remover e mover linhas; e o painel de formatação configura alinhamento,
+tamanho, negrito, texto livre e divisores contínuos ou tracejados. Para cada
+linha de texto, estão disponíveis as fontes `Courier New`, `Arial`, `Consolas`,
+`Segoe UI`, `Tahoma` e `Verdana`, além de tamanhos entre 9 px e 28 px. O
+preview usa papel de 80 mm e aproximadamente 48 colunas para manter a montagem
+próxima do resultado térmico.
 
-Esta etapa não presume um modelo de impressora nem envia dados diretamente por
-USB ou rede. A bancada agora usa a camada Tauri para dois transportes diretos:
-rede TCP RAW, normalmente na porta 9100, e USB por meio do spooler RAW do
-Windows para uma impressora já instalada no sistema. O texto de teste seleciona
-CP850 no comando ESC/POS e usa uma tabela compatível com os caracteres
-portugueses mais comuns. O modo direto de compatibilidade usa somente
-inicialização, seleção de CP850, espaçamento padrão e quebras `CRLF`; não envia
-corte, alinhamento ou tamanho de fonte. O final acrescenta cinco quebras de
-linha reais. O transporte mantém o socket aberto por um curto período depois
-do `flush`, permitindo que a impressora drene o buffer antes de encerrar a
-conexão. O envio TCP também é dividido em blocos de 128 bytes com uma pausa
-curta entre eles, para evitar que firmwares compatíveis descartem a segunda
-metade de um payload enviado em uma única rajada.
+A montagem é salva pela API em `/api/printer-settings`, na coluna JSON
+`receiptLayoutPrinterSetting`. O layout é uma lista ordenada de linhas e não
+contém dados de uma venda específica: os campos são resolvidos somente no
+momento da impressão. O botão de impressão usa o diálogo do sistema com
+`@page size: 80mm`, e o botão de download gera o arquivo ESC/POS do layout
+atual para testes controlados.
 
-O nome da impressora USB é o mesmo exibido nas impressoras do Windows. Para
-rede, informe o IP ou nome DNS e a porta RAW configurada no equipamento. A
-integração não deve ser usada para confirmar vendas: a impressão deve ocorrer
-somente depois que a API confirmar a venda e uma falha de impressão deve ser
-tratada como falha operacional, sem repetir a venda. No modo USB, a tela
-consulta o spooler do Windows e apresenta uma lista das impressoras instaladas;
-use **Atualizar impressoras** depois de instalar ou conectar um novo
-equipamento. O envio USB usa uma página GDI Unicode no driver selecionado,
-em vez de enviar bytes ESC/POS RAW; assim as configurações do POS-80, como
-largura, fonte, tabela de caracteres e corte, ficam sob responsabilidade do
-driver instalado. A bancada permite escolher família e tamanho da fonte no
-preview; no USB, essas escolhas também são aplicadas ao texto renderizado pelo
-driver. A impressora de Cupom usada pela bancada é carregada e salva pela API
-em `/api/printer-settings`, junto com a impressora padrão de Relatórios.
+Esta etapa usa a camada Tauri para dois transportes diretos: rede TCP RAW,
+normalmente na porta 9100, e USB por meio do driver instalado no Windows. No
+USB, o conteúdo é renderizado como uma página GDI Unicode pelo driver da
+impressora selecionada, permitindo que o spooler e o driver POS-80 controlem
+largura, fonte e a comunicação com a porta USB. A rede continua usando bytes
+ESC/POS, seleção de CP850, quebras `CRLF` e envio em blocos de 128 bytes com
+uma pausa curta entre eles.
+
+Para rede, informe o IP ou nome DNS e a porta RAW configurada no equipamento.
+Para USB, a tela usa exclusivamente a impressora definida em
+**Retaguarda > Configurações > Impressoras > Impressora padrão de Cupom**; não
+há uma segunda seleção de impressora na montagem. Se nenhuma impressora de
+Cupom estiver configurada, a impressão USB é bloqueada antes do envio.
+
+No USB, família, tamanho em px, alinhamento e negrito são enviados por linha
+ao renderizador GDI e aplicados pelo driver selecionado. A integração não deve
+ser usada para confirmar vendas: a impressão deve ocorrer somente depois que a
+API confirmar a venda e uma falha de impressão deve ser tratada como falha
+operacional, sem repetir a venda. A impressora de Cupom usada pela bancada é
+carregada e salva pela API em `/api/printer-settings`, junto com a impressora
+padrão de Relatórios.
+
+O `GET /api/printer-settings` retorna `receiptPrinterName`, `reportsPrinterName`
+e `receiptLayout`. O `PUT /api/printer-settings` aceita os nomes das
+impressoras e, opcionalmente, uma lista `receiptLayout` com no máximo 80 linhas.
+Cada linha pode ser um campo, texto livre ou divisor. Linhas de texto persistem
+`fontFamily`, `fontSize`, `align` e `bold`; a configuração é um modelo e não
+contém dados de uma venda real.
 
 ## Reinício da API
 

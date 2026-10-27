@@ -32,9 +32,12 @@ A fundação inicial já está criada:
 - tela administrativa independente para produtos;
 - cadastro de operações fiscais com CFOP, CST, ICMS, IPI, PIS, COFINS e FCP;
 - cadastros fiscais separados e persistidos para CFOP, CST/CSOSN, alíquotas de ICMS e demais listas das operações;
-- bancada de testes de impressão térmica de 80 mm na Retaguarda, com preview,
-  caracteres, tamanhos, alinhamento, exportação ESC/POS e envio direto por
-  rede TCP RAW ou USB via spooler do Windows;
+- editor de montagem de cupons de 80 mm na Retaguarda, com campos ordenáveis,
+  textos livres, divisores, preview e formatação por linha;
+- impressão de rede por TCP RAW/ESC-POS e impressão USB por GDI usando o driver
+  da impressora configurada para Cupom no Windows;
+- seleção de fonte e tamanho em px por linha, com alinhamento e negrito
+  aplicados também no caminho USB/GDI;
 - busca e filtro por categoria;
 - carrinho com quantidades;
 - subtotal e total da venda;
@@ -47,7 +50,10 @@ A fundação inicial já está criada:
   de pagamento;
 - schema MariaDB para operações fiscais, com contextos estaduais e IBS/CBS;
 - projeto Tauri 2 compilável no Windows;
-- preparação para impressão ESC/POS em 80 mm.
+- configuração de empresa e NFC-e, incluindo diagnóstico local e teste de
+  autorização em homologação;
+- catálogos NCM/CEST persistidos e atualização controlada pela API;
+- impressão térmica de 80 mm com modelo de cupom persistido no servidor.
 
 O catálogo da interface depende da API e pode aparecer vazio até que produtos
 sejam cadastrados no MariaDB. Uma venda só será considerada persistida quando o
@@ -251,6 +257,7 @@ auxiliares ao projeto.
 | `GET` | `/api/ncm-cest` | Lista relações NCM / CEST |
 | `GET` | `/api/ncm-cest/options?ncm=...` | Lista CESTs relacionados a um NCM |
 | `GET` | `/api/ncm-cest/update-status` | Consulta o histórico da atualização NCM / CEST |
+| `GET` | `/api/printer-settings` | Consulta impressoras padrão e modelo do cupom |
 | `POST` | `/api/classes` | Cria uma classe |
 | `POST` | `/api/groups` | Cria um grupo vinculado a uma classe |
 | `POST` | `/api/products` | Cadastra um produto |
@@ -259,6 +266,8 @@ auxiliares ao projeto.
 | `POST` | `/api/fiscal-operations` | Cadastra uma operação fiscal |
 | `POST` | `/api/fiscal-catalogs` | Cadastra um item de catálogo fiscal |
 | `POST` | `/api/sales` | Registra uma venda, pagamentos e baixa o estoque |
+| `POST` | `/api/company/nfce/diagnostic` | Gera XML NFC-e assinado sem transmitir |
+| `POST` | `/api/company/nfce/test` | Testa autorização NFC-e somente em homologação |
 
 Na frente de caixa, use **Retaguarda** para abrir a tela
 administrativa. O cadastro exige nome, SKU, grupo, preço e estoque inicial.
@@ -311,14 +320,19 @@ confirmar a transação antes de atualizar visualmente o frontend.
 
 ## Impressão térmica
 
-A impressão será local ao terminal que iniciou a venda. A implementação deverá
-gerar comandos ESC/POS compatíveis com impressoras de 80 mm e tratar:
+A tela **Retaguarda > Ferramentas > Impressão térmica** permite montar e
+persistir o modelo do cupom em `printer_settings.receiptLayoutPrinterSetting`.
+O modelo contém linhas de campos, textos livres e divisores. Linhas de texto
+podem usar `Courier New`, `Arial`, `Consolas`, `Segoe UI`, `Tahoma` ou
+`Verdana`, com tamanhos entre 9 px e 28 px, alinhamento e negrito.
 
-- codificação e acentuação;
-- alinhamento de itens e totais;
-- corte de papel;
-- reimpressão controlada;
-- impressora desligada ou indisponível.
+No transporte USB, a tela usa exclusivamente a impressora definida em
+**Retaguarda > Configurações > Impressoras > Impressora padrão de Cupom**. O
+Tauri renderiza o cupom por GDI através do driver Windows; não envia ESC/POS
+para a fila USB. No transporte de rede, o Tauri envia ESC/POS por TCP RAW,
+normalmente na porta 9100. O caminho de impressão não confirma vendas: a venda
+deve estar persistida antes da impressão e uma falha de impressão não pode
+duplicar a operação.
 
 ## Scripts
 
@@ -339,6 +353,9 @@ npm.cmd run build
 node --check src/server/server.js
 git diff --check
 ```
+
+`app.js` e `server.js` não existem na raiz deste repositório; o frontend é
+iniciado por Vite e a API fica em `src/server/server.js`.
 
 ## Segurança e arquivos protegidos
 
