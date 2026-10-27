@@ -12,6 +12,39 @@
 - Não crie arquivos temporários, notas de planejamento ou documentação
   operacional na raiz do repositório.
 
+## Cadastros, tabelas e migrações
+
+O `schema.sql` é o schema inicial reproduzível. A API também executa
+verificações idempotentes ao iniciar ou ao acessar cada área, por meio das
+funções `ensure...Schema` em `src/server/server.js`. Essas verificações criam
+tabelas ausentes e adicionam colunas novas com `ALTER TABLE`; não devem apagar,
+recriar ou truncar tabelas existentes.
+
+As tabelas de cadastro e apoio atualmente são:
+
+| Área | Tabelas | Conteúdo |
+| --- | --- | --- |
+| Produtos | `classes`, `groups`, `products` | Classificação, produtos, SKU, código de barras, preço, estoque e status |
+| Fiscal do produto | `ncm_catalog`, `cest_catalog`, `ncm_cest_relations`, `ncm_cest_updates` | Catálogos NCM/CEST, relações e histórico das cargas |
+| Financeiro | `payment_methods` | Forma de pagamento, conta Banco/Caixa, prazo, desconto, acréscimo e status |
+| Operações fiscais | `fiscal_operations`, `fiscal_catalog_items` | Operações e listas de CFOP, CST/CSOSN, ICMS, IPI, PIS/COFINS e demais parâmetros |
+| Configuração | `company_settings`, `printer_settings` | Empresa, NFC-e, certificado protegido, impressoras e layout de cupom |
+| Navegação | `navigation_menus`, `navigation_items` | Menus, barras contextuais, rotas e ordenação |
+| Venda | `sales`, `sale_items`, `sale_payments` | Venda, itens congelados, pagamentos e idempotência |
+
+As chaves e colunas persistidas seguem o padrão `nomeCampoEntidade`, por
+exemplo `ncmProduct`, `receiptLayoutPrinterSetting`,
+`nfceEnvironmentCompany` e `discountTypePaymentMethod`. As relações usam
+foreign keys com `ON DELETE RESTRICT` quando a remoção poderia destruir
+histórico; por isso a interface oferece inativação antes da exclusão
+definitiva.
+
+Ao alterar uma tabela, atualize nesta ordem: `schema.sql`, migração compatível
+em `server.js`, consultas e validações da API, telas, testes e esta
+documentação. Teste tanto uma instalação nova quanto um banco existente com
+colunas da versão anterior. A migração deve preservar dados, índices e
+restrições.
+
 ## Nomenclatura de campos
 
 Os campos técnicos persistidos usam o **nome do campo seguido do nome da
@@ -205,6 +238,27 @@ percentual ou valor fixo em reais. A API valida esses campos no servidor e a
 tabela `payment_methods` recebe as colunas correspondentes por meio da
 migração compatível executada por `ensurePaymentMethodSchema`.
 
+### Contratos de configuração
+
+`GET /api/company` e `PUT /api/company` trabalham no registro singleton
+`company_settings` com `idCompanySetting = 1`. O cadastro valida tipo de
+pessoa, documento, razão/nome, país, município, código IBGE e e-mail. O
+logotipo aceita imagem de até 2 MB e é mantido no servidor.
+
+`GET /api/company/nfce` e `PUT /api/company/nfce` trabalham somente nas
+colunas fiscais. O modelo é fixo em 65 e a implementação atual atende MG.
+Ambiente, série, número inicial, contingência, CSC, tokens e metadados do
+certificado são validados no servidor. O arquivo A1 e a senha são recebidos
+em base64/texto controlado, criptografados com
+`PDV_CERTIFICATE_ENCRYPTION_KEY` e nunca retornados ao terminal. Sem essa
+chave no ambiente do servidor, não se deve habilitar o fluxo de teste fiscal.
+
+`GET /api/printer-settings` e `PUT /api/printer-settings` trabalham no registro
+singleton de `printer_settings`. O contrato persiste
+`receiptPrinterName`, `reportsPrinterName` e `receiptLayout`; o layout aceita
+no máximo 80 linhas dos tipos campo, texto e divisor. A tela de montagem usa
+`receiptPrinterName` sem permitir uma segunda escolha local de impressora.
+
 Nos catálogos CFOP, CST/CSOSN, alíquotas, regimes, tipos, contextos, origens,
 IPI, PIS/COFINS, bases e desoneração, o servidor aplica as regras específicas
 de código: CFOP usa o formato `0.000`, CST/CSOSN exibe o código informado,
@@ -315,6 +369,13 @@ impressoras e, opcionalmente, uma lista `receiptLayout` com no máximo 80 linhas
 Cada linha pode ser um campo, texto livre ou divisor. Linhas de texto persistem
 `fontFamily`, `fontSize`, `align` e `bold`; a configuração é um modelo e não
 contém dados de uma venda real.
+
+O transporte USB usa o comando nativo legado `send_raw_print`, mas isso não
+significa que a fila USB receba ESC/POS: quando `transport` é `usb`, o Rust
+renderiza linhas estruturadas com GDI e o driver Windows; quando
+`transport` é `network`, envia o payload ESC/POS por TCP. Alterações nesse
+contrato devem atualizar simultaneamente a tela de montagem, o comando Tauri
+e o renderizador Rust.
 
 ## Reinício da API
 

@@ -269,6 +269,20 @@ auxiliares ao projeto.
 | `POST` | `/api/company/nfce/diagnostic` | Gera XML NFC-e assinado sem transmitir |
 | `POST` | `/api/company/nfce/test` | Testa autorização NFC-e somente em homologação |
 
+As rotas de cadastro usam `POST` para inclusão, `PUT` para edição e
+`DELETE` para exclusão quando a tela oferece essa operação. Classes, grupos,
+produtos, formas de pagamento, catálogos fiscais, operações fiscais e
+relações NCM/CEST também possuem rotas de status ou consulta com
+`includeInactive=1`. O backend valida os dados antes do SQL e retorna erro
+explícito quando há duplicidade, vínculo que impede exclusão ou payload
+incompatível.
+
+As configurações de empresa e NFC-e são separadas: `/api/company` mantém os
+dados cadastrais e `/api/company/nfce` mantém os parâmetros fiscais. A API
+não devolve o conteúdo do certificado A1 nem sua senha. A configuração de
+impressoras em `/api/printer-settings` contém somente os nomes das filas e o
+modelo do cupom; o layout persistido não contém dados reais de venda.
+
 Na frente de caixa, use **Retaguarda** para abrir a tela
 administrativa. O cadastro exige nome, SKU, grupo, preço e estoque inicial.
 O backend valida os dados e rejeita SKU ou código de barras duplicados.
@@ -333,6 +347,20 @@ para a fila USB. No transporte de rede, o Tauri envia ESC/POS por TCP RAW,
 normalmente na porta 9100. O caminho de impressão não confirma vendas: a venda
 deve estar persistida antes da impressão e uma falha de impressão não pode
 duplicar a operação.
+
+## Estado fiscal e NFC-e
+
+O cadastro de operações fiscais e seus catálogos é parametrização: CFOP,
+CST/CSOSN, ICMS, IPI, PIS/COFINS, FCP, origem, regime, contexto, bases e
+desoneração ficam persistidos para serem usados pelo futuro fluxo fiscal.
+Essa parametrização, sozinha, não significa que toda venda já seja emitida
+como NFC-e.
+
+A configuração atual gera XML assinado e executa teste de autorização somente
+em homologação. O fluxo comercial completo ainda precisa persistir a
+numeração autorizada, XML e protocolo, além de implementar cancelamento,
+inutilização, consulta, contingência, reenvio e impressão pós-autorização antes
+de ser considerado pronto para produção.
 
 ## Scripts
 
