@@ -105,6 +105,12 @@ CREATE TABLE IF NOT EXISTS ncm_cest_updates (
 CREATE TABLE IF NOT EXISTS payment_methods (
   idPaymentMethod BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   namePaymentMethod VARCHAR(80) NOT NULL,
+  cashFlowAccountPaymentMethod ENUM('Banco', 'Caixa') NOT NULL DEFAULT 'Caixa',
+  termDaysPaymentMethod SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  discountValuePaymentMethod DECIMAL(12,2) NOT NULL DEFAULT 0,
+  discountTypePaymentMethod ENUM('percent', 'fixed') NOT NULL DEFAULT 'percent',
+  surchargeValuePaymentMethod DECIMAL(12,2) NOT NULL DEFAULT 0,
+  surchargeTypePaymentMethod ENUM('percent', 'fixed') NOT NULL DEFAULT 'percent',
   isActivePaymentMethod TINYINT(1) NOT NULL DEFAULT 1,
   PRIMARY KEY (idPaymentMethod),
   UNIQUE KEY uqPaymentMethodsNamePaymentMethod (namePaymentMethod)
@@ -114,6 +120,7 @@ CREATE TABLE IF NOT EXISTS printer_settings (
   idPrinterSetting TINYINT UNSIGNED NOT NULL,
   receiptPrinterName VARCHAR(255) NULL,
   reportsPrinterName VARCHAR(255) NULL,
+  receiptLayoutPrinterSetting JSON NULL,
   updatedAtPrinterSetting TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (idPrinterSetting)
 ) ENGINE=InnoDB;
@@ -121,6 +128,56 @@ CREATE TABLE IF NOT EXISTS printer_settings (
 INSERT INTO printer_settings (idPrinterSetting)
 VALUES (1)
 ON DUPLICATE KEY UPDATE idPrinterSetting = idPrinterSetting;
+
+CREATE TABLE IF NOT EXISTS company_settings (
+  idCompanySetting TINYINT UNSIGNED NOT NULL,
+  companyTypeCompany ENUM('juridica', 'fisica') NOT NULL DEFAULT 'juridica',
+  documentCompany VARCHAR(20) NOT NULL DEFAULT '',
+  corporateNameCompany VARCHAR(180) NOT NULL DEFAULT '',
+  tradeNameCompany VARCHAR(120) NOT NULL DEFAULT '',
+  stateRegistrationCompany VARCHAR(30) NOT NULL DEFAULT '',
+  municipalRegistrationCompany VARCHAR(30) NOT NULL DEFAULT '',
+  cnaeCompany VARCHAR(20) NOT NULL DEFAULT '',
+  zipCodeCompany VARCHAR(9) NOT NULL DEFAULT '',
+  addressCompany VARCHAR(180) NOT NULL DEFAULT '',
+  addressNumberCompany VARCHAR(20) NOT NULL DEFAULT '',
+  addressComplementCompany VARCHAR(80) NOT NULL DEFAULT '',
+  neighborhoodCompany VARCHAR(100) NOT NULL DEFAULT '',
+  countryCompany VARCHAR(80) NOT NULL DEFAULT 'Brasil',
+  stateCompany CHAR(2) NOT NULL DEFAULT '',
+  cityCompany VARCHAR(100) NOT NULL DEFAULT '',
+  municipalityCodeCompany CHAR(7) NOT NULL DEFAULT '3148004',
+  phoneCompany VARCHAR(25) NOT NULL DEFAULT '',
+  mobileCompany VARCHAR(25) NOT NULL DEFAULT '',
+  websiteCompany VARCHAR(180) NOT NULL DEFAULT '',
+  emailCompany VARCHAR(180) NOT NULL DEFAULT '',
+  nfceStateCompany CHAR(2) NOT NULL DEFAULT 'MG',
+  nfceModelCompany SMALLINT UNSIGNED NOT NULL DEFAULT 65,
+  nfceEnvironmentCompany ENUM('homologation', 'production') NOT NULL DEFAULT 'homologation',
+  nfceSeriesCompany SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+  nfceInitialNumberCompany INT UNSIGNED NOT NULL DEFAULT 1,
+  nfceContingencyCompany ENUM('none', 'offline') NOT NULL DEFAULT 'none',
+  nfceCscCompany VARCHAR(255) NOT NULL DEFAULT '',
+  nfceTokenCompany VARCHAR(255) NOT NULL DEFAULT '',
+  nfceHomologationCscCompany VARCHAR(255) NOT NULL DEFAULT '',
+  nfceHomologationTokenCompany VARCHAR(255) NOT NULL DEFAULT '',
+  nfceCertificateTypeCompany ENUM('A1', 'A3') NOT NULL DEFAULT 'A1',
+  nfceCertificatePathCompany VARCHAR(255) NOT NULL DEFAULT '',
+  nfceCertificateExpiresCompany DATE NULL,
+  nfceCertificateSerialCompany VARCHAR(255) NOT NULL DEFAULT '',
+  nfceCertificateNameCompany VARCHAR(255) NOT NULL DEFAULT '',
+  nfceCertificateDataCompany MEDIUMTEXT NULL,
+  nfceCertificatePasswordCompany MEDIUMTEXT NULL,
+  logoMimeCompany VARCHAR(50) NOT NULL DEFAULT '',
+  logoDataCompany MEDIUMTEXT NULL,
+  createdAtCompanySetting TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAtCompanySetting TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (idCompanySetting)
+) ENGINE=InnoDB;
+
+INSERT INTO company_settings (idCompanySetting)
+VALUES (1)
+ON DUPLICATE KEY UPDATE idCompanySetting = idCompanySetting;
 
 CREATE TABLE IF NOT EXISTS navigation_menus (
   idNavigationMenu TINYINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -360,6 +417,27 @@ VALUES
   (@registrationsMenuId, @fiscalOperationsItemId, 'bar', 'contribution-situations', 'PIS / COFINS', 'contribution-situations', 10),
   (@registrationsMenuId, @fiscalOperationsItemId, 'bar', 'base-modes', 'Bases', 'base-modes', 11),
   (@registrationsMenuId, @fiscalOperationsItemId, 'bar', 'exemption-reasons', 'Desoneração', 'exemption-reasons', 12)
+ON DUPLICATE KEY UPDATE
+  labelNavigationItem = VALUES(labelNavigationItem),
+  routeNavigationItem = VALUES(routeNavigationItem),
+  orderNavigationItem = VALUES(orderNavigationItem);
+
+INSERT INTO navigation_menus (keyNavigationMenu, labelNavigationMenu, orderNavigationMenu)
+VALUES ('settings', 'Configurações', 3)
+ON DUPLICATE KEY UPDATE
+  labelNavigationMenu = VALUES(labelNavigationMenu),
+  orderNavigationMenu = VALUES(orderNavigationMenu);
+
+SET @settingsMenuId = (
+  SELECT idNavigationMenu FROM navigation_menus WHERE keyNavigationMenu = 'settings'
+);
+
+INSERT INTO navigation_items
+  (idNavigationMenu, idParentNavigationItem, typeNavigationItem, keyNavigationItem, labelNavigationItem, routeNavigationItem, orderNavigationItem)
+VALUES
+  (@settingsMenuId, NULL, 'item', 'settings', 'Impressoras', 'settings', 1),
+  (@settingsMenuId, NULL, 'item', 'company', 'Dados da Empresa', 'company', 2),
+  (@settingsMenuId, NULL, 'item', 'nfce', 'NFC-e', 'nfce', 3)
 ON DUPLICATE KEY UPDATE
   labelNavigationItem = VALUES(labelNavigationItem),
   routeNavigationItem = VALUES(routeNavigationItem),

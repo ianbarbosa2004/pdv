@@ -6,6 +6,7 @@ export const renderMainMenu = () => `
       <div class="classic-menu-panel">
         <button type="button" data-main-menu="products">Produtos</button>
         <button type="button" data-main-menu="fiscal-operations">Operações Fiscais</button>
+        <button type="button" data-main-menu="financial">Financeiros</button>
       </div>
     </details>
     <button type="button">Estoque</button>
@@ -22,6 +23,8 @@ export const renderMainMenu = () => `
       <summary>Configurações</summary>
       <div class="classic-menu-panel">
         <button type="button" data-main-menu="settings">Impressoras</button>
+        <button type="button" data-main-menu="company">Dados da Empresa</button>
+        <button type="button" data-main-menu="nfce">NFC-e</button>
       </div>
     </details>
   </nav>

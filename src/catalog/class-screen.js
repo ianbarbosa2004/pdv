@@ -13,7 +13,7 @@ const escapeHtml = (value) =>
 const getApiUrl = () =>
   window.__PDV_API_URL__ || `http://${window.location.hostname}:3000`;
 
-export function createClassScreen({ onBack, onClasses, onGroups, onProducts, onNcmCest, onFiscalOperations, onThermalPrint, onNcmCestUpdate, onSettings }) {
+export function createClassScreen({ onBack, onClasses, onGroups, onProducts, onNcmCest, onFiscalOperations, onThermalPrint, onNcmCestUpdate, onSettings, onCompany, onNfce, onFinancial, onPaymentMethods }) {
   const root = document.createElement("main");
   let classes = [];
   let loading = true;
@@ -132,7 +132,11 @@ export function createClassScreen({ onBack, onClasses, onGroups, onProducts, onN
       "fiscal-operations": onFiscalOperations,
       "thermal-print": onThermalPrint,
       "ncm-cest-update": onNcmCestUpdate,
-      settings: onSettings
+      settings: onSettings,
+      company: onCompany,
+      nfce: onNfce,
+      financial: onFinancial,
+      "payment-methods": onPaymentMethods
     });
     bindProductNavigation(root, { back: onBack, classes: onClasses, groups: onGroups, products: onProducts, "ncm-cest": onNcmCest });
     root.querySelector("[data-search]")?.addEventListener("input", (event) => {

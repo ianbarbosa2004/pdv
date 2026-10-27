@@ -51,7 +51,11 @@ export function createFiscalOperationScreen({
   onCatalog,
   onThermalPrint,
   onNcmCestUpdate,
-  onSettings
+  onSettings,
+  onCompany,
+  onNfce,
+  onFinancial,
+  onPaymentMethods
 }) {
   const root = document.createElement("main");
   let operations = [];
@@ -132,7 +136,11 @@ export function createFiscalOperationScreen({
       "fiscal-operations": onFiscalOperations,
       "thermal-print": onThermalPrint,
       "ncm-cest-update": onNcmCestUpdate,
-      settings: onSettings
+      settings: onSettings,
+      company: onCompany,
+      nfce: onNfce,
+      financial: onFinancial,
+      "payment-methods": onPaymentMethods
     });
     bind();
   };

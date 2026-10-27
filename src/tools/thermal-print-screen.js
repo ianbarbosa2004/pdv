@@ -2,369 +2,243 @@ import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { invoke } from "@tauri-apps/api/core";
 
-const sampleText =
-  "Acentos: á é í ó ú â ê ô ã õ ç Á É Í Ó Ú Â Ê Ô Ã Õ Ç";
-
-const escapeHtml = (value) =>
-  String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-
-const alignments = [
-  ["left", "Esquerda"],
-  ["center", "Centro"],
-  ["right", "Direita"]
-];
-
-const fontSizes = [
-  ["10", "10 px"],
-  ["12", "12 px"],
-  ["14", "14 px"],
-  ["16", "16 px"],
-  ["18", "18 px"],
-  ["22", "22 px"],
-  ["26", "26 px"]
-];
-
-const fontFamilies = [
-  ["Courier New", "Courier New"],
-  ["Consolas", "Consolas"],
-  ["Arial", "Arial"],
-  ["Tahoma", "Tahoma"],
-  ["Segoe UI", "Segoe UI"]
-];
+const escapeHtml = (value) => String(value ?? "")
+  .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+  .replaceAll('"', "&quot;").replaceAll("'", "&#039;");
 
 const cp850 = {
-  "á": 0xa0, "é": 0x82, "í": 0xa1, "ó": 0xa2, "ú": 0xa3,
-  "â": 0x83, "ê": 0x88, "ô": 0x93, "ã": 0xc6, "õ": 0xe4,
-  "ç": 0x87, "Á": 0xb5, "É": 0x90, "Í": 0xd6, "Ó": 0xe0,
-  "Ú": 0xe9, "Â": 0xb6, "Ê": 0xd2, "Ô": 0xe2, "Ã": 0xc7,
-  "Õ": 0xe5, "Ç": 0x80, "ª": 0xa6, "º": 0xa7
+  "á": 0xa0, "é": 0x82, "í": 0xa1, "ó": 0xa2, "ú": 0xa3, "â": 0x83,
+  "ê": 0x88, "ô": 0x93, "ã": 0xc6, "õ": 0xe4, "ç": 0x87, "Á": 0xb5,
+  "É": 0x90, "Í": 0xd6, "Ó": 0xe0, "Ú": 0xe9, "Â": 0xb6, "Ê": 0xd2,
+  "Ô": 0xe2, "Ã": 0xc7, "Õ": 0xe5, "Ç": 0x80, "ª": 0xa6, "º": 0xa7
 };
 
-const getApiUrl = () =>
-  window.__PDV_API_URL__ || `http://${window.location.hostname}:3000`;
+const fields = [
+  ["companyName", "Nome da empresa", "PDV COMERCIAL"],
+  ["companyDocument", "CNPJ / CPF", "24.768.938/0001-14"],
+  ["companyAddress", "Endereço", "Rua Ouro Preto, 720"],
+  ["companyCity", "Cidade / UF", "Patos de Minas - MG"],
+  ["saleNumber", "Número da venda", "Venda 000123"],
+  ["saleDate", "Data e hora", "27/10/2026 02:36"],
+  ["operator", "Operador", "Operador"],
+  ["items", "Itens da venda", "1x Produto teste    R$ 15,00"],
+  ["subtotal", "Subtotal", "R$ 15,00"],
+  ["discount", "Desconto", "R$ 0,00"],
+  ["total", "Total", "R$ 15,00"],
+  ["payment", "Forma de pagamento", "Dinheiro"],
+  ["change", "Troco", "R$ 0,00"],
+  ["nfceKey", "Chave NFC-e", "3126 1024 7689 3800 0114"],
+  ["nfceQrCode", "QR Code NFC-e", "[ QR CODE ]"],
+  ["footerMessage", "Mensagem final", "Obrigado pela preferência!"]
+];
+
+const alignments = [["left", "Esquerda"], ["center", "Centro"], ["right", "Direita"]];
+const sizes = [["small", "Pequeno"], ["normal", "Normal"], ["large", "Grande"]];
+const fontFamilies = ["Courier New", "Arial", "Consolas", "Segoe UI", "Tahoma", "Verdana"];
+const fontSizes = [9, 10, 11, 12, 14, 16, 18, 20, 24, 28];
+const defaultLayout = [
+  { type: "field", field: "companyName", align: "center", size: "large", fontFamily: "Courier New", fontSize: 16, bold: true },
+  { type: "field", field: "companyDocument", align: "center", size: "small", fontFamily: "Courier New", fontSize: 10, bold: false },
+  { type: "divider", style: "dash" },
+  { type: "field", field: "saleDate", align: "left", size: "small", fontFamily: "Courier New", fontSize: 10, bold: false },
+  { type: "field", field: "items", align: "left", size: "normal", fontFamily: "Courier New", fontSize: 11, bold: false },
+  { type: "divider", style: "dash" },
+  { type: "field", field: "subtotal", align: "right", size: "normal", fontFamily: "Courier New", fontSize: 11, bold: false },
+  { type: "field", field: "total", align: "right", size: "large", fontFamily: "Courier New", fontSize: 16, bold: true },
+  { type: "field", field: "payment", align: "left", size: "small", fontFamily: "Courier New", fontSize: 10, bold: false },
+  { type: "field", field: "change", align: "left", size: "small", fontFamily: "Courier New", fontSize: 10, bold: false },
+  { type: "divider", style: "solid" },
+  { type: "field", field: "footerMessage", align: "center", size: "normal", fontFamily: "Courier New", fontSize: 11, bold: true }
+];
+
+const getApiUrl = () => window.__PDV_API_URL__ || `http://${window.location.hostname}:3000`;
 
 export function createThermalPrintScreen({
-  onBack,
-  onTools,
-  onClasses,
-  onGroups,
-  onProducts,
-  onFiscalOperations,
-  onNcmCestUpdate,
-  onSettings
+  onBack, onTools, onClasses, onGroups, onProducts, onFiscalOperations,
+  onNcmCestUpdate, onSettings, onCompany, onNfce, onFinancial, onPaymentMethods
 }) {
   const root = document.createElement("main");
-  let alignment = "left";
-  let fontSize = "14";
-  let fontFamily = "Courier New";
-  let bold = false;
-  let sample = sampleText;
+  let layout = structuredClone(defaultLayout);
+  let selectedIndex = 0;
   let message = "";
+  let error = "";
+  let saving = false;
   let transport = "network";
-  let printerName = "";
   let host = "192.168.1.100";
   let port = "9100";
-  let installedPrinters = [];
-  let printersLoading = false;
+  let receiptPrinterName = "";
   let sending = false;
 
+  const fieldLabel = (key) => fields.find(([value]) => value === key)?.[1] || key;
+  const fieldValue = (key) => fields.find(([value]) => value === key)?.[2] || "";
+  const normalizeLine = (line) => ({
+    type: line?.type === "divider" ? "divider" : line?.type === "text" ? "text" : "field",
+    field: fields.some(([value]) => value === line?.field) ? line.field : "companyName",
+    text: String(line?.text || "Texto livre").slice(0, 120),
+    style: line?.style === "solid" ? "solid" : "dash",
+    align: ["left", "center", "right"].includes(line?.align) ? line.align : "left",
+    size: ["small", "normal", "large"].includes(line?.size) ? line.size : "normal",
+    fontFamily: fontFamilies.includes(line?.fontFamily) ? line.fontFamily : "Courier New",
+    fontSize: Number.isInteger(Number(line?.fontSize)) ? Math.max(6, Math.min(48, Number(line.fontSize))) : 11,
+    bold: Boolean(line?.bold)
+  });
+  const normalizeLayout = (value) =>
+    Array.isArray(value) && value.length ? value.slice(0, 80).map(normalizeLine) : structuredClone(defaultLayout);
+
+  const renderLine = (line, index) => {
+    const item = normalizeLine(line);
+    if (item.type === "divider") {
+      return `<div class="receipt-layout-row receipt-layout-divider-row ${selectedIndex === index ? "is-selected" : ""}" data-line="${index}">
+        <button type="button" class="receipt-layout-select" data-select-line="${index}">
+          <span class="receipt-line-grip">⋮⋮</span><strong>Divisor</strong><small>${item.style === "solid" ? "Linha contínua" : "Linha tracejada"}</small>
+        </button>
+        <div class="receipt-layout-actions"><button type="button" data-move-up="${index}" title="Mover para cima">↑</button><button type="button" data-move-down="${index}" title="Mover para baixo">↓</button><button type="button" data-remove-line="${index}" title="Remover">×</button></div>
+      </div>`;
+    }
+    const title = item.type === "text" ? item.text : fieldLabel(item.field);
+    return `<div class="receipt-layout-row ${selectedIndex === index ? "is-selected" : ""}" data-line="${index}">
+      <button type="button" class="receipt-layout-select" data-select-line="${index}">
+        <span class="receipt-line-grip">⋮⋮</span><strong>${escapeHtml(title)}</strong><small>${item.type === "text" ? "Texto livre" : "Campo disponível"}</small>
+      </button>
+      <span class="receipt-layout-format">${item.bold ? "Negrito" : "Regular"} · ${item.fontFamily} · ${item.fontSize}px · ${item.align}</span>
+      <div class="receipt-layout-actions"><button type="button" data-move-up="${index}" title="Mover para cima">↑</button><button type="button" data-move-down="${index}" title="Mover para baixo">↓</button><button type="button" data-remove-line="${index}" title="Remover">×</button></div>
+    </div>`;
+  };
+
+  const previewLine = (line) => {
+    const item = normalizeLine(line);
+    if (item.type === "divider") return `<div class="receipt-preview-divider ${item.style}">${item.style === "solid" ? "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" : "--------------------------------"}</div>`;
+    const text = item.type === "text" ? item.text : fieldValue(item.field);
+    return `<div class="receipt-preview-line thermal-align-${item.align} ${item.bold ? "thermal-bold" : ""}" style="font-family: '${escapeHtml(item.fontFamily)}'; font-size: ${item.fontSize}px">${escapeHtml(text)}</div>`;
+  };
+
+  const buildPlainText = () => layout.map((line) => {
+    const item = normalizeLine(line);
+    if (item.type === "divider") return item.style === "solid" ? "================================================" : "------------------------------------------------";
+    return item.type === "text" ? item.text : fieldValue(item.field);
+  }).join("\r\n");
+  const buildPrintLines = () => layout.map((line) => {
+    const item = normalizeLine(line);
+    if (item.type === "divider") {
+      return { text: item.style === "solid" ? "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" : "--------------------------------", align: "center", size: "small", bold: item.style === "solid" };
+    }
+    return {
+      text: item.type === "text" ? item.text : fieldValue(item.field),
+      align: item.align,
+      size: item.size,
+      bold: item.bold
+      ,fontFamily: item.fontFamily
+      ,fontSize: item.fontSize
+    };
+  });
+
+  const toBytes = (value) => Uint8Array.from([...value].map((character) => {
+    if (cp850[character]) return cp850[character];
+    const code = character.codePointAt(0);
+    return code <= 255 ? code : 0x3f;
+  }));
+  const toBase64 = (value) => {
+    let binary = "";
+    toBytes(value).forEach((byte) => { binary += String.fromCharCode(byte); });
+    return btoa(binary);
+  };
+  const buildEscPos = () => `\x1b\x40\x1b\x74\x02${buildPlainText()}\r\n\r\n\r\n`;
+
   const render = () => {
+    const selected = normalizeLine(layout[selectedIndex] || layout[0]);
     root.className = "catalog-screen thermal-print-screen";
     root.innerHTML = `
-      <header class="classic-titlebar">
-        <strong>PDV - Teste de impressão térmica</strong>
-        <span>Operador: Operador</span>
-      </header>
+      <header class="classic-titlebar"><strong>PDV - Montagem de cupom</strong><span>Operador: Operador</span></header>
       ${renderMainMenu()}
-      <div class="classic-toolbar">
-        <button class="classic-tool-button" data-back type="button">← Retaguarda</button>
-        <button class="classic-tool-button is-active" data-thermal-print type="button">Impressão térmica</button>
-      </div>
+      <div class="classic-toolbar"><button class="classic-tool-button" data-back type="button">← Retaguarda</button><button class="classic-tool-button is-active" data-thermal-print type="button">Montagem de cupom</button></div>
       <section class="thermal-print-content">
-        <div class="thermal-print-heading">
-          <p class="eyebrow">Ferramentas</p>
-          <h1>Teste de impressão térmica</h1>
-          <p>Valide caracteres, tamanhos, alinhamento e largura antes de conectar uma impressora de 80 mm.</p>
-        </div>
-        <div class="thermal-print-layout">
-          <form class="classic-form-panel thermal-print-controls" data-form>
-            <div class="classic-panel-header">Parâmetros do teste</div>
-            <div class="classic-form-body">
-              <label class="form-field">
-                <span>Alinhamento</span>
-                <select name="alignment">${alignments.map(([value, label]) => `<option value="${value}" ${alignment === value ? "selected" : ""}>${label}</option>`).join("")}</select>
-              </label>
-              <label class="form-field">
-                <span>Transporte direto</span>
-                <select name="transport">
-                  <option value="network" ${transport === "network" ? "selected" : ""}>Rede TCP RAW</option>
-                  <option value="usb" ${transport === "usb" ? "selected" : ""}>USB / impressora Windows</option>
-                </select>
-              </label>
-              ${transport === "network" ? `
-                <label class="form-field"><span>IP ou nome da impressora</span><input name="host" placeholder="192.168.1.100" value="${escapeHtml(host)}" /></label>
-                <label class="form-field"><span>Porta RAW</span><input name="port" type="number" min="1" max="65535" value="${escapeHtml(port)}" /></label>
-              ` : `
-                <label class="form-field">
-                  <span>Impressora instalada no Windows</span>
-                  <select name="printerName" ${printersLoading ? "disabled" : ""}>
-                    <option value="">${printersLoading ? "Carregando impressoras..." : "Selecione uma impressora"}</option>
-                    ${installedPrinters.map((name) => `<option value="${escapeHtml(name)}" ${printerName === name ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}
-                  </select>
-                </label>
-                <button class="classic-button" data-refresh-printers type="button" ${printersLoading ? "disabled" : ""}>Atualizar impressoras</button>
-              `}
-              <label class="form-field">
-                <span>Família da fonte</span>
-                <select name="fontFamily">${fontFamilies.map(([value, label]) => `<option value="${escapeHtml(value)}" ${fontFamily === value ? "selected" : ""}>${label}</option>`).join("")}</select>
-              </label>
-              <label class="form-field">
-                <span>Tamanho da fonte</span>
-                <select name="fontSize">${fontSizes.map(([value, label]) => `<option value="${value}" ${fontSize === value ? "selected" : ""}>${label}</option>`).join("")}</select>
-              </label>
-              <label class="thermal-check">
-                <input type="checkbox" name="bold" ${bold ? "checked" : ""} />
-                <span>Aplicar negrito</span>
-              </label>
-              <label class="form-field">
-                <span>Texto para testar caracteres</span>
-                <textarea name="sample" rows="5" maxlength="500">${escapeHtml(sample)}</textarea>
-              </label>
-              ${message ? `<p class="success-message">${escapeHtml(message)}</p>` : ""}
-            </div>
-            <div class="classic-form-actions">
-              <button class="classic-button primary" data-direct-print type="button" ${sending ? "disabled" : ""}><i data-lucide="printer"></i> ${sending ? "Enviando..." : "Enviar direto"}</button>
-              <button class="classic-button" data-print type="button">Pré-visualizar</button>
-              <button class="classic-button" data-download type="button"><i data-lucide="download"></i> Baixar ESC/POS</button>
-            </div>
-          </form>
-          <section class="thermal-preview-panel">
-            <div class="classic-panel-header">
-              <span>Pré-visualização — papel 80 mm</span>
-              <span class="thermal-preview-meta">48 colunas</span>
-            </div>
-            <div class="thermal-paper" data-paper>
-              <div class="thermal-ticket thermal-align-${alignment} ${bold ? "thermal-bold" : ""}" style="font-family: '${escapeHtml(fontFamily)}'; font-size: ${escapeHtml(fontSize)}px;">
-                <div class="thermal-ticket-brand">PDV COMERCIAL</div>
-                <div>TESTE DE IMPRESSÃO</div>
-                <div>--------------------------------</div>
-                <div>${escapeHtml(sample).replaceAll("\n", "<br />")}</div>
-                <div>--------------------------------</div>
-                <div class="thermal-row"><span>Produto teste</span><span>R$ 10,00</span></div>
-                <div class="thermal-row"><span>Caracteres</span><span>áçõ 80mm</span></div>
-                <div class="thermal-row"><span>${escapeHtml(fontFamily)} ${fontSize}px</span><span>${alignment}</span></div>
-                <div>--------------------------------</div>
-                <div class="thermal-ticket-total">TOTAL R$ 10,00</div>
-                <br />
-                <div>Obrigado pela preferência!</div>
-              </div>
-            </div>
+        <div class="thermal-print-heading"><h1>Monte o cupom da sua loja</h1><p>Escolha os campos, organize a sequência e defina a formatação de cada linha para a impressora térmica de 80 mm.</p></div>
+        <div class="receipt-builder-layout">
+          <section class="classic-form-panel receipt-library-panel">
+            <div class="classic-panel-header">Campos disponíveis</div>
+            <div class="receipt-library">${fields.map(([value, label]) => `<button type="button" data-add-field="${value}"><span>＋</span>${label}</button>`).join("")}</div>
+            <div class="receipt-builder-addons"><button class="classic-button" type="button" data-add-text>＋ Texto livre</button><button class="classic-button" type="button" data-add-divider>＋ Divisor</button></div>
+          </section>
+          <section class="classic-form-panel receipt-layout-panel">
+            <div class="classic-panel-header"><span>Estrutura do cupom</span><small>${layout.length} linhas</small></div>
+            <div class="receipt-layout-list">${layout.map(renderLine).join("")}</div>
+            ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}${message ? `<p class="success-message">${escapeHtml(message)}</p>` : ""}
+            <div class="classic-form-actions"><button class="classic-button" type="button" data-reset-layout>Restaurar padrão</button><button class="classic-button primary" type="button" data-save-layout ${saving ? "disabled" : ""}>${saving ? "Salvando..." : "Salvar montagem"}</button></div>
+          </section>
+          <section class="classic-form-panel receipt-format-panel">
+            <div class="classic-panel-header">Formatação da linha</div>
+            <div class="classic-form-body">${selected.type === "divider" ? `
+              <label class="form-field"><span>Tipo do divisor</span><select data-format="style"><option value="dash" ${selected.style === "dash" ? "selected" : ""}>Tracejado</option><option value="solid" ${selected.style === "solid" ? "selected" : ""}>Contínuo</option></select></label>
+            ` : `${selected.type === "text" ? `<label class="form-field"><span>Texto</span><input data-format="text" maxlength="120" value="${escapeHtml(selected.text)}" /></label>` : `<label class="form-field"><span>Campo</span><select data-format="field">${fields.map(([value, label]) => `<option value="${value}" ${selected.field === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>`}
+              <label class="form-field"><span>Alinhamento</span><select data-format="align">${alignments.map(([value, label]) => `<option value="${value}" ${selected.align === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>
+              <label class="form-field"><span>Fonte</span><select data-format="fontFamily">${fontFamilies.map((value) => `<option value="${value}" ${selected.fontFamily === value ? "selected" : ""}>${value}</option>`).join("")}</select></label>
+              <label class="form-field"><span>Tamanho da fonte</span><select data-format="fontSize">${fontSizes.map((value) => `<option value="${value}" ${selected.fontSize === value ? "selected" : ""}>${value} px</option>`).join("")}</select></label>
+              <label class="form-field"><span>Escala visual</span><select data-format="size">${sizes.map(([value, label]) => `<option value="${value}" ${selected.size === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>
+              <label class="thermal-check"><input type="checkbox" data-format="bold" ${selected.bold ? "checked" : ""}/><span>Usar negrito</span></label>`}</div>
+          </section>
+          <section class="thermal-preview-panel receipt-builder-preview">
+            <div class="classic-panel-header"><span>Pré-visualização</span><span class="thermal-preview-meta">80 mm · 48 colunas</span></div>
+            <div class="thermal-paper"><div class="thermal-ticket">${layout.map(previewLine).join("")}</div></div>
           </section>
         </div>
-        <p class="thermal-print-note"><strong>Comunicação direta:</strong> rede envia ESC/POS pela porta RAW configurada, normalmente 9100. USB usa o driver da impressora instalada no Windows. O navegador comum mantém apenas o preview/download.</p>
-      </section>
-    `;
+        <section class="classic-form-panel receipt-print-panel"><div class="classic-panel-header">Imprimir cupom montado</div><div class="classic-form-body receipt-transport-grid">
+          <label class="form-field"><span>Transporte</span><select data-transport><option value="network" ${transport === "network" ? "selected" : ""}>Rede TCP RAW</option><option value="usb" ${transport === "usb" ? "selected" : ""}>USB / impressora Windows</option></select></label>
+          ${transport === "network" ? `<label class="form-field"><span>IP ou nome</span><input data-host value="${escapeHtml(host)}"/></label><label class="form-field"><span>Porta</span><input data-port type="number" value="${escapeHtml(port)}"/></label>` : `<label class="form-field"><span>Impressora configurada para Cupom</span><input value="${escapeHtml(receiptPrinterName || "Nenhuma impressora configurada")}" readonly disabled/><small>Definida em Retaguarda → Configurações → Impressoras.</small></label>`}
+        </div><div class="classic-form-actions"><button class="classic-button primary" type="button" data-direct-print ${sending ? "disabled" : ""}>${sending ? "Enviando..." : "Imprimir cupom"}</button><button class="classic-button" type="button" data-browser-print>Pré-visualizar / imprimir</button><button class="classic-button" type="button" data-download>Baixar ESC/POS</button></div></section>
+      </section>`;
     renderLucideIcons(root);
-    bindMainMenu(root, {
-      products: onProducts,
-      "fiscal-operations": onFiscalOperations,
-      "thermal-print": onTools,
-      "ncm-cest-update": onNcmCestUpdate,
-      settings: onSettings
-    });
+    bindMainMenu(root, { products: onProducts, "fiscal-operations": onFiscalOperations, "thermal-print": onTools, "ncm-cest-update": onNcmCestUpdate, settings: onSettings, company: onCompany, nfce: onNfce, financial: onFinancial, "payment-methods": onPaymentMethods });
     bind();
   };
 
-  const buildEscPos = () => {
-    const sampleLines = sample
-      .split(/\r?\n/)
-      .flatMap((line) => line.match(/.{1,48}/g) || [""]);
-    const lineBreak = "\r\n";
-    return [
-      "\x1b\x40",
-      "\x1b\x74\x02",
-      "\x1b\x32",
-      "\x1b\x21\x00",
-      "\x1b\x45\x00",
-      "PDV COMERCIAL", lineBreak,
-      "TESTE DE IMPRESSAO", lineBreak,
-      sampleLines.join(lineBreak), lineBreak,
-      "--------------------------------", lineBreak,
-      "Produto teste       R$ 10,00", lineBreak,
-      "Caracteres          áçõ 80mm", lineBreak,
-      "--------------------------------", lineBreak,
-      "TOTAL               R$ 10,00", lineBreak,
-      "Obrigado pela preferência!", lineBreak,
-      lineBreak.repeat(5)
-    ].join("");
+  const updateSelected = (key, value) => {
+    if (!layout[selectedIndex]) return;
+    layout[selectedIndex] = { ...normalizeLine(layout[selectedIndex]), [key]: value };
   };
-
-  const toBytes = (value) => Uint8Array.from([...value].map((character) => {
-      if (cp850[character]) return cp850[character];
-      const code = character.codePointAt(0);
-      return code <= 255 ? code : 0x3f;
-    }));
-
-  const toBase64 = (value) => {
-    const bytes = toBytes(value);
-    let binary = "";
-    bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
-    return btoa(binary);
-  };
-
-  const buildDriverText = () => [
-    "PDV COMERCIAL",
-    "TESTE DE IMPRESSÃO",
-    "",
-    sample,
-    "",
-    "--------------------------------",
-    "Produto teste       R$ 10,00",
-    "Caracteres          áçõ 80mm",
-    `Fonte ${fontFamily} ${fontSize}px`,
-    `Alinhamento ${alignment}`,
-    "--------------------------------",
-    "TOTAL               R$ 10,00",
-    "Obrigado pela preferência!",
-    "",
-    "",
-    "",
-    "",
-    ""
-  ].join("\n");
-
-  const sendDirect = async () => {
-    if (!window.__TAURI_INTERNALS__) {
-      message = "A comunicação direta exige executar o aplicativo Tauri. No navegador, use o preview ou o download ESC/POS.";
-      render();
-      return;
-    }
-    sending = true;
-    message = "";
-    render();
-    try {
-      message = await invoke("send_raw_print", {
-        request: {
-          transport,
-          printerName: transport === "usb" ? printerName : null,
-          host: transport === "network" ? host : null,
-          port: transport === "network" ? Number(port) : null,
-          dataBase64: toBase64(buildEscPos()),
-          text: transport === "usb" ? buildDriverText() : null,
-          fontFamily: transport === "usb" ? fontFamily : null,
-          fontSize: transport === "usb" ? Number(fontSize) : null,
-          bold: transport === "usb" ? bold : null
-        }
-      });
-    } catch (error) {
-      message = error instanceof Error ? error.message : String(error);
-    } finally {
-      sending = false;
-      render();
-    }
-  };
-
-  const loadInstalledPrinters = async () => {
-    if (!window.__TAURI_INTERNALS__) return;
-    printersLoading = true;
-    render();
-    try {
-      const [settings, printers] = await Promise.all([
-        fetch(`${getApiUrl()}/api/printer-settings`).then(async (response) => {
-          const payload = await response.json();
-          if (!response.ok) throw new Error(payload.error || "Não foi possível consultar a impressora padrão.");
-          return payload;
-        }),
-        invoke("list_installed_printers")
-      ]);
-      installedPrinters = printers;
-      printerName = settings.receiptPrinterName || printerName;
-      if (printerName && !installedPrinters.includes(printerName)) {
-        installedPrinters = [printerName, ...installedPrinters];
-      }
-      message = installedPrinters.length
-        ? `${installedPrinters.length} impressora(s) encontrada(s) no Windows.`
-        : "Nenhuma impressora instalada foi encontrada no Windows.";
-    } catch (error) {
-      message = error instanceof Error ? error.message : String(error);
-    } finally {
-      printersLoading = false;
-      render();
-    }
-  };
-
-  const persistSelectedPrinter = async (value) => {
-    if (!window.__TAURI_INTERNALS__ || !value) return;
-    try {
-      const currentResponse = await fetch(`${getApiUrl()}/api/printer-settings`);
-      const currentSettings = await currentResponse.json();
-      if (!currentResponse.ok) throw new Error(currentSettings.error || "Não foi possível consultar as configurações.");
-      const response = await fetch(`${getApiUrl()}/api/printer-settings`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          receiptPrinterName: value,
-          reportsPrinterName: currentSettings.reportsPrinterName || ""
-        })
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Não foi possível salvar a impressora padrão.");
-    } catch (error) {
-      message = error instanceof Error ? error.message : String(error);
-      render();
-    }
-  };
-
   const bind = () => {
     root.querySelector("[data-back]")?.addEventListener("click", onBack);
-    root.querySelectorAll("[data-classes]").forEach((button) => button.addEventListener("click", onClasses));
-    root.querySelectorAll("[data-groups]").forEach((button) => button.addEventListener("click", onGroups));
-    root.querySelectorAll("[data-products]").forEach((button) => button.addEventListener("click", onProducts));
-    root.querySelectorAll("[data-fiscal-operations]").forEach((button) => button.addEventListener("click", onFiscalOperations));
-    root.querySelectorAll("[data-settings]").forEach((button) => button.addEventListener("click", onSettings));
-    root.querySelectorAll("[data-thermal-print]").forEach((button) => button.addEventListener("click", onTools));
-    root.querySelector("[data-form]")?.addEventListener("change", async (event) => {
-      const form = event.currentTarget;
-      alignment = form.elements.alignment.value;
-      fontSize = form.elements.fontSize.value;
-      fontFamily = form.elements.fontFamily.value;
-      bold = form.elements.bold.checked;
-      sample = form.elements.sample.value;
-      transport = form.elements.transport.value;
-      host = form.elements.host?.value || host;
-      port = form.elements.port?.value || port;
-      printerName = form.elements.printerName?.value || printerName;
-      if (form.elements.printerName?.value) {
-        await persistSelectedPrinter(form.elements.printerName.value);
-      }
-      render();
-    });
-    root.querySelector("[data-print]")?.addEventListener("click", () => {
-      message = "Use a impressora térmica de 80 mm no diálogo do sistema.";
-      window.print();
-      render();
-    });
+    root.querySelectorAll("[data-select-line]").forEach((button) => button.addEventListener("click", () => { selectedIndex = Number(button.dataset.selectLine); render(); }));
+    root.querySelectorAll("[data-remove-line]").forEach((button) => button.addEventListener("click", () => { layout.splice(Number(button.dataset.removeLine), 1); selectedIndex = Math.max(0, Math.min(selectedIndex, layout.length - 1)); render(); }));
+    root.querySelectorAll("[data-move-up]").forEach((button) => button.addEventListener("click", () => moveLine(Number(button.dataset.moveUp), -1)));
+    root.querySelectorAll("[data-move-down]").forEach((button) => button.addEventListener("click", () => moveLine(Number(button.dataset.moveDown), 1)));
+    root.querySelectorAll("[data-add-field]").forEach((button) => button.addEventListener("click", () => addLine({ type: "field", field: button.dataset.addField, align: "left", size: "normal", bold: false })));
+    root.querySelector("[data-add-text]")?.addEventListener("click", () => addLine({ type: "text", text: "Texto livre", align: "left", size: "normal", bold: false }));
+    root.querySelector("[data-add-divider]")?.addEventListener("click", () => addLine({ type: "divider", style: "dash" }));
+    root.querySelector("[data-reset-layout]")?.addEventListener("click", () => { layout = structuredClone(defaultLayout); selectedIndex = 0; render(); });
+    root.querySelector("[data-save-layout]")?.addEventListener("click", () => void saveLayout());
+    root.querySelectorAll("[data-format]").forEach((input) => input.addEventListener("change", () => { updateSelected(input.dataset.format, input.type === "checkbox" ? input.checked : input.value); render(); }));
+    root.querySelector("[data-transport]")?.addEventListener("change", (event) => { transport = event.currentTarget.value; render(); });
+    root.querySelector("[data-host]")?.addEventListener("change", (event) => { host = event.currentTarget.value; });
+    root.querySelector("[data-port]")?.addEventListener("change", (event) => { port = event.currentTarget.value; });
     root.querySelector("[data-direct-print]")?.addEventListener("click", () => void sendDirect());
-    root.querySelector("[data-refresh-printers]")?.addEventListener("click", () => void loadInstalledPrinters());
-    root.querySelector("[data-download]")?.addEventListener("click", () => {
-      const blob = new Blob([toBytes(buildEscPos())], { type: "application/octet-stream" });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = "teste-impressao-80mm.bin";
-      anchor.click();
-      URL.revokeObjectURL(url);
-      message = "Arquivo ESC/POS de teste gerado.";
-      render();
-    });
+    root.querySelector("[data-browser-print]")?.addEventListener("click", () => window.print());
+    root.querySelector("[data-download]")?.addEventListener("click", () => { const url = URL.createObjectURL(new Blob([toBytes(buildEscPos())], { type: "application/octet-stream" })); const anchor = document.createElement("a"); anchor.href = url; anchor.download = "cupom-80mm.bin"; anchor.click(); URL.revokeObjectURL(url); message = "Arquivo ESC/POS gerado."; render(); });
   };
-
-  render();
-  void loadInstalledPrinters();
-  return root;
+  const addLine = (line) => { layout.push(normalizeLine(line)); selectedIndex = layout.length - 1; render(); };
+  const moveLine = (index, direction) => { const target = index + direction; if (target < 0 || target >= layout.length) return; [layout[index], layout[target]] = [layout[target], layout[index]]; selectedIndex = target; render(); };
+  const saveLayout = async () => {
+    saving = true; error = ""; message = ""; render();
+    try {
+      const current = await fetch(`${getApiUrl()}/api/printer-settings`).then(async (response) => { const payload = await response.json(); if (!response.ok) throw new Error(payload.error); return payload; });
+      const response = await fetch(`${getApiUrl()}/api/printer-settings`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ receiptPrinterName: current.receiptPrinterName || "", reportsPrinterName: current.reportsPrinterName || "", receiptLayout: layout }) });
+      const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "Não foi possível salvar a montagem.");
+      message = "Montagem do cupom salva.";
+    } catch (saveError) { error = saveError instanceof Error ? saveError.message : String(saveError); } finally { saving = false; render(); }
+  };
+  const sendDirect = async () => {
+    if (!window.__TAURI_INTERNALS__) { message = "A impressão direta exige o aplicativo Tauri."; render(); return; }
+    sending = true; message = ""; render();
+    try {
+      if (transport === "usb" && !receiptPrinterName) throw new Error("Configure a impressora padrão de Cupom antes de imprimir.");
+      message = await invoke("send_raw_print", { request: { transport, printerName: transport === "usb" ? receiptPrinterName : null, host: transport === "network" ? host : null, port: transport === "network" ? Number(port) : null, dataBase64: toBase64(buildEscPos()), text: transport === "usb" ? buildPlainText() : null, lines: transport === "usb" ? buildPrintLines() : null } });
+    } catch (sendError) { error = sendError instanceof Error ? sendError.message : String(sendError); } finally { sending = false; render(); }
+  };
+  const load = async () => {
+    try {
+      const response = await fetch(`${getApiUrl()}/api/printer-settings`); const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error); layout = normalizeLayout(payload.receiptLayout); receiptPrinterName = payload.receiptPrinterName || "";
+      render();
+    } catch (loadError) { error = loadError instanceof Error ? loadError.message : String(loadError); render(); }
+  };
+  render(); void load(); return root;
 }

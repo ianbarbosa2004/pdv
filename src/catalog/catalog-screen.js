@@ -1,6 +1,11 @@
 import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { bindProductNavigation, renderProductNavigation } from "./product-navigation.js";
+import {
+  bindNumberMasks,
+  formatMaskedNumber,
+  normalizeMaskedNumber
+} from "../ui/number-mask.js";
 
 const escapeHtml = (value) =>
   String(value)
@@ -13,7 +18,7 @@ const escapeHtml = (value) =>
 const getApiUrl = () =>
   window.__PDV_API_URL__ || `http://${window.location.hostname}:3000`;
 
-export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, onNcmCest, onFiscalOperations, onThermalPrint, onNcmCestUpdate, onSettings }) {
+export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, onNcmCest, onFiscalOperations, onThermalPrint, onNcmCestUpdate, onSettings, onCompany, onNfce, onFinancial, onPaymentMethods }) {
   const root = document.createElement("main");
   let groups = [];
   let products = [];
@@ -26,6 +31,14 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, o
   let cestOptions = [];
   let newNcmProduct = "";
   let newCestProduct = "";
+  let newProductDraft = {
+    nameProduct: "",
+    skuProduct: "",
+    barcodeProduct: "",
+    idGroup: "",
+    priceProduct: "",
+    stockQuantityProduct: ""
+  };
   let ncmLookupOpen = false;
   let ncmLookupTerm = "";
   let ncmLookupField = "description";
@@ -73,6 +86,20 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, o
   const renderCestOptions = (selectedValue) =>
     `<option value="">${cestOptions.length ? "Não informado" : "Nenhum CEST relacionado"}</option>${cestOptions.map((cest) => `<option value="${cest.codeCest}" ${String(selectedValue ?? "") === String(cest.codeCest) ? "selected" : ""}>${escapeHtml(cest.codeCest)} - ${escapeHtml(cest.descriptionCest)}</option>`).join("")}`;
 
+  const captureNewProductDraft = () => {
+    const form = root.querySelector("[data-product-form]");
+    if (!form) return;
+    const formData = new FormData(form);
+    newProductDraft = {
+      nameProduct: String(formData.get("nameProduct") ?? ""),
+      skuProduct: String(formData.get("skuProduct") ?? ""),
+      barcodeProduct: String(formData.get("barcodeProduct") ?? ""),
+      idGroup: String(formData.get("idGroup") ?? ""),
+      priceProduct: String(formData.get("priceProduct") ?? ""),
+      stockQuantityProduct: String(formData.get("stockQuantityProduct") ?? "")
+    };
+  };
+
   const render = () => {
     const lookupQuery = ncmLookupTerm.trim().toLocaleLowerCase("pt-BR");
     const lookupRows = ncms
@@ -93,15 +120,15 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, o
         <form class="classic-form-panel" data-product-form>
           <div class="classic-panel-header">Novo produto</div>
           <div class="classic-form-body">
-          <label class="form-field"><span>Nome</span><input name="nameProduct" required maxlength="180" /></label>
+          <label class="form-field"><span>Nome</span><input name="nameProduct" required maxlength="180" value="${escapeHtml(newProductDraft.nameProduct)}" /></label>
           <div class="classic-form-grid">
-            <label class="form-field"><span>SKU</span><input name="skuProduct" required maxlength="64" /></label>
-            <label class="form-field"><span>Código de barras</span><input name="barcodeProduct" maxlength="64" /></label>
+            <label class="form-field"><span>SKU</span><input name="skuProduct" required maxlength="64" value="${escapeHtml(newProductDraft.skuProduct)}" /></label>
+            <label class="form-field"><span>Código de barras</span><input name="barcodeProduct" maxlength="64" value="${escapeHtml(newProductDraft.barcodeProduct)}" /></label>
           </div>
           <label class="form-field"><span>Grupo</span>
             <select name="idGroup" required>
               <option value="">Selecione</option>
-              ${groups.map((group) => `<option value="${group.idGroup}">${escapeHtml(group.descriptionGroup)}</option>`).join("")}
+              ${groups.map((group) => `<option value="${group.idGroup}" ${String(newProductDraft.idGroup) === String(group.idGroup) ? "selected" : ""}>${escapeHtml(group.descriptionGroup)}</option>`).join("")}
             </select>
           </label>
           <div class="classic-form-grid">
@@ -109,8 +136,8 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, o
             <label class="form-field"><span>CEST</span><select name="cestProduct" ${cestOptions.length ? "" : "disabled"}>${renderCestOptions(newCestProduct)}</select></label>
           </div>
           <div class="classic-form-grid">
-            <label class="form-field"><span>Preço</span><input name="priceProduct" type="number" min="0" step="0.01" required /></label>
-            <label class="form-field"><span>Estoque inicial</span><input name="stockQuantityProduct" type="number" min="0" step="1" required /></label>
+            <label class="form-field"><span>Preço</span><input name="priceProduct" data-number-mask inputmode="decimal" required value="${escapeHtml(newProductDraft.priceProduct)}" /></label>
+            <label class="form-field"><span>Estoque inicial</span><input name="stockQuantityProduct" type="number" min="0" step="1" required value="${escapeHtml(newProductDraft.stockQuantityProduct)}" /></label>
           </div>
           ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}
           ${message ? `<p class="success-message">${escapeHtml(message)}</p>` : ""}
@@ -125,7 +152,7 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, o
         <section class="classic-grid-panel">
           <div class="classic-panel-header classic-list-header">
             <span>Produtos</span>
-            <input class="classic-list-search" data-search type="search" placeholder="Pesquisar..." aria-label="Pesquisar produtos" value="${escapeHtml(searchTerm)}" />
+            <input class="classic-list-search" data-search dir="ltr" type="search" placeholder="Pesquisar..." aria-label="Pesquisar produtos" value="${escapeHtml(searchTerm)}" />
           </div>
           <div class="classic-grid-wrapper">
             ${
@@ -193,7 +220,7 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, o
                   <label class="form-field"><span>CEST</span><select name="cestProduct" ${cestOptions.length ? "" : "disabled"}>${renderCestOptions(editingProduct.cestProduct)}</select></label>
                 </div>
                 <div class="classic-form-grid">
-                  <label class="form-field"><span>Preço</span><input name="priceProduct" type="number" min="0" step="0.01" required value="${escapeHtml(editingProduct.priceProduct)}" /></label>
+                  <label class="form-field"><span>Preço</span><input name="priceProduct" data-number-mask inputmode="decimal" required value="${escapeHtml(formatMaskedNumber(editingProduct.priceProduct))}" /></label>
                   <label class="form-field"><span>Estoque</span><input name="stockQuantityProduct" type="number" min="0" step="1" required value="${escapeHtml(editingProduct.stockQuantityProduct)}" /></label>
                 </div>
                 ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}
@@ -218,7 +245,7 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, o
                     <option value="description" ${ncmLookupField === "description" ? "selected" : ""}>Descrição</option>
                     <option value="code" ${ncmLookupField === "code" ? "selected" : ""}>NCM</option>
                   </select>
-                  <input data-ncm-lookup-search type="search" value="${escapeHtml(ncmLookupTerm)}" placeholder="Digite para pesquisar..." aria-label="Pesquisar NCM" />
+                  <input data-ncm-lookup-search dir="ltr" type="search" value="${escapeHtml(ncmLookupTerm)}" placeholder="Digite para pesquisar..." aria-label="Pesquisar NCM" />
                 </div>
               </label>
             </div>
@@ -245,12 +272,17 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, o
       ` : ""}
     `;
     renderLucideIcons(root);
+    bindNumberMasks(root);
     bindMainMenu(root, {
       products: onProducts,
       "fiscal-operations": onFiscalOperations,
       "thermal-print": onThermalPrint,
       "ncm-cest-update": onNcmCestUpdate,
-      settings: onSettings
+      settings: onSettings,
+      company: onCompany,
+      nfce: onNfce,
+      financial: onFinancial,
+      "payment-methods": onPaymentMethods
     });
     bindProductNavigation(root, { back: onBack, classes: onClasses, groups: onGroups, products: onProducts, "ncm-cest": onNcmCest });
     root.querySelector("[data-search]")?.addEventListener("input", (event) => {
@@ -262,6 +294,7 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, o
     });
     root.querySelectorAll("[data-open-ncm]").forEach((button) => {
       button.addEventListener("click", () => {
+        if (!editingProduct) captureNewProductDraft();
         ncmLookupOpen = true;
         ncmLookupTerm = "";
         ncmLookupField = "description";
@@ -275,9 +308,16 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, o
       root.querySelector("[data-ncm-lookup-search]")?.focus();
     });
     root.querySelector("[data-ncm-lookup-search]")?.addEventListener("input", (event) => {
-      ncmLookupTerm = event.currentTarget.value;
+      const input = event.currentTarget;
+      const selectionStart = input.selectionStart;
+      const selectionEnd = input.selectionEnd;
+      ncmLookupTerm = input.value;
       render();
-      root.querySelector("[data-ncm-lookup-search]")?.focus();
+      const nextInput = root.querySelector("[data-ncm-lookup-search]");
+      nextInput?.focus();
+      if (selectionStart !== null && selectionEnd !== null) {
+        nextInput?.setSelectionRange(selectionStart, selectionEnd);
+      }
     });
     root.querySelectorAll("[data-select-ncm]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -335,6 +375,14 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, o
       editingProduct = null;
       newNcmProduct = "";
       newCestProduct = "";
+      newProductDraft = {
+        nameProduct: "",
+        skuProduct: "",
+        barcodeProduct: "",
+        idGroup: "",
+        priceProduct: "",
+        stockQuantityProduct: ""
+      };
       error = "";
       message = "";
       render();
@@ -449,7 +497,7 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, o
           idGroup: Number(formData.get("idGroup")),
           ncmProduct: formData.get("ncmProduct") || null,
           cestProduct: formData.get("cestProduct") || null,
-          priceProduct: formData.get("priceProduct"),
+          priceProduct: normalizeMaskedNumber(formData.get("priceProduct")),
           stockQuantityProduct: formData.get("stockQuantityProduct")
         })
       });

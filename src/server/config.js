@@ -13,6 +13,7 @@ export function getConfig(env = process.env) {
       name: env.PDV_DB_NAME || "pdv",
       user: env.PDV_DB_USER || "pdv_app",
       password: env.PDV_DB_PASSWORD || ""
-    }
+    },
+    certificateEncryptionKey: env.PDV_CERTIFICATE_ENCRYPTION_KEY || ""
   };
 }
