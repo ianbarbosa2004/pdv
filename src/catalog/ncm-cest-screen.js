@@ -18,6 +18,8 @@ export function createNcmCestScreen({
   onClasses,
   onGroups,
   onProducts,
+  onProductTypes,
+  onUnits,
   onNcmCest,
   onFiscalOperations,
   onThermalPrint,
@@ -36,7 +38,7 @@ export function createNcmCestScreen({
   let searchTerm = "";
   let activeView = "ncms";
   let currentPage = { ncms: 1, cests: 1 };
-  const pageSize = 50;
+  let pageSize = 25;
 
   const getCatalogState = () => {
     const query = searchTerm.trim().toLocaleLowerCase("pt-BR");
@@ -73,24 +75,49 @@ export function createNcmCestScreen({
     if (wrapper) wrapper.innerHTML = state.table;
     const pagination = root.querySelector(".catalog-pagination");
     if (pagination) {
-      pagination.innerHTML = `
+      if (state.allVisibleLength <= 25) {
+        pagination.remove();
+      } else {
+        pagination.innerHTML = `
         <span>${state.start}-${state.end} de ${state.allVisibleLength} registro(s)</span>
         <div>
+          <button class="classic-button" type="button" data-page="first" ${state.page <= 1 ? "disabled" : ""}>Primeira</button>
           <button class="classic-button" type="button" data-page="previous" ${state.page <= 1 ? "disabled" : ""}>Anterior</button>
           <span>Página ${state.page} de ${state.pageCount}</span>
           <button class="classic-button" type="button" data-page="next" ${state.page >= state.pageCount ? "disabled" : ""}>Próxima</button>
-        </div>`;
+          <button class="classic-button" type="button" data-page="last" ${state.page >= state.pageCount ? "disabled" : ""}>Última</button>
+        </div>
+        <label class="catalog-page-size">
+          <span>Itens por página</span>
+          <select data-page-size aria-label="Itens por página">
+            ${[25, 50, 100].map((size) => `<option value="${size}" ${pageSize === size ? "selected" : ""}>${size}</option>`).join("")}
+          </select>
+        </label>`;
+      }
     }
     bindPagination();
   };
 
   const bindPagination = () => {
+    root.querySelector("[data-page='first']")?.addEventListener("click", () => {
+      currentPage[activeView] = 1;
+      updateCatalogResults();
+    });
     root.querySelector("[data-page='previous']")?.addEventListener("click", () => {
       currentPage[activeView] -= 1;
       updateCatalogResults();
     });
     root.querySelector("[data-page='next']")?.addEventListener("click", () => {
       currentPage[activeView] += 1;
+      updateCatalogResults();
+    });
+    root.querySelector("[data-page='last']")?.addEventListener("click", () => {
+      currentPage[activeView] = getCatalogState().pageCount;
+      updateCatalogResults();
+    });
+    root.querySelector("[data-page-size]")?.addEventListener("change", (event) => {
+      pageSize = Number(event.currentTarget.value) || 25;
+      currentPage[activeView] = 1;
       updateCatalogResults();
     });
   };
@@ -114,14 +141,22 @@ export function createNcmCestScreen({
             <button type="button" class="${activeView === "cests" ? "is-active" : ""}" data-view="cests" role="tab" aria-selected="${activeView === "cests"}">CEST</button>
           </div>
           <div class="classic-grid-wrapper">${state.table}</div>
-          ${!loading ? `
+          ${!loading && state.allVisibleLength > 25 ? `
             <div class="catalog-pagination">
               <span>${state.start}-${state.end} de ${state.allVisibleLength} registro(s)</span>
               <div>
+                <button class="classic-button" type="button" data-page="first" ${state.page <= 1 ? "disabled" : ""}>Primeira</button>
                 <button class="classic-button" type="button" data-page="previous" ${state.page <= 1 ? "disabled" : ""}>Anterior</button>
                 <span>Página ${state.page} de ${state.pageCount}</span>
                 <button class="classic-button" type="button" data-page="next" ${state.page >= state.pageCount ? "disabled" : ""}>Próxima</button>
+                <button class="classic-button" type="button" data-page="last" ${state.page >= state.pageCount ? "disabled" : ""}>Última</button>
               </div>
+              <label class="catalog-page-size">
+                <span>Itens por página</span>
+                <select data-page-size aria-label="Itens por página">
+                  ${[25, 50, 100].map((size) => `<option value="${size}" ${pageSize === size ? "selected" : ""}>${size}</option>`).join("")}
+                </select>
+              </label>
             </div>
           ` : ""}
           ${error ? `<p class="payment-error catalog-load-error">${escapeHtml(error)}</p>` : ""}
@@ -130,6 +165,8 @@ export function createNcmCestScreen({
     renderLucideIcons(root);
     bindMainMenu(root, {
       products: onProducts,
+      "product-types": onProductTypes,
+      units: onUnits,
       "fiscal-operations": onFiscalOperations,
       "thermal-print": onThermalPrint,
       "ncm-cest-update": onNcmCestUpdate,
@@ -144,6 +181,8 @@ export function createNcmCestScreen({
       classes: onClasses,
       groups: onGroups,
       products: onProducts,
+      "product-types": onProductTypes,
+      units: onUnits,
       "ncm-cest": onNcmCest
     });
     root.querySelector("[data-search]")?.addEventListener("input", (event) => {

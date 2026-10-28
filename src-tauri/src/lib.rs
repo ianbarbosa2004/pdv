@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::Deserialize;
 use std::io::Write;
 use std::net::TcpStream;
@@ -108,6 +109,35 @@ fn list_installed_printers() -> Result<Vec<String>, String> {
     {
         Err("A listagem de impressoras está disponível apenas no Windows.".to_string())
     }
+}
+
+#[tauri::command]
+fn update_window_icon(app: tauri::AppHandle, data: String) -> Result<(), String> {
+    let encoded = data
+        .split_once(",")
+        .map(|(_, value)| value)
+        .unwrap_or(data.as_str())
+        .trim();
+    if encoded.is_empty() {
+        return Err("O ícone do aplicativo não foi informado.".to_string());
+    }
+    let bytes = STANDARD
+        .decode(encoded)
+        .map_err(|_| "O ícone do aplicativo não possui Base64 válido.".to_string())?;
+    if bytes.is_empty() || bytes.len() > 512 * 1024 {
+        return Err("O ícone do aplicativo deve ter entre 1 byte e 512 KB.".to_string());
+    }
+    let decoded = image::load_from_memory(&bytes)
+        .map_err(|error| format!("Não foi possível interpretar o ícone do aplicativo: {error}"))?
+        .to_rgba8();
+    let (width, height) = decoded.dimensions();
+    let image = tauri::image::Image::new_owned(decoded.into_raw(), width, height);
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "A janela principal do aplicativo não foi encontrada.".to_string())?;
+    window
+        .set_icon(image)
+        .map_err(|error| format!("Não foi possível atualizar o ícone da janela: {error}"))
 }
 
 #[cfg(target_os = "windows")]
@@ -398,6 +428,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             send_raw_print,
             list_installed_printers,
+            update_window_icon,
             get_selected_printer,
             save_selected_printer
         ])

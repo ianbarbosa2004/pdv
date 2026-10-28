@@ -2,7 +2,8 @@
 
 ## Antes de alterar
 
-Leia o `README.md`, `docs/DEVELOPMENT.md` e as instruções em
+Leia o `README.md`, `docs/DEVELOPMENT.md`,
+[`docs/PROJECT-HISTORY.md`](docs/PROJECT-HISTORY.md) e as instruções em
 `.github/instructions/`. Preserve o fluxo:
 
 ```text
@@ -20,6 +21,11 @@ CSC, tokens e dados sensíveis permanecem no servidor.
 - `src-tauri/`: integração nativa, incluindo impressão local.
 - `tests/`: testes com `node:test`.
 - `docs/`: documentação operacional e decisões técnicas.
+
+Ao alterar uma área consolidada, consulte o histórico para preservar decisões
+já tomadas, especialmente a ausência de cargas padrão, a navegação persistida,
+a separação entre Dados da Empresa e NFC-e e a impressão posterior à
+confirmação da venda.
 
 Use SQL parametrizado, transações para operações compostas e erros explícitos.
 Não transforme falha de banco ou de impressão em sucesso na interface.

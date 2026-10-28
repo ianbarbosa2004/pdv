@@ -30,7 +30,8 @@ o MariaDB por meio do pacote `mysql2`, compatível com o protocolo do MariaDB.
 ## Configuração do banco
 
 Importe `schema.sql` pelo phpMyAdmin ou pelo cliente `mariadb`. O script cria o
-banco `pdv`, as tabelas iniciais e as formas de pagamento padrão.
+banco `pdv` e as tabelas iniciais. Não há cargas automáticas de menus,
+cadastros, empresa, formas de pagamento ou configurações.
 
 Crie um usuário exclusivo para a API, substituindo o valor demonstrativo por
 uma senha forte definida localmente:
@@ -64,6 +65,9 @@ PDV_DB_PORT=3306
 PDV_DB_NAME=pdv
 PDV_DB_USER=pdv_app
 PDV_DB_PASSWORD=(senha definida localmente)
+PDV_CERTIFICATE_ENCRYPTION_KEY=(chave base64 local de 32 bytes)
+PDV_NCM_SOURCE_URL=(opcional)
+PDV_CEST_SOURCE_URL=(opcional)
 ```
 
 Nunca versione ou envie `.env`. Para instalar dependências e iniciar a API:
@@ -72,6 +76,10 @@ Nunca versione ou envie `.env`. Para instalar dependências e iniciar a API:
 npm.cmd ci
 npm.cmd run api
 ```
+
+Se a instalação usar NFC-e ou armazenar certificado A1, configure
+`PDV_CERTIFICATE_ENCRYPTION_KEY` antes de iniciar a API. A chave deve ser
+mantida somente no servidor e não pode ser recuperada a partir do banco.
 
 Valide no próprio servidor:
 
@@ -150,8 +158,9 @@ Quando houver alteração no schema ou na persistência:
    preservados.
 
 As versões que incluem o cadastro fiscal também criam ou atualizam a tabela
-`fiscal_catalog_items`. A inicialização da API faz a criação não destrutiva da
-tabela e insere somente códigos fiscais ausentes. Depois da atualização,
+`fiscal_catalog_items`. A inicialização da API faz somente a criação estrutural
+não destrutiva; os códigos fiscais são cadastrados pela loja ou por uma carga
+explicitamente iniciada pelo usuário. Depois da atualização,
 confirme:
 
 ```powershell
@@ -160,9 +169,9 @@ Invoke-RestMethod "http://127.0.0.1:3000/api/fiscal-catalogs?catalog=tax-situati
 Invoke-RestMethod "http://127.0.0.1:3000/api/fiscal-catalogs?catalog=icms-rates"
 ```
 
-Não substitua os dados existentes por uma carga inicial. Os códigos inseridos
-automaticamente usam `INSERT IGNORE` e os cadastros mantidos pela loja devem
-ser preservados.
+Não substitua os dados existentes por uma carga inicial. Cargas iniciadas por
+uma ação operacional devem ser revisadas antes da confirmação, e os cadastros
+mantidos pela loja devem ser preservados.
 
 Não execute `DROP`, `TRUNCATE` ou migrações destrutivas em produção sem uma
 estratégia explícita de recuperação e autorização do usuário.

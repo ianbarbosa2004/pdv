@@ -14,16 +14,16 @@ test("rejeita venda sem itens antes de acessar o banco", async () => {
   );
 });
 
-test("rejeita quantidade fracionada na primeira versão do checkout", async () => {
+test("rejeita quantidade com mais de três casas decimais", async () => {
   await assert.rejects(
     () =>
       createSale(null, {
-        items: [{ idProduct: 1, quantitySaleItem: 0.5 }],
+        items: [{ idProduct: 1, quantitySaleItem: 0.1234 }],
         payments: [{ idPaymentMethod: 1, amountSalePayment: "5.50" }]
       }),
     (error) => {
       assert.ok(error instanceof SaleValidationError);
-      assert.equal(error.message, "A quantidade deve ser um número inteiro positivo.");
+      assert.equal(error.message, "A quantidade deve ser um número positivo com até três casas decimais.");
       return true;
     }
   );

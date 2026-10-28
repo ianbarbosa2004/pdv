@@ -1,5 +1,6 @@
 import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
+import { bindFormRowPreview } from "../ui/form-row-preview.js";
 import { bindFiscalNavigation, renderFiscalNavigation } from "./fiscal-navigation.js";
 
 const escapeHtml = (value) =>
@@ -127,7 +128,7 @@ export function createFiscalOperationScreen({
         </form>
         <section class="classic-grid-panel">
           <div class="classic-panel-header classic-list-header"><span>Operações fiscais</span><input class="classic-list-search" data-search type="search" placeholder="Pesquisar código ou descrição..." value="${escapeHtml(searchTerm)}" /></div>
-          <div class="classic-grid-wrapper">${loading ? '<p class="classic-empty">Carregando operações fiscais...</p>' : visible.length ? `<table class="classic-table"><thead><tr><th>Descrição</th><th>Tipo</th><th>CFOP</th><th>Ações</th></tr></thead><tbody>${visible.map((operation) => `<tr class="${operation.isActiveFiscalOperation ? "" : "is-inactive"}"><td>${escapeHtml(operation.descriptionFiscalOperation)}</td><td>${escapeHtml(toOptions(catalogs[catalogKeys.operationTypes]).find(([value]) => value === operation.typeFiscalOperation)?.[1] || operation.typeFiscalOperation)}</td><td>${escapeHtml(operation.cfopFiscalOperation || "-")}</td><td class="actions-column"><button class="icon-button edit" type="button" title="Editar operação fiscal" aria-label="Editar operação fiscal" data-edit="${operation.idFiscalOperation}"><i data-lucide="pencil"></i></button><button class="icon-button delete" type="button" title="Excluir operação fiscal definitivamente" aria-label="Excluir operação fiscal definitivamente" data-delete="${operation.idFiscalOperation}"><i data-lucide="trash-2"></i></button></td></tr>`).join("")}</tbody></table>` : '<p class="classic-empty">Nenhuma operação fiscal cadastrada.</p>'}</div>
+          <div class="classic-grid-wrapper">${loading ? '<p class="classic-empty">Carregando operações fiscais...</p>' : visible.length           ? `<table class="classic-table"><thead><tr><th>CFOP</th><th>Tipo</th><th>Descrição</th><th>Ações</th></tr></thead><tbody>${visible.map((operation) => `<tr class="${operation.isActiveFiscalOperation ? "" : "is-inactive"}" data-view-record="${escapeHtml(JSON.stringify(operation))}"><td>${escapeHtml(operation.cfopFiscalOperation || "-")}</td><td>${escapeHtml(toOptions(catalogs[catalogKeys.operationTypes]).find(([value]) => value === operation.typeFiscalOperation)?.[1] || operation.typeFiscalOperation)}</td><td>${escapeHtml(operation.descriptionFiscalOperation)}</td><td class="actions-column"><button class="icon-button edit" type="button" title="Editar operação fiscal" aria-label="Editar operação fiscal" data-edit="${operation.idFiscalOperation}"><i data-lucide="pencil"></i></button><button class="icon-button delete" type="button" title="Excluir operação fiscal definitivamente" aria-label="Excluir operação fiscal definitivamente" data-delete="${operation.idFiscalOperation}"><i data-lucide="trash-2"></i></button></td></tr>`).join("")}</tbody></table>` : '<p class="classic-empty">Nenhuma operação fiscal cadastrada.</p>'}</div>
         </section>
       </section>`;
     renderLucideIcons(root);
@@ -143,6 +144,7 @@ export function createFiscalOperationScreen({
       "payment-methods": onPaymentMethods
     });
     bind();
+    bindFormRowPreview(root, { formSelector: "[data-form]" });
   };
 
   const bind = () => {
@@ -216,7 +218,10 @@ export function createFiscalOperationScreen({
       const response = await fetch(`${getApiUrl()}/api/fiscal-operations`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idFiscalOperation }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Não foi possível excluir a operação fiscal.");
-      message = "Operação fiscal excluída com sucesso."; await load();
+      message = "Operação fiscal excluída com sucesso.";
+      operations = operations.filter((item) => String(item.idFiscalOperation) !== String(idFiscalOperation));
+      render();
+      await load();
     } catch (removeError) { error = removeError instanceof Error ? removeError.message : "Falha ao excluir operação fiscal."; render(); }
   };
 

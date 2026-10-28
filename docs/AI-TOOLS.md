@@ -3,6 +3,8 @@
 Este documento registra as regras para uso de ferramentas de assistência por
 IA no projeto **PDV**. Ele complementa o `README.md` e os documentos
 operacionais desta pasta, mas não substitui as decisões técnicas do projeto.
+O histórico dessas decisões está em
+[`PROJECT-HISTORY.md`](PROJECT-HISTORY.md).
 
 ## Contexto atual
 

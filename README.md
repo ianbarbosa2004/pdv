@@ -54,6 +54,13 @@ A fundação inicial já está criada:
   autorização em homologação;
 - catálogos NCM/CEST persistidos e atualização controlada pela API;
 - impressão térmica de 80 mm com modelo de cupom persistido no servidor.
+- visualização de cadastros por seleção da linha, com preenchimento do
+  formulário e bloqueio das ações de gravação durante a consulta.
+- retaguarda configurável com menus, submenus, barras contextuais, atalhos,
+  descrições editáveis e proteção dos menus técnicos;
+- configuração geral para permitir ou bloquear estoque negativo;
+- tela de Status da API com reinício controlado e log visual;
+- editor de ícone da empresa aplicado em runtime ao frontend e à janela Tauri.
 
 O catálogo da interface depende da API e pode aparecer vazio até que produtos
 sejam cadastrados no MariaDB. Uma venda só será considerada persistida quando o
@@ -122,8 +129,10 @@ gerados e não devem ser versionados.
 
 ## Configuração do MariaDB
 
-Importe `schema.sql` pelo phpMyAdmin ou pelo cliente `mariadb`. O script cria o
-banco `pdv`, as tabelas iniciais e as formas de pagamento padrão.
+Importe `schema.sql` pelo phpMyAdmin ou pelo cliente `mariadb`. O script cria o banco `pdv` e as tabelas iniciais. A instalação nova não recebe
+cargas automáticas de menus, empresa, formas de pagamento, tipos, unidades,
+catálogos fiscais ou configurações; esses registros devem ser cadastrados
+explicitamente.
 
 Crie um usuário exclusivo para a API, substituindo a senha demonstrativa por
 uma senha forte definida localmente:
@@ -150,10 +159,15 @@ PDV_DB_PORT=3306
 PDV_DB_NAME=pdv
 PDV_DB_USER=pdv_app
 PDV_DB_PASSWORD=(senha definida localmente)
+PDV_CERTIFICATE_ENCRYPTION_KEY=(chave base64 local de 32 bytes)
+PDV_NCM_SOURCE_URL=(opcional; fonte oficial de NCM)
+PDV_CEST_SOURCE_URL=(opcional; fonte de CEST)
 ```
 
-O arquivo `.env` é ignorado pelo Git. Nunca envie sua senha pelo chat, Git,
-logs ou screenshots.
+O arquivo `.env` é ignorado pelo Git. Nunca envie senha, chave de criptografia,
+certificado, token, XML assinado ou qualquer outro segredo pelo chat, Git,
+logs ou screenshots. `PDV_CERTIFICATE_ENCRYPTION_KEY` é necessária para
+armazenar certificados A1 e executar os testes NFC-e.
 
 ### Dump para migração ao MariaDB
 
@@ -246,11 +260,14 @@ auxiliares ao projeto.
 | Método | Rota | Descrição |
 | --- | --- | --- |
 | `GET` | `/api/health` | Verifica a API e a conexão com o MariaDB |
+| `POST` | `/api/restart` | Reinicia a API de forma controlada |
 | `GET` | `/api/products` | Lista produtos ativos |
 | `GET` | `/api/classes` | Lista classes ativas |
 | `GET` | `/api/groups` | Lista grupos ativos com sua classe |
 | `GET` | `/api/payment-methods` | Lista formas de pagamento ativas |
 | `GET` | `/api/fiscal-operations` | Lista operações fiscais |
+| `GET` | `/api/product-types` | Lista tipos de produto ativos |
+| `GET` | `/api/units` | Lista unidades tributáveis ativas |
 | `GET` | `/api/fiscal-catalogs?catalog=...` | Lista itens de um cadastro fiscal |
 | `GET` | `/api/ncm-cest/ncms` | Lista NCMs ativos |
 | `GET` | `/api/ncm-cest/cests` | Lista CESTs ativos |
@@ -258,14 +275,19 @@ auxiliares ao projeto.
 | `GET` | `/api/ncm-cest/options?ncm=...` | Lista CESTs relacionados a um NCM |
 | `GET` | `/api/ncm-cest/update-status` | Consulta o histórico da atualização NCM / CEST |
 | `GET` | `/api/printer-settings` | Consulta impressoras padrão e modelo do cupom |
+| `GET` | `/api/general-settings` | Consulta configurações operacionais |
+| `GET` | `/api/navigation` | Consulta a navegação publicada |
+| `GET` | `/api/navigation?includeInactive=1` | Consulta a navegação completa para manutenção |
 | `POST` | `/api/classes` | Cria uma classe |
 | `POST` | `/api/groups` | Cria um grupo vinculado a uma classe |
 | `POST` | `/api/products` | Cadastra um produto |
+| `POST` | `/api/product-types` | Cadastra um tipo de produto |
+| `POST` | `/api/units` | Cadastra uma unidade tributável |
 | `POST` | `/api/ncm-cest` | Cria uma relação NCM / CEST |
 | `POST` | `/api/ncm-cest/update` | Atualiza os catálogos NCM / CEST |
 | `POST` | `/api/fiscal-operations` | Cadastra uma operação fiscal |
 | `POST` | `/api/fiscal-catalogs` | Cadastra um item de catálogo fiscal |
-| `POST` | `/api/sales` | Registra uma venda, pagamentos e baixa o estoque |
+| `POST` | `/api/sales` | Registra uma venda e pagamentos; baixa o estoque somente para itens controlados |
 | `POST` | `/api/company/nfce/diagnostic` | Gera XML NFC-e assinado sem transmitir |
 | `POST` | `/api/company/nfce/test` | Testa autorização NFC-e somente em homologação |
 
@@ -283,9 +305,32 @@ não devolve o conteúdo do certificado A1 nem sua senha. A configuração de
 impressoras em `/api/printer-settings` contém somente os nomes das filas e o
 modelo do cupom; o layout persistido não contém dados reais de venda.
 
-Na frente de caixa, use **Retaguarda** para abrir a tela
-administrativa. O cadastro exige nome, SKU, grupo, preço e estoque inicial.
-O backend valida os dados e rejeita SKU ou código de barras duplicados.
+Na frente de caixa, use **Retaguarda** para abrir a tela administrativa. O
+cadastro de Produtos usa **Código PDV** (a migração preserva a antiga coluna de
+código de barras), operação fiscal de venda, tipo de produto, unidade
+tributável, preço e estoque. Os tipos e unidades são mantidos nas tabelas
+`product_types` e `units`, cadastrados explicitamente pela loja. Os flags
+**Controla estoque**, **Produto fracionado**, **Imprime cozinha** e **Exibe no
+PDV** também são
+persistidos; o estoque inicial aceita apenas inteiros em produtos não fracionados
+e até três casas decimais em produtos fracionados, a venda pode usar quantidades
+fracionadas quando habilitada, e produtos sem controle de estoque não geram baixa.
+O backend valida os dados e rejeita SKU ou Código PDV duplicados.
+
+O cadastro usa quatro telas especializadas: **Produtos** (Mercadoria para
+Revenda), **Matérias-primas**, **Embalagem** e **Material de Uso e Consumo**.
+Somente **Produtos** aparece como item do menu principal; as outras três telas
+ficam disponíveis na barra contextual de Produtos. Cada tela fixa o tipo
+correspondente e lista somente os produtos daquele tipo, mantendo o mesmo
+contrato da API para que os campos diferenciais sejam adicionados
+progressivamente. **Outros Insumos** não faz parte da navegação.
+
+Em **Configurações > Configurações Gerais**, a regra **Permitir estoque
+negativo** é persistida em `general_settings` e começa habilitada para a base.
+
+O cadastro de **Classes** exige uma Operação Fiscal ativa, disponibilizada em
+um campo de seleção e exibida também na listagem. A listagem de **Grupos**
+começa ordenada alfabeticamente pela descrição do grupo.
 
 Na retaguarda, o controle de Status inativa ou reativa classes, grupos e
 produtos. A lixeira faz a exclusão definitiva quando não há produtos ou vendas
@@ -314,9 +359,10 @@ Exemplo de fechamento de venda:
 ```
 
 O `clientIdSale` funciona como chave de idempotência: repetir a mesma venda não
-cria um segundo registro. Nesta primeira versão, quantidades fracionadas são
-rejeitadas até que o cadastro de produtos tenha uma regra explícita para esse
-comportamento.
+cria um segundo registro. Quantidades fracionadas são aceitas somente quando o
+produto está marcado como fracionado; produtos não fracionados continuam
+limitados a quantidades inteiras. O estoque negativo depende da configuração
+**Permitir estoque negativo**.
 
 As próximas rotas devem ser específicas por operação, usar SQL parametrizado e
 confirmar a transação antes de atualizar visualmente o frontend.
@@ -331,6 +377,33 @@ confirmar a transação antes de atualizar visualmente o frontend.
 - Vendas canceladas não devem ser apagadas fisicamente sem regra de auditoria.
 - O frontend só confirma uma operação após sucesso da API.
 - Uma falha de impressão não pode duplicar uma venda já confirmada.
+
+## Construtor do menu principal
+
+Em **Retaguarda > Configurações > Impressoras > Construtor de menu**, é
+possível administrar a navegação persistida do sistema: nomes dos menus,
+itens, submenus, barras contextuais, rotas, ordem, ativação e a exibição de
+atalhos na tela inicial da Retaguarda, incluindo o texto descritivo exibido
+abaixo de cada atalho. A configuração é
+armazenada nas tabelas `navigation_menus` e `navigation_items` e aplicada pelo
+frontend ao iniciar o terminal.
+
+Os menus técnicos **Ferramentas** (`tools`) e **Configurações** (`settings`),
+incluindo seus itens e submenus, permanecem sempre ativos e não podem ser
+desativados pelo construtor.
+
+O construtor gera as chaves técnicas como slugs a partir do nome exibido,
+valida o formato no servidor e desativa registros em vez
+de removê-los fisicamente. A estrutura continua respeitando três níveis:
+menu principal, item do menu e barra contextual. Assim, itens como **Classes**,
+**Grupos** e **NCM / CEST** permanecem na barra contextual de **Produtos**, sem
+criar um submenu visual incompatível com a navegação do PDV.
+
+Itens ativos são conectados automaticamente pelo `keyNavigationItem`. Quando
+essa chave representar um alias visual diferente da rota cadastrada, a rotina
+também tenta `routeNavigationItem`. Dessa forma, novos itens e submenus podem
+reutilizar telas existentes sem alterações manuais na Retaguarda; apenas rotas
+que não possuem handler registrado precisam de uma nova implementação.
 
 ## Impressão térmica
 
@@ -417,8 +490,10 @@ estratégia de recuperação e autorização explícita.
 Consulte:
 
 - [Convenções de desenvolvimento](docs/DEVELOPMENT.md)
+- [Histórico completo do projeto](docs/PROJECT-HISTORY.md)
 - [Ferramentas e assistência de IA](docs/AI-TOOLS.md)
 - [Automações](docs/AUTOMATIONS.md)
 - [Prompts das automações](docs/AUTOMATION-PROMPTS.md)
+- [Automação de consolidação documental](docs/AUTOMATIONS.md#consolidar-documentação-do-pdv)
 - [Prompt de continuidade](docs/CONTINUITY-PROMPT.md)
 - [Instalação e publicação](docs/DEPLOYMENT.md)

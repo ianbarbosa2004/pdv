@@ -10,6 +10,7 @@ projeto `pdv` no checkout de desenvolvimento.
 | --- | --- | --- | --- | --- |
 | `sincronizar desenvolvimento` | `autopilot` | `branch` | `main` | Finalizar ou retomar o desenvolvimento |
 | `atualizar readme` | `autopilot` | `branch` | `main` | Atualizar a documentação afetada |
+| `consolidar documentação do PDV` | `autopilot` | `branch` | `main` | Consolidar histórico, validar, criar commit/PR e avaliar publicação |
 | `atualizar repositorio` | `autopilot` | `branch` | `main` | Integrar código, testes e documentação |
 | `publicar online` | `autopilot` | `branch` | `main` | Publicar no servidor da loja, quando o procedimento existir |
 
@@ -26,6 +27,8 @@ IDs de automações e execuções são específicos de cada computador e não de
 ser copiados para outro ambiente. Ao configurar a plataforma, use os nomes,
 parâmetros e prompts versionados neste documento e em
 [`AUTOMATION-PROMPTS.md`](AUTOMATION-PROMPTS.md).
+Para entender as decisões acumuladas do produto antes de alterar código ou
+documentação, consulte também [`PROJECT-HISTORY.md`](PROJECT-HISTORY.md).
 
 ## Regras comuns
 
@@ -106,6 +109,45 @@ git diff --check
 Só crie commit quando houver mudança documental real. Push para `main`
 depende de autorização explícita. Não faça deploy.
 
+## `consolidar documentação do PDV`
+
+Esta automação manual consolida a documentação com base no estado real do
+checkout, no código, no schema, nos testes e no histórico desde a última
+consolidação ou PR.
+
+Ela deve:
+
+- ler os documentos canônicos e as instruções em `.github/instructions/`;
+- atualizar `README.md`, `docs/*.md`, `CONTRIBUTING.md` e
+  `docs/PROJECT-HISTORY.md` somente quando houver evidência;
+- registrar mudanças relevantes de arquitetura, cadastros, estoque, fiscal,
+  NFC-e, impressão, navegação, Retaguarda, atalhos, interface, testes e
+  pendências;
+- executar `git diff --check`;
+- executar testes, build e verificação de sintaxe quando contratos funcionais
+  forem refletidos ou houver dúvida sobre o estado do código;
+- criar commit somente quando houver mudanças documentais reais;
+- criar ou atualizar uma PR somente quando houver mudanças não publicadas e
+  autorização aplicável;
+- preservar arquivos locais legítimos e interromper diante de intenção
+  ambígua, arquivo protegido ou erro de validação.
+
+O commit deve usar o trailer:
+
+```text
+Co-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>
+```
+
+Esta automação não deve incluir `.env`, credenciais, chaves privadas,
+certificados, XMLs reais, dados reais, dumps, backups, `node_modules/`,
+`dist/` ou `src-tauri/target/`.
+
+Deploy não é automático por inferência. Como o projeto ainda não possui script
+oficial de publicação, a automação deve validar localmente e informar
+**deploy bloqueado**. Se um procedimento oficial existir no futuro, ele só
+poderá ser usado com autorização explícita, após validar `main`, preservar o
+banco MariaDB e registrar a versão publicada.
+
 ## `atualizar repositorio`
 
 Integre somente alterações pertencentes ao PDV. Preserve credenciais, dados
@@ -147,9 +189,11 @@ Não use cPanel, Passenger ou scripts do projeto anterior como substitutos.
 Quando o usuário solicitar integração e publicação:
 
 1. `sincronizar desenvolvimento`;
-2. `atualizar readme`, se houver documentação pendente;
-3. `atualizar repositorio`;
-4. `publicar online`, somente depois que o procedimento existir e houver
+2. `consolidar documentação do PDV`, quando a tarefa incluir histórico,
+   commit ou PR documental;
+3. `atualizar readme`, se houver documentação pendente fora da consolidação;
+4. `atualizar repositorio`;
+5. `publicar online`, somente depois que o procedimento existir e houver
    autorização explícita.
 
 Analise o resultado de cada etapa antes de iniciar a próxima. Alterações de
