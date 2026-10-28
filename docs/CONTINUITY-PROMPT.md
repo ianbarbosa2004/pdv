@@ -17,6 +17,11 @@ sessão:
 > exiba, registre ou versione o valor de `PDV_DB_PASSWORD` ou qualquer outro
 > segredo.
 >
+> O estado funcional consolidado, incluindo a evolução da Retaguarda,
+> navegação, fiscal, NFC-e, impressão e a decisão de não usar cargas padrão,
+> está em `docs/PROJECT-HISTORY.md`. Leia esse documento junto com
+> `README.md` e `docs/DEVELOPMENT.md` antes de continuar uma etapa relevante.
+>
 > A API fica em `src/server/`. Ela deve validar entradas, usar SQL
 > parametrizado, executar operações compostas em transações MariaDB e retornar
 > erros explícitos. A rota de saúde é `GET /api/health`; a consulta inicial de
@@ -32,8 +37,9 @@ sessão:
 >
 > Valores monetários devem ser validados e tratados com precisão adequada.
 > Quantidades podem ser fracionadas somente quando o produto permitir essa
-> regra. Estoque negativo, preço inválido, pagamento insuficiente e venda sem
-> itens devem ser rejeitados no servidor. A interface deve preservar uma cópia
+> regra. Preço inválido, pagamento insuficiente e venda sem itens devem ser
+> rejeitados no servidor; estoque negativo depende da configuração
+> `allowNegativeStock`. A interface deve preservar uma cópia
 > independente do estado anterior antes de toda escrita e somente confirmar a
 > operação após o sucesso da API.
 >

@@ -1,5 +1,10 @@
 # Convenções de desenvolvimento
 
+O histórico consolidado da evolução funcional e técnica está em
+[`PROJECT-HISTORY.md`](PROJECT-HISTORY.md). Atualize esse documento quando
+uma etapa relevante alterar a arquitetura, os contratos ou o estado do
+produto.
+
 ## Organização de arquivos
 
 - Testes automatizados devem ser criados dentro de `tests/`.
@@ -24,11 +29,11 @@ As tabelas de cadastro e apoio atualmente são:
 
 | Área | Tabelas | Conteúdo |
 | --- | --- | --- |
-| Produtos | `classes`, `groups`, `products` | Classificação, produtos, SKU, código de barras, preço, estoque e status |
+| Produtos | `classes`, `groups`, `products`, `product_types`, `units` | Classificação, Código PDV, operação fiscal de venda, tipo, unidade, preço, estoque, flags operacionais e status |
 | Fiscal do produto | `ncm_catalog`, `cest_catalog`, `ncm_cest_relations`, `ncm_cest_updates` | Catálogos NCM/CEST, relações e histórico das cargas |
 | Financeiro | `payment_methods` | Forma de pagamento, conta Banco/Caixa, prazo, desconto, acréscimo e status |
 | Operações fiscais | `fiscal_operations`, `fiscal_catalog_items` | Operações e listas de CFOP, CST/CSOSN, ICMS, IPI, PIS/COFINS e demais parâmetros |
-| Configuração | `company_settings`, `printer_settings` | Empresa, NFC-e, certificado protegido, impressoras e layout de cupom |
+| Configuração | `company_settings`, `printer_settings`, `general_settings` | Empresa, NFC-e, certificado protegido, impressoras, layout de cupom e regras operacionais gerais |
 | Navegação | `navigation_menus`, `navigation_items` | Menus, barras contextuais, rotas e ordenação |
 | Venda | `sales`, `sale_items`, `sale_payments` | Venda, itens congelados, pagamentos e idempotência |
 
@@ -76,6 +81,19 @@ node --check src/server/server.js
 git diff --check
 ```
 
+### Instalação sem cargas padrão
+
+Uma instalação nova cria somente a estrutura das tabelas. Tipos de produto,
+unidades, catálogos fiscais, formas de pagamento, impressoras, configurações,
+empresa e navegação não são inseridos automaticamente pela API nem pelo
+`schema.sql`. Esses registros devem ser cadastrados explicitamente pelas telas
+correspondentes. Essa decisão evita que uma exclusão feita pelo usuário seja
+desfeita por uma rotina de inicialização e mantém o banco sob controle da loja.
+
+Registros existentes não são removidos por essa regra. A remoção de dados de
+uma instalação já utilizada deve ser feita por uma migração específica,
+revisada e autorizada.
+
 Quando uma mudança alterar API, banco ou fluxo de cadastro, inclua cobertura
 para sucesso, entradas inválidas, erros explícitos e efeitos relevantes no
 estado persistido.
@@ -87,10 +105,47 @@ Esses dados ainda não significam emissão de NFC-e/NF-e nem cálculo tributári
 automático; a integração fiscal deverá consumir essa configuração em etapa
 posterior.
 
+### Variáveis adicionais do servidor
+
+Além das variáveis de banco e rede, a API pode usar:
+
+| Variável | Finalidade |
+| --- | --- |
+| `PDV_CERTIFICATE_ENCRYPTION_KEY` | Chave base64 de 32 bytes para proteger certificado A1 e senha no servidor |
+| `PDV_NCM_SOURCE_URL` | Fonte configurável para atualização do catálogo NCM |
+| `PDV_CEST_SOURCE_URL` | Fonte configurável para atualização do catálogo CEST |
+
+Esses valores são locais e nunca devem aparecer em documentação com conteúdo
+real. A chave de criptografia é obrigatória para salvar certificado A1 e usar
+os testes NFC-e.
+
 As listas usadas pelas operações fiscais são persistidas em `fiscal_catalog_items`
 e possuem telas CRUD separadas. O campo `catalogFiscalCatalogItem` identifica
 cada catálogo, permitindo administrar CFOP, CST/CSOSN, alíquotas de ICMS e as
 demais tabelas sem manter opções fiscais somente no frontend.
+
+### Visualização por seleção de linha
+
+Nas telas que combinam formulário à esquerda e listagem à direita, clicar no
+corpo de uma linha deve carregar o registro correspondente no formulário em
+modo de visualização. Nesse modo:
+
+- os campos ficam bloqueados para evitar alterações acidentais;
+- os botões **Salvar** e **Limpar** ficam ocultos;
+- os botões de editar, excluir e alterar status da própria linha continuam
+  independentes e não devem ser acionados pelo clique na linha;
+- o cabeçalho do formulário oferece **Novo cadastro** para sair da
+  visualização e retornar ao formulário vazio;
+- clicar novamente na linha selecionada também encerra a visualização.
+
+O comportamento compartilhado fica em
+`src/ui/form-row-preview.js`. Novas telas CRUD devem marcar as linhas com
+`data-view-record` contendo o JSON do registro e chamar
+`bindFormRowPreview` depois de renderizar o formulário e a tabela. O conteúdo
+do registro deve usar os mesmos nomes dos campos do formulário, para que o
+preenchimento seja automático. Ações interativas dentro da linha devem ficar
+em botões ou controles próprios; o helper ignora esses elementos ao detectar o
+clique de visualização.
 
 ### Navegação de Produtos
 
@@ -100,11 +155,103 @@ ordem **Produtos**, **Classes**, **Grupos**. A barra é renderizada por
 `src/catalog/product-navigation.js`; o título permanece no cabeçalho da tela,
 sem repetir o título ou inserir separador vertical na barra.
 
+### Cadastro de Produtos
+
+O cadastro usa `pdvCodeProduct` como Código PDV. A inicialização da API migra
+`barcodeProduct` para esse nome sem descartar os valores existentes e as
+mensagens de duplicidade usam Código PDV. Cada produto pode referenciar uma
+operação fiscal de saída (`idFiscalOperationSaleProduct`), um tipo em
+`product_types` e uma unidade tributável em `units`. As tabelas auxiliares são
+criadas de forma idempotente e permanecem sem registros até o usuário
+cadastrá-los.
+
+Os campos `controlsStockProduct`, `isFractionalProduct`,
+`printsKitchenProduct` e `showsInPdvProduct` são booleanos validados pela API.
+`showsInPdvProduct` inicia como verdadeiro e controla se o produto aparece na
+frente de caixa. O estoque inicial é
+inteiro para produtos não fracionados e aceita até três casas decimais para
+produtos fracionados. **Zero é permitido em qualquer configuração**. Quando a
+configuração `allowNegativeStock` está ativa, o valor também pode ser negativo;
+quando está desativada, o formulário e a API exigem valor maior ou igual a zero.
+A quantidade vendida pode aceitar até três casas decimais para produtos
+fracionados. Quando `controlsStockProduct` é falso, o item e o pagamento são
+persistidos normalmente, mas o estoque não é validado nem baixado. O campo
+`printsKitchenProduct` fica disponível para o fluxo futuro de impressão de
+cozinha.
+
+Na barra de navegação de terceiro nível de **Cadastros > Produtos**, os
+cadastros de **Tipo de Produto** e **Unidade tributável** ficam disponíveis
+como submenus próprios. O formulário
+de Produtos mantém Grupo e Operação fiscal de venda na mesma linha, e Tipo de
+Produto e Unidade tributável na linha seguinte. Para novos produtos, o padrão
+é **Mercadoria para Revenda** e **UN**, quando esses registros estiverem
+disponíveis.
+
+Na tela **Matérias-primas**, um novo cadastro inicia com SKU `MP-`, sem operação
+fiscal de venda, **Controla estoque** desmarcado e **Exibe no PDV** desmarcado.
+O servidor também exige o prefixo `MP-` para produtos associados ao tipo
+**Matéria Prima**. Nas quatro telas de produto, ao desmarcar **Controla
+estoque**, o campo de estoque fica somente leitura e desabilitado; o valor
+existente é preservado ao salvar uma edição.
+
+O cadastro é uma tela parametrizada por tipo de produto. **Produtos** é a
+entrada do menu principal; **Matérias-primas**, **Embalagem** e **Material de
+Uso e Consumo** ficam disponíveis na barra contextual dessa tela. Cada tela
+envia o filtro `productType` para `GET /api/products`, fixa o tipo no
+formulário e mantém o mesmo contrato de gravação. Isso permite adicionar
+campos e regras específicas por tipo em uma etapa posterior sem duplicar a
+camada de API. **Outros Insumos** não faz parte da navegação.
+
+Classes possuem a referência `idFiscalOperationClass`, migrada de forma
+compatível para bases existentes. A API valida a operação fiscal ativa ao criar
+ou editar uma classe, e a tela exibe sua descrição na listagem. Grupos são
+retornados inicialmente em ordem alfabética por `descriptionGroup` e possuem o
+booleano `showsInPdvGroup`, exibido como **Exibir no PDV**. Novos grupos iniciam
+com essa opção desmarcada.
+
 A hierarquia também é persistida no MariaDB em `navigation_menus` e
 `navigation_items`. O campo `typeNavigationItem` diferencia itens do menu,
 submenus e entradas da barra (`item`, `submenu` e `bar`), enquanto
-`orderNavigationItem` controla a ordem. A API expõe a leitura dessa estrutura
-em `GET /api/navigation`.
+`orderNavigationItem` controla a ordem. O booleano
+`showsInBackofficeHomeNavigationItem` define se o registro também aparece como
+painel de atalho na tela inicial da Retaguarda. A API expõe a leitura dessa estrutura
+em `GET /api/navigation`. A tela **Configurações > Impressoras > Construtor
+de menu** permite administrar essa estrutura sem editar SQL: cria menus
+principais, itens, submenus e barras contextuais, altera nomes e ordem e
+define os atalhos da tela inicial e desativa entradas sem apagar o histórico.
+O campo `descriptionNavigationItem` armazena o texto opcional exibido abaixo do
+atalho; quando vazio, a interface usa uma descrição padrão compatível com a
+chave técnica.
+
+Os menus técnicos `tools` (Ferramentas) e `settings` (Configurações), bem como
+todos os itens e submenus vinculados a eles, não podem ser desativados. Essa
+regra é aplicada na interface e validada também pela API.
+
+Itens principais podem ser arrastados entre menus pelo contêiner visual do menu
+de destino. A troca de menu e a nova ordem ficam pendentes até **Salvar ordem**;
+o servidor valida o menu de destino e a relação com eventual item pai antes de
+persistir a alteração.
+
+A conexão entre navegação e telas é resolvida por uma rotina compartilhada:
+primeiro pelo `keyNavigationItem` e, como fallback, por
+`routeNavigationItem`. Isso permite que novos itens, submenus e atalhos
+reutilizem handlers já registrados, inclusive em submenus aninhados, sem
+alterações específicas na tela da Retaguarda.
+
+O cadastro de **Dados da Empresa** também mantém o ícone visual do aplicativo em
+`projectIconMimeCompany` e `projectIconDataCompany`. A interface carrega esse
+ícone em tempo de execução, usa-o no título das telas, atualiza o favicon e
+aplica o mesmo arquivo à janela nativa do Tauri, refletindo-se na barra de
+tarefas quando o sistema operacional aceitar a atualização. O ícone do
+executável e do instalador continua sendo definido pelos arquivos empacotados
+em `src-tauri/icons` e só muda em uma nova compilação.
+
+As alterações usam `POST` e `PUT` em `/api/navigation/menus` e
+`/api/navigation/items`. As chaves técnicas são geradas como slugs a partir dos nomes exibidos,
+removendo acentos e convertendo espaços e pontuação em hífens. O servidor
+aceita somente letras minúsculas, números e hífen; os nomes exibidos podem ser
+alterados livremente dentro dos limites do banco. O frontend carrega somente menus e itens ativos, enquanto o
+construtor consulta também os registros inativos para permitir manutenção.
 
 ### Estrutura dos menus e barras contextuais
 
@@ -147,9 +294,21 @@ Cadastros
 
 Configurações
 ├── Impressoras
+├── Configurações Gerais
 ├── Dados da Empresa
 └── NFC-e
 ```
+
+A tela **Configurações > Configurações Gerais** persiste regras operacionais na
+tabela `general_settings`. O booleano `allowNegativeStock`, exibido como
+**Permitir estoque negativo**, é criado somente quando o usuário salva a
+configuração. A leitura e a alteração são feitas pela API em
+`GET /api/general-settings` e `PUT /api/general-settings`.
+
+O construtor exibe a árvore completa para facilitar a manutenção, mas não
+transforma automaticamente uma barra contextual em submenu visual dentro do
+menu principal. O terceiro nível continua sendo renderizado pela barra
+contextual específica da tela, preservando a convenção do PDV.
 
 Portanto, um novo cadastro relacionado a um grupo não deve criar um menu
 principal independente nem uma tela intermediária do grupo. Ele deve ser
@@ -175,11 +334,15 @@ nela e na navegação persistida, sem criar um menu principal paralelo.
 
 A tela **Configurações > Dados da Empresa** mantém um único registro em
 `company_settings`, identificado por `idCompanySetting = 1`, e reúne somente
-identificação, endereço, contatos, e-mail, site e logotipo. CNPJ ou CPF,
+identificação, endereço, contatos, e-mail, site, logotipo e ícone do aplicativo.
+CNPJ ou CPF,
 inscrição estadual, CNAE, CEP e telefones usam máscaras brasileiras; o CEP pode
 consultar a base ViaCEP e preencher logradouro, bairro, cidade e UF. O campo de
-logotipo aceita PNG, JPEG, WebP ou GIF de até 2 MB, é armazenado no servidor e
-retornado junto ao cadastro para uso futuro em relatórios e cupons.
+logotipo aceita PNG, JPEG, WebP ou GIF de até 2 MB. O ícone do aplicativo aceita
+os mesmos formatos até 512 KB e é carregado em tempo de execução. Ambos são
+armazenados no servidor e retornados junto ao cadastro; o logotipo é destinado
+a relatórios e cupons, enquanto o ícone atualiza o favicon e a identidade
+visual das telas.
 
 A tela **Configurações > NFC-e** administra os parâmetros da NFC-e modelo 65
 para Minas Gerais: UF de emissão `MG`, ambiente de homologação ou produção,
@@ -322,6 +485,16 @@ NCM e CEST são catálogos nacionais e não substituem regras específicas de
 ICMS de Minas Gerais. Essas regras devem ser mantidas nas operações fiscais
 da empresa e em futuras configurações estaduais.
 
+### Status da API
+
+Em **Ferramentas > Status da API**, o terminal consulta `GET /api/health` para
+exibir a disponibilidade da API, a conexão com o MariaDB, o início do processo,
+o tempo de atividade e o endereço consultado. O botão **Reiniciar API** chama
+`POST /api/restart`; a tela registra visualmente a solicitação, a transição da
+instância e cada tentativa de reconexão até a API voltar a responder. O servidor
+inicia uma nova instância com os mesmos argumentos e encerra a anterior de
+forma controlada.
+
 ### Bancada de impressão térmica
 
 A Retaguarda possui o menu **Ferramentas > Impressão térmica**. A tela funciona
@@ -376,6 +549,21 @@ renderiza linhas estruturadas com GDI e o driver Windows; quando
 `transport` é `network`, envia o payload ESC/POS por TCP. Alterações nesse
 contrato devem atualizar simultaneamente a tela de montagem, o comando Tauri
 e o renderizador Rust.
+
+### Navegação e Retaguarda
+
+O construtor em **Retaguarda > Configurações > Impressoras > Construtor de
+menu** administra menus e itens persistidos. Para conectar uma nova tela:
+
+1. registre o handler em `src/main.js`;
+2. associe a chave técnica ou a rota ao item de navegação;
+3. marque o item como atalho somente quando houver handler resolvido;
+4. use `descriptionNavigationItem` para substituir o texto do cartão;
+5. mantenha `tools` e `settings` protegidos contra desativação.
+
+Menus, itens e atalhos só são publicados depois de cadastrados pela loja.
+Registros inativos permanecem no banco para manutenção e não aparecem na
+navegação publicada.
 
 ## Reinício da API
 

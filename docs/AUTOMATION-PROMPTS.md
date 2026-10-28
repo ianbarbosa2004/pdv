@@ -3,6 +3,9 @@
 Este arquivo é o contrato versionado dos prompts definidos em
 [`AUTOMATIONS.md`](AUTOMATIONS.md). Ao recriar uma automação em outro
 computador, mantenha os nomes e o conteúdo destes prompts.
+O histórico técnico consolidado está em
+[`PROJECT-HISTORY.md`](PROJECT-HISTORY.md) e deve ser consultado quando uma
+automação for atualizar documentação ou retomar uma etapa funcional.
 
 ## Parâmetros comuns
 
@@ -118,6 +121,49 @@ Co-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>
 
 Faça push direto para origin main somente com autorização explícita. Não use
 force push, não exclua branch, não crie PR, não faça merge e não faça deploy.
+```
+
+## `consolidar documentação do PDV`
+
+```text
+Use somente o checkout de desenvolvimento do projeto pdv como fonte única.
+Consolide a documentação do PDV com base no código, testes, schema, scripts,
+histórico e mudanças desde a última consolidação ou PR.
+
+Antes de agir, leia README.md, docs/PROJECT-HISTORY.md,
+docs/DEVELOPMENT.md, docs/DEPLOYMENT.md, docs/AUTOMATIONS.md,
+docs/AUTOMATION-PROMPTS.md, docs/CONTINUITY-PROMPT.md, CONTRIBUTING.md e as
+instruções em .github/instructions/.
+
+Execute git status --short, git diff --cached e git diff. Preserve alterações
+locais legítimas e interrompa se houver arquivo protegido ou intenção
+ambígua. Não use git reset --hard, git checkout --, git restore ou git clean.
+Não altere código funcional apenas para facilitar a documentação.
+
+Atualize somente documentos sustentados por evidência no código ou no
+histórico. Mantenha README.md, docs/*.md, CONTRIBUTING.md e o prompt de
+documentação coerentes. Atualize docs/PROJECT-HISTORY.md com as mudanças
+relevantes de arquitetura, cadastros, estoque, fiscal, NFC-e, impressão,
+navegação, Retaguarda, atalhos, interface, testes e pendências.
+
+Não documente senhas, tokens, certificados, XMLs reais, dados reais, dumps,
+backups ou artefatos. Execute git diff --check. Se contratos funcionais forem
+refletidos ou houver dúvida, execute npm.cmd test, npm.cmd run build e
+node --check src/server/server.js.
+
+Se houver mudanças documentais reais, crie um commit descritivo com:
+
+Co-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>
+
+Crie ou atualize uma PR somente quando houver mudanças não publicadas e a
+operação estiver autorizada no contexto da execução. Não crie PR vazia, não
+faça merge automático e não use force push.
+
+Não faça deploy por inferência. O projeto ainda não possui script oficial de
+publicação. Sem procedimento oficial e autorização explícita, valide
+localmente, informe deploy bloqueado e pare. Se um procedimento oficial
+existir no futuro, valide main, preserve o banco MariaDB e backups, publique
+somente a versão validada e registre a versão efetivamente publicada.
 ```
 
 ## `atualizar repositorio`
