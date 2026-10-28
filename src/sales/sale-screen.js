@@ -160,7 +160,7 @@ export function createSaleScreen({ onBackoffice } = {}) {
                         <article class="cart-item">
                           <div>
                             <strong>${escapeHtml(item.name)}</strong>
-                            <span>${item.quantity} × ${formatCurrency(item.price)}</span>
+                            <span><input data-quantity="${item.id}" type="number" min="${item.isFractionalProduct ? "0.001" : "1"}" step="${item.isFractionalProduct ? "0.001" : "1"}" value="${item.quantity}" aria-label="Quantidade de ${escapeHtml(item.name)}" /> × ${formatCurrency(item.price)}</span>
                           </div>
                           <div class="cart-item-actions">
                             <strong>${formatCurrency(item.price * item.quantity)}</strong>
@@ -194,7 +194,7 @@ export function createSaleScreen({ onBackoffice } = {}) {
                     <p class="eyebrow">Finalizar venda</p>
                     <h2 id="payment-title">Pagamento</h2>
                   </div>
-                  <button class="text-button" data-close-payment type="button">Cancelar</button>
+                  <button class="modal-close-button" data-close-payment type="button" aria-label="Fechar" title="Fechar"><i data-lucide="x"></i></button>
                 </div>
                 <form data-payment-form>
                   <label class="form-field">
@@ -286,6 +286,20 @@ export function createSaleScreen({ onBackoffice } = {}) {
     });
     root.querySelectorAll("[data-remove]").forEach((button) => {
       button.addEventListener("click", () => removeProduct(button.dataset.remove));
+    });
+    root.querySelectorAll("[data-quantity]").forEach((input) => {
+      input.addEventListener("change", () => {
+        const item = cart.find(({ id }) => id === input.dataset.quantity);
+        const quantity = Number(input.value);
+        if (!item || !Number.isFinite(quantity) || quantity <= 0
+          || Math.round(quantity * 1000) !== quantity * 1000
+          || (!item.isFractionalProduct && !Number.isInteger(quantity))) {
+          render();
+          return;
+        }
+        item.quantity = quantity;
+        render();
+      });
     });
     root.querySelectorAll("[data-category]").forEach((button) => {
       button.addEventListener("click", () => {

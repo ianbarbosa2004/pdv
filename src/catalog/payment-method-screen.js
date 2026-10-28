@@ -1,5 +1,6 @@
 import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
+import { bindFormRowPreview } from "../ui/form-row-preview.js";
 import {
   bindFinancialNavigation,
   renderFinancialNavigation
@@ -164,7 +165,7 @@ export function createPaymentMethodScreen({
                 ? `<table class="classic-table">
                     <thead><tr><th>Forma de pagamento</th><th>Conta do Fluxo de Caixa</th><th>Dias / Prazo</th><th>Taxa de Desconto</th><th>Acréscimo</th><th>Status</th><th class="actions-column">Ações</th></tr></thead>
                     <tbody>${visible.map((item) => `
-                      <tr class="${item.isActivePaymentMethod ? "" : "is-inactive"}">
+                      <tr class="${item.isActivePaymentMethod ? "" : "is-inactive"}" data-view-record="${escapeHtml(JSON.stringify(item))}">
                         <td>${escapeHtml(item.namePaymentMethod)}</td>
                         <td>${escapeHtml(item.cashFlowAccountPaymentMethod)}</td>
                         <td>${escapeHtml(item.termDaysPaymentMethod)}</td>
@@ -184,7 +185,7 @@ export function createPaymentMethodScreen({
       ${editing ? `
         <div class="classic-modal-backdrop" data-modal-backdrop>
           <section class="classic-modal payment-method-modal" role="dialog" aria-modal="true" aria-labelledby="edit-payment-method-title">
-            <div class="classic-panel-header" id="edit-payment-method-title">Editar forma de pagamento</div>
+            <div class="classic-panel-header modal-panel-header"><span id="edit-payment-method-title">Editar forma de pagamento</span><button class="modal-close-button" data-cancel-edit type="button" aria-label="Fechar" title="Fechar"><i data-lucide="x"></i></button></div>
             <form data-edit-form>
               <div class="classic-form-body">
                 ${renderFormFields(editing)}
@@ -222,6 +223,7 @@ export function createPaymentMethodScreen({
       company: onFinancial,
       "payment-methods": onPaymentMethods
     });
+    bindFormRowPreview(root, { formSelector: "[data-form]" });
     bind();
   };
 
@@ -344,6 +346,8 @@ export function createPaymentMethodScreen({
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Não foi possível excluir a forma de pagamento.");
       message = "Forma de pagamento excluída com sucesso.";
+      paymentMethods = paymentMethods.filter((item) => String(item.idPaymentMethod) !== String(idPaymentMethod));
+      render();
       await load();
     } catch (removeError) {
       error = removeError instanceof Error ? removeError.message : "Falha ao excluir a forma de pagamento.";

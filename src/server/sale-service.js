@@ -35,10 +35,11 @@ const normalizePayload = (payload) => {
     const idProduct = Number(item?.idProduct);
     const quantitySaleItem = Number(item?.quantitySaleItem);
     if (!Number.isSafeInteger(idProduct) || idProduct <= 0) throw new SaleValidationError("Produto inválido.");
-    if (!Number.isSafeInteger(quantitySaleItem) || quantitySaleItem <= 0) {
-      throw new SaleValidationError("A quantidade deve ser um número inteiro positivo.");
+    if (!Number.isFinite(quantitySaleItem) || quantitySaleItem <= 0
+      || Math.round(quantitySaleItem * 1000) !== quantitySaleItem * 1000) {
+      throw new SaleValidationError("A quantidade deve ser um número positivo com até três casas decimais.");
     }
-    itemMap.set(idProduct, (itemMap.get(idProduct) || 0) + quantitySaleItem);
+    itemMap.set(idProduct, Math.round(((itemMap.get(idProduct) || 0) + quantitySaleItem) * 1000) / 1000);
   }
 
   const payments = payload.payments.map((payment) => {
@@ -76,7 +77,8 @@ export async function createSale(connection, payload) {
     const productIds = input.items.map(({ idProduct }) => idProduct);
     const placeholders = productIds.map(() => "?").join(", ");
     const [products] = await connection.query(
-      `SELECT idProduct, nameProduct, priceProduct, stockQuantityProduct
+      `SELECT idProduct, nameProduct, priceProduct, stockQuantityProduct,
+              controlsStockProduct, isFractionalProduct
        FROM products
        WHERE idProduct IN (${placeholders}) AND isActiveProduct = 1
        FOR UPDATE`,
@@ -84,13 +86,24 @@ export async function createSale(connection, payload) {
     );
     const productsById = new Map(products.map((product) => [Number(product.idProduct), product]));
     if (products.length !== input.items.length) throw new SaleValidationError("Um ou mais produtos não estão disponíveis.", 409);
+    const [generalSettings] = await connection.query(
+      `SELECT booleanValueGeneralSetting
+       FROM general_settings
+       WHERE keyGeneralSetting = 'allowNegativeStock'
+       LIMIT 1`
+    );
+    const allowNegativeStock = Boolean(generalSettings[0]?.booleanValueGeneralSetting);
 
     let subtotalSaleCents = 0;
     const saleItems = input.items.map(({ idProduct, quantitySaleItem }) => {
       const product = productsById.get(idProduct);
       const priceProductCents = toCents(product.priceProduct, "Preço do produto");
       const stockQuantityProduct = Number(product.stockQuantityProduct);
-      if (!Number.isFinite(stockQuantityProduct) || stockQuantityProduct < quantitySaleItem) {
+      if (!Number(product.isFractionalProduct) && !Number.isInteger(quantitySaleItem)) {
+        throw new SaleValidationError(`A quantidade de "${product.nameProduct}" deve ser inteira.`);
+      }
+      if (Number(product.controlsStockProduct) && !allowNegativeStock
+        && (!Number.isFinite(stockQuantityProduct) || stockQuantityProduct < quantitySaleItem)) {
         throw new SaleValidationError(`Estoque insuficiente para "${product.nameProduct}".`, 409);
       }
       const lineTotalSaleItemCents = priceProductCents * quantitySaleItem;
@@ -100,6 +113,7 @@ export async function createSale(connection, payload) {
         productNameSaleItem: product.nameProduct,
         unitPriceSaleItem: serializeMoney(priceProductCents),
         quantitySaleItem,
+        controlsStockProduct: Number(product.controlsStockProduct),
         lineTotalSaleItem: serializeMoney(lineTotalSaleItemCents)
       };
     });
@@ -132,13 +146,18 @@ export async function createSale(connection, payload) {
          VALUES (?, ?, ?, ?, ?, ?)`,
         [idSale, item.idProduct, item.productNameSaleItem, item.unitPriceSaleItem, item.quantitySaleItem, item.lineTotalSaleItem]
       );
-      await connection.query(
-        "UPDATE products SET stockQuantityProduct = stockQuantityProduct - ? WHERE idProduct = ? AND stockQuantityProduct >= ?",
-        [item.quantitySaleItem, item.idProduct, item.quantitySaleItem]
-      );
-      const [stockUpdate] = await connection.query("SELECT ROW_COUNT() AS affectedRows");
-      if (Number(stockUpdate[0].affectedRows) !== 1) {
-        throw new SaleValidationError(`Não foi possível baixar o estoque de "${item.productNameSaleItem}".`, 409);
+      if (Number(item.controlsStockProduct)) {
+        const stockUpdateQuery = allowNegativeStock
+          ? "UPDATE products SET stockQuantityProduct = stockQuantityProduct - ? WHERE idProduct = ?"
+          : "UPDATE products SET stockQuantityProduct = stockQuantityProduct - ? WHERE idProduct = ? AND stockQuantityProduct >= ?";
+        const stockUpdateParams = allowNegativeStock
+          ? [item.quantitySaleItem, item.idProduct]
+          : [item.quantitySaleItem, item.idProduct, item.quantitySaleItem];
+        await connection.query(stockUpdateQuery, stockUpdateParams);
+        const [stockUpdate] = await connection.query("SELECT ROW_COUNT() AS affectedRows");
+        if (Number(stockUpdate[0].affectedRows) !== 1) {
+          throw new SaleValidationError(`Não foi possível baixar o estoque de "${item.productNameSaleItem}".`, 409);
+        }
       }
     }
 

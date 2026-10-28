@@ -1,5 +1,6 @@
 import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
+import { bindFormRowPreview } from "../ui/form-row-preview.js";
 import { bindProductNavigation, renderProductNavigation } from "./product-navigation.js";
 import {
   bindNumberMasks,
@@ -15,13 +16,56 @@ const escapeHtml = (value) =>
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 
+const formatIntegerStock = (value) => {
+  const normalizedValue = String(value ?? "");
+  return /^-?\d+\.0+$/.test(normalizedValue)
+    ? normalizedValue.slice(0, normalizedValue.indexOf("."))
+    : normalizedValue;
+};
+
+const formatStockForInput = (value, isFractionalProduct) =>
+  isFractionalProduct ? String(value ?? "") : formatIntegerStock(value);
+
 const getApiUrl = () =>
   window.__PDV_API_URL__ || `http://${window.location.hostname}:3000`;
 
-export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, onNcmCest, onFiscalOperations, onThermalPrint, onNcmCestUpdate, onSettings, onCompany, onNfce, onFinancial, onPaymentMethods }) {
+export function createCatalogScreen({
+  title = "Produtos",
+  productTypeDescription = "Mercadoria para Revenda",
+  navigationActive = "products",
+  singularLabel = "produto",
+  createFormTitle = `Novo ${singularLabel}`,
+  editFormTitle = `Editar ${singularLabel}`,
+  skuPrefix = "PROD-",
+  defaultControlsStock = true,
+  defaultShowsInPdv = true,
+  defaultFiscalOperation = true,
+  onBack,
+  onClasses,
+  onGroups,
+  onProducts,
+  onRawMaterials,
+  onPackaging,
+  onConsumables,
+  onProductTypes,
+  onUnits,
+  onNcmCest,
+  onFiscalOperations,
+  onThermalPrint,
+  onNcmCestUpdate,
+  onSettings,
+  onCompany,
+  onNfce,
+  onFinancial,
+  onPaymentMethods
+}) {
   const root = document.createElement("main");
   let groups = [];
   let products = [];
+  let fiscalOperations = [];
+  let productTypes = [];
+  let units = [];
+  let allowNegativeStock = false;
   let loading = true;
   let error = "";
   let message = "";
@@ -33,11 +77,18 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, o
   let newCestProduct = "";
   let newProductDraft = {
     nameProduct: "",
-    skuProduct: "",
-    barcodeProduct: "",
+    skuProduct: skuPrefix,
+    pdvCodeProduct: "",
     idGroup: "",
-    priceProduct: "",
-    stockQuantityProduct: ""
+    idFiscalOperationSaleProduct: "",
+    idProductTypeProduct: "",
+    idUnitProduct: "",
+    priceProduct: "0,00",
+    stockQuantityProduct: "0",
+    controlsStockProduct: defaultControlsStock,
+    isFractionalProduct: false,
+    printsKitchenProduct: false,
+    showsInPdvProduct: defaultShowsInPdv
   };
   let ncmLookupOpen = false;
   let ncmLookupTerm = "";
@@ -49,7 +100,7 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, o
     [...products]
       .filter((product) => {
         const query = searchTerm.trim().toLocaleLowerCase("pt-BR");
-        return [product.skuProduct, product.nameProduct, product.descriptionGroup, product.barcodeProduct]
+        return [product.skuProduct, product.nameProduct, product.descriptionGroup, product.pdvCodeProduct]
           .some((value) => String(value ?? "").toLocaleLowerCase("pt-BR").includes(query));
       })
       .sort((left, right) => {
@@ -93,12 +144,75 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, o
     newProductDraft = {
       nameProduct: String(formData.get("nameProduct") ?? ""),
       skuProduct: String(formData.get("skuProduct") ?? ""),
-      barcodeProduct: String(formData.get("barcodeProduct") ?? ""),
+      pdvCodeProduct: String(formData.get("pdvCodeProduct") ?? ""),
       idGroup: String(formData.get("idGroup") ?? ""),
+      idFiscalOperationSaleProduct: String(formData.get("idFiscalOperationSaleProduct") ?? ""),
+      idProductTypeProduct: String(formData.get("idProductTypeProduct") ?? ""),
+      idUnitProduct: String(formData.get("idUnitProduct") ?? ""),
       priceProduct: String(formData.get("priceProduct") ?? ""),
-      stockQuantityProduct: String(formData.get("stockQuantityProduct") ?? "")
+      stockQuantityProduct: String(formData.get("stockQuantityProduct") ?? ""),
+      controlsStockProduct: formData.get("controlsStockProduct") === "on",
+      isFractionalProduct: formData.get("isFractionalProduct") === "on",
+      printsKitchenProduct: formData.get("printsKitchenProduct") === "on",
+      showsInPdvProduct: formData.get("showsInPdvProduct") === "on"
     };
   };
+
+  const renderProductTypeOptions = (selectedValue) =>
+    `<option value="">Selecione</option>${productTypes.map((type) =>
+      `<option value="${type.idProductType}" ${String(selectedValue ?? "") === String(type.idProductType) ? "selected" : ""}>${escapeHtml(type.descriptionProductType)}</option>`
+    ).join("")}`;
+
+  const renderUnitOptions = (selectedValue) =>
+    `<option value="">Selecione</option>${units.map((unit) =>
+      `<option value="${unit.idUnit}" ${String(selectedValue ?? "") === String(unit.idUnit) ? "selected" : ""}>${escapeHtml(unit.codeUnit)} - ${escapeHtml(unit.descriptionUnit)}</option>`
+    ).join("")}`;
+
+  const renderFiscalOperationOptions = (selectedValue) =>
+    `<option value="">Não informado</option>${fiscalOperations.map((operation) =>
+      `<option value="${operation.idFiscalOperation}" ${String(selectedValue ?? "") === String(operation.idFiscalOperation) ? "selected" : ""}>${escapeHtml(operation.descriptionFiscalOperation)}</option>`
+    ).join("")}`;
+
+  const getDefaultProductType = () =>
+    productTypes.find(({ descriptionProductType }) =>
+      ["Mercadoria para Revenda", "Revenda de Mercadorias"].includes(descriptionProductType)
+    ) || productTypes[0];
+
+  const getScreenProductType = () =>
+    productTypes.find(({ descriptionProductType }) =>
+      descriptionProductType === productTypeDescription
+    ) || getDefaultProductType();
+
+  const getDefaultUnit = () =>
+    units.find(({ codeUnit }) => codeUnit === "UN") || units[0];
+
+  const getDefaultFiscalOperation = () =>
+    defaultFiscalOperation &&
+    fiscalOperations.find(({ descriptionFiscalOperation }) =>
+      String(descriptionFiscalOperation).trim().toLocaleLowerCase("pt-BR") === "revenda de mercadorias"
+    );
+
+  const isStockControlled = (product) =>
+    Number(product.controlsStockProduct) !== 0;
+
+  const renderStockInput = (product, label) => {
+    const stockControlled = isStockControlled(product);
+    const value = formatStockForInput(product.stockQuantityProduct, product.isFractionalProduct);
+    return `
+      <label class="form-field"><span>${label}</span>
+        <input name="stockQuantityProduct" type="number" ${allowNegativeStock ? "" : 'min="0"'} step="${product.isFractionalProduct ? "0.001" : "1"}" ${stockControlled ? "" : "readonly disabled"} required value="${escapeHtml(value)}" />
+      </label>
+    `;
+  };
+
+  const renderProductFlags = (product = newProductDraft) => `
+    <div class="classic-form-grid">
+      <label class="form-field checkbox-field"><span>Controla estoque</span><input name="controlsStockProduct" type="checkbox" ${Number(product.controlsStockProduct) !== 0 ? "checked" : ""} /></label>
+      <label class="form-field checkbox-field"><span>Produto fracionado</span><input name="isFractionalProduct" type="checkbox" ${product.isFractionalProduct ? "checked" : ""} /></label>
+      <label class="form-field checkbox-field"><span>Imprime cozinha</span><input name="printsKitchenProduct" type="checkbox" ${product.printsKitchenProduct ? "checked" : ""} /></label>
+      <label class="form-field checkbox-field"><span>Exibir no PDV</span><input name="showsInPdvProduct" type="checkbox" ${product.showsInPdvProduct !== false && product.showsInPdvProduct !== 0 ? "checked" : ""} /></label>
+    </div>
+  `;
 
   const render = () => {
     const lookupQuery = ncmLookupTerm.trim().toLocaleLowerCase("pt-BR");
@@ -111,34 +225,45 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, o
     root.className = "catalog-screen";
     root.innerHTML = `
       <header class="classic-titlebar">
-        <strong>PDV - Cadastro de Produtos</strong>
+        <strong>PDV - Cadastro de ${escapeHtml(title)}</strong>
         <span>Operador: Operador</span>
       </header>
       ${renderMainMenu()}
-      ${renderProductNavigation("products")}
+      ${renderProductNavigation(navigationActive)}
       <section class="classic-content">
         <form class="classic-form-panel" data-product-form>
-          <div class="classic-panel-header">Novo produto</div>
+          <div class="classic-panel-header">${createFormTitle}</div>
           <div class="classic-form-body">
           <label class="form-field"><span>Nome</span><input name="nameProduct" required maxlength="180" value="${escapeHtml(newProductDraft.nameProduct)}" /></label>
           <div class="classic-form-grid">
             <label class="form-field"><span>SKU</span><input name="skuProduct" required maxlength="64" value="${escapeHtml(newProductDraft.skuProduct)}" /></label>
-            <label class="form-field"><span>Código de barras</span><input name="barcodeProduct" maxlength="64" value="${escapeHtml(newProductDraft.barcodeProduct)}" /></label>
+            <label class="form-field"><span>Código PDV</span><input name="pdvCodeProduct" maxlength="64" value="${escapeHtml(newProductDraft.pdvCodeProduct)}" /></label>
           </div>
-          <label class="form-field"><span>Grupo</span>
-            <select name="idGroup" required>
-              <option value="">Selecione</option>
-              ${groups.map((group) => `<option value="${group.idGroup}" ${String(newProductDraft.idGroup) === String(group.idGroup) ? "selected" : ""}>${escapeHtml(group.descriptionGroup)}</option>`).join("")}
-            </select>
-          </label>
+          <div class="classic-form-grid">
+            <label class="form-field"><span>Grupo</span>
+              <select name="idGroup" required>
+                <option value="">Selecione</option>
+                ${groups.map((group) => `<option value="${group.idGroup}" ${String(newProductDraft.idGroup) === String(group.idGroup) ? "selected" : ""}>${escapeHtml(group.descriptionGroup)}</option>`).join("")}
+              </select>
+            </label>
+            <label class="form-field"><span>Operação fiscal de venda</span><select name="idFiscalOperationSaleProduct">${renderFiscalOperationOptions(newProductDraft.idFiscalOperationSaleProduct)}</select></label>
+          </div>
+          <div class="classic-form-grid">
+            <label class="form-field"><span>Tipo de produto</span>
+              <input type="hidden" name="idProductTypeProduct" value="${escapeHtml(newProductDraft.idProductTypeProduct)}" />
+              <select data-product-type-display disabled>${renderProductTypeOptions(newProductDraft.idProductTypeProduct)}</select>
+            </label>
+            <label class="form-field"><span>Unidade tributável</span><select name="idUnitProduct" required>${renderUnitOptions(newProductDraft.idUnitProduct)}</select></label>
+          </div>
           <div class="classic-form-grid">
             ${renderNcmField(newNcmProduct)}
             <label class="form-field"><span>CEST</span><select name="cestProduct" ${cestOptions.length ? "" : "disabled"}>${renderCestOptions(newCestProduct)}</select></label>
           </div>
           <div class="classic-form-grid">
             <label class="form-field"><span>Preço</span><input name="priceProduct" data-number-mask inputmode="decimal" required value="${escapeHtml(newProductDraft.priceProduct)}" /></label>
-            <label class="form-field"><span>Estoque inicial</span><input name="stockQuantityProduct" type="number" min="0" step="1" required value="${escapeHtml(newProductDraft.stockQuantityProduct)}" /></label>
+            ${renderStockInput(newProductDraft, "Estoque inicial")}
           </div>
+          ${renderProductFlags()}
           ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}
           ${message ? `<p class="success-message">${escapeHtml(message)}</p>` : ""}
           </div>
@@ -151,7 +276,7 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, o
         </form>
         <section class="classic-grid-panel">
           <div class="classic-panel-header classic-list-header">
-            <span>Produtos</span>
+            <span>${escapeHtml(title)}</span>
             <input class="classic-list-search" data-search dir="ltr" type="search" placeholder="Pesquisar..." aria-label="Pesquisar produtos" value="${escapeHtml(searchTerm)}" />
           </div>
           <div class="classic-grid-wrapper">
@@ -172,15 +297,21 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, o
                             <button class="table-sort-button" type="button" data-sort="${key}">${label} <span aria-hidden="true">${sortIndicator(key)}</span></button>
                           </th>
                         `).join("")}
-                        <th>Status</th><th class="actions-column">Ações</th>
+                        <th>Exibir no PDV</th><th>Status</th><th class="actions-column">Ações</th>
                       </tr></thead>
                       <tbody>${getVisibleProducts().map((product) => `
-                        <tr class="${product.isActiveProduct ? "" : "is-inactive"}">
+                        <tr class="${product.isActiveProduct ? "" : "is-inactive"}" data-view-record="${escapeHtml(JSON.stringify(product))}">
                           <td>${escapeHtml(product.skuProduct)}</td>
                           <td>${escapeHtml(product.nameProduct)}</td>
                           <td>${escapeHtml(product.descriptionGroup || "Sem grupo")}</td>
                           <td>R$ ${Number(product.priceProduct).toFixed(2).replace(".", ",")}</td>
                           <td>${escapeHtml(product.stockQuantityProduct)}</td>
+                          <td>
+                            <button class="status-toggle ${Number(product.showsInPdvProduct) ? "is-active" : "is-inactive"}" type="button" role="switch" aria-checked="${Number(product.showsInPdvProduct) ? "true" : "false"}" data-pdv-status-id="${product.idProduct}" aria-label="Alternar exibição de ${escapeHtml(product.nameProduct)} no PDV">
+                              <span class="status-toggle-track"><span class="status-toggle-thumb"></span></span>
+                              <span class="status-toggle-label">${Number(product.showsInPdvProduct) ? "Sim" : "Não"}</span>
+                            </button>
+                          </td>
                           <td>
                             <button class="status-toggle ${product.isActiveProduct ? "is-active" : "is-inactive"}" type="button" role="switch" aria-checked="${product.isActiveProduct ? "true" : "false"}" data-status-id="${product.idProduct}" aria-label="Alternar status do produto ${escapeHtml(product.nameProduct)}">
                               <span class="status-toggle-track"><span class="status-toggle-thumb"></span></span>
@@ -188,8 +319,8 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, o
                             </button>
                           </td>
                           <td class="actions-column">
-                            <button class="icon-button edit" type="button" title="Editar produto" aria-label="Editar produto" data-edit="${product.idProduct}"><i data-lucide="pencil"></i></button>
-                            <button class="icon-button delete" type="button" title="Excluir produto definitivamente" aria-label="Excluir produto definitivamente" data-delete="${product.idProduct}"><i data-lucide="trash-2"></i></button>
+                            <button class="icon-button edit" type="button" title="Editar ${escapeHtml(singularLabel)}" aria-label="Editar ${escapeHtml(singularLabel)}" data-edit="${product.idProduct}"><i data-lucide="pencil"></i></button>
+                            <button class="icon-button delete" type="button" title="Excluir ${escapeHtml(singularLabel)} definitivamente" aria-label="Excluir ${escapeHtml(singularLabel)} definitivamente" data-delete="${product.idProduct}"><i data-lucide="trash-2"></i></button>
                           </td>
                         </tr>
                       `).join("")}</tbody>
@@ -202,27 +333,38 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, o
       ${editingProduct ? `
         <div class="classic-modal-backdrop" data-modal-backdrop>
           <section class="classic-modal product-edit-modal" role="dialog" aria-modal="true" aria-labelledby="edit-product-title">
-            <div class="classic-panel-header" id="edit-product-title">Editar produto</div>
+          <div class="classic-panel-header modal-panel-header"><span id="edit-product-title">${editFormTitle}</span><button class="modal-close-button" data-cancel-edit type="button" aria-label="Fechar" title="Fechar"><i data-lucide="x"></i></button></div>
             <form data-edit-product-form>
               <div class="classic-form-body">
                 <label class="form-field"><span>Nome</span><input name="nameProduct" required maxlength="180" value="${escapeHtml(editingProduct.nameProduct)}" /></label>
                 <div class="classic-form-grid">
                   <label class="form-field"><span>SKU</span><input name="skuProduct" required maxlength="64" value="${escapeHtml(editingProduct.skuProduct)}" /></label>
-                  <label class="form-field"><span>Código de barras</span><input name="barcodeProduct" maxlength="64" value="${escapeHtml(editingProduct.barcodeProduct || "")}" /></label>
+                  <label class="form-field"><span>Código PDV</span><input name="pdvCodeProduct" maxlength="64" value="${escapeHtml(editingProduct.pdvCodeProduct || "")}" /></label>
                 </div>
-                <label class="form-field"><span>Grupo</span>
-                  <select name="idGroup" required>
-                    ${groups.map((group) => `<option value="${group.idGroup}" ${editingProduct.idGroup === group.idGroup ? "selected" : ""}>${escapeHtml(group.descriptionGroup)}</option>`).join("")}
-                  </select>
-                </label>
+                <div class="classic-form-grid">
+                  <label class="form-field"><span>Grupo</span>
+                    <select name="idGroup" required>
+                      ${groups.map((group) => `<option value="${group.idGroup}" ${editingProduct.idGroup === group.idGroup ? "selected" : ""}>${escapeHtml(group.descriptionGroup)}</option>`).join("")}
+                    </select>
+                  </label>
+                  <label class="form-field"><span>Operação fiscal de venda</span><select name="idFiscalOperationSaleProduct">${renderFiscalOperationOptions(editingProduct.idFiscalOperationSaleProduct)}</select></label>
+                </div>
+                <div class="classic-form-grid">
+                  <label class="form-field"><span>Tipo de produto</span>
+                    <input type="hidden" name="idProductTypeProduct" value="${escapeHtml(editingProduct.idProductTypeProduct)}" />
+                    <select data-product-type-display disabled>${renderProductTypeOptions(editingProduct.idProductTypeProduct)}</select>
+                  </label>
+                  <label class="form-field"><span>Unidade tributável</span><select name="idUnitProduct" required>${renderUnitOptions(editingProduct.idUnitProduct)}</select></label>
+                </div>
                 <div class="classic-form-grid">
                   ${renderNcmField(editingProduct.ncmProduct)}
                   <label class="form-field"><span>CEST</span><select name="cestProduct" ${cestOptions.length ? "" : "disabled"}>${renderCestOptions(editingProduct.cestProduct)}</select></label>
                 </div>
                 <div class="classic-form-grid">
                   <label class="form-field"><span>Preço</span><input name="priceProduct" data-number-mask inputmode="decimal" required value="${escapeHtml(formatMaskedNumber(editingProduct.priceProduct))}" /></label>
-                  <label class="form-field"><span>Estoque</span><input name="stockQuantityProduct" type="number" min="0" step="1" required value="${escapeHtml(editingProduct.stockQuantityProduct)}" /></label>
+                  ${renderStockInput(editingProduct, "Estoque")}
                 </div>
+                ${renderProductFlags(editingProduct)}
                 ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}
               </div>
               <div class="classic-form-actions">
@@ -236,7 +378,7 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, o
       ${ncmLookupOpen ? `
         <div class="classic-modal-backdrop" data-ncm-modal-backdrop>
           <section class="classic-modal ncm-lookup-modal" role="dialog" aria-modal="true" aria-labelledby="ncm-lookup-title">
-            <div class="classic-panel-header" id="ncm-lookup-title">Consultar NCM</div>
+            <div class="classic-panel-header modal-panel-header"><span id="ncm-lookup-title">Consultar NCM</span><button class="modal-close-button" data-close-ncm type="button" aria-label="Fechar" title="Fechar"><i data-lucide="x"></i></button></div>
             <div class="ncm-lookup-toolbar">
               <label class="form-field">
                 <span>Consulta</span>
@@ -275,6 +417,11 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, o
     bindNumberMasks(root);
     bindMainMenu(root, {
       products: onProducts,
+      "raw-materials": onRawMaterials,
+      packaging: onPackaging,
+      consumables: onConsumables,
+      "product-types": onProductTypes,
+      units: onUnits,
       "fiscal-operations": onFiscalOperations,
       "thermal-print": onThermalPrint,
       "ncm-cest-update": onNcmCestUpdate,
@@ -284,7 +431,19 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, o
       financial: onFinancial,
       "payment-methods": onPaymentMethods
     });
-    bindProductNavigation(root, { back: onBack, classes: onClasses, groups: onGroups, products: onProducts, "ncm-cest": onNcmCest });
+    bindProductNavigation(root, {
+      back: onBack,
+      classes: onClasses,
+      groups: onGroups,
+      products: onProducts,
+      "raw-materials": onRawMaterials,
+      packaging: onPackaging,
+      consumables: onConsumables,
+      "product-types": onProductTypes,
+      units: onUnits,
+      "ncm-cest": onNcmCest
+    });
+    bindFormRowPreview(root, { formSelector: "[data-product-form]" });
     root.querySelector("[data-search]")?.addEventListener("input", (event) => {
       searchTerm = event.currentTarget.value;
       render();
@@ -370,6 +529,11 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, o
         void updateProductStatus(Number(toggle.dataset.statusId), toggle.getAttribute("aria-checked") !== "true")
       );
     });
+    root.querySelectorAll("[data-pdv-status-id]").forEach((toggle) => {
+      toggle.addEventListener("click", () =>
+        void updateProductPdvVisibility(Number(toggle.dataset.pdvStatusId), toggle.getAttribute("aria-checked") !== "true")
+      );
+    });
     root.querySelector("[data-clear-form]")?.addEventListener("click", () => {
       root.querySelector("[data-product-form]")?.reset();
       editingProduct = null;
@@ -377,11 +541,22 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, o
       newCestProduct = "";
       newProductDraft = {
         nameProduct: "",
-        skuProduct: "",
-        barcodeProduct: "",
+        skuProduct: skuPrefix,
+        pdvCodeProduct: "",
         idGroup: "",
-        priceProduct: "",
-        stockQuantityProduct: ""
+        idFiscalOperationSaleProduct: getDefaultFiscalOperation()
+          ? String(getDefaultFiscalOperation().idFiscalOperation)
+          : "",
+        idProductTypeProduct: getScreenProductType()
+          ? String(getScreenProductType().idProductType)
+          : "",
+        idUnitProduct: "",
+        priceProduct: "0,00",
+        stockQuantityProduct: "0",
+        controlsStockProduct: defaultControlsStock,
+        isFractionalProduct: false,
+        printsKitchenProduct: false,
+        showsInPdvProduct: defaultShowsInPdv
       };
       error = "";
       message = "";
@@ -390,6 +565,21 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, o
     root.querySelector("[data-product-form]")?.addEventListener("submit", (event) => {
       event.preventDefault();
       void createProduct(new FormData(event.currentTarget));
+    });
+    root.querySelectorAll("[name='isFractionalProduct']").forEach((checkbox) => {
+      checkbox.addEventListener("change", () => {
+        const stockInput = checkbox.form?.elements.namedItem("stockQuantityProduct");
+        if (stockInput) stockInput.step = checkbox.checked ? "0.001" : "1";
+      });
+    });
+    root.querySelectorAll("[name='controlsStockProduct']").forEach((checkbox) => {
+      checkbox.addEventListener("change", () => {
+        const stockInput = checkbox.form?.elements.namedItem("stockQuantityProduct");
+        if (stockInput) {
+          stockInput.disabled = !checkbox.checked;
+          stockInput.readOnly = !checkbox.checked;
+        }
+      });
     });
     root.querySelector("[data-edit-product-form]")?.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -420,8 +610,9 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, o
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Não foi possível excluir o produto.");
       message = "Produto excluído com sucesso.";
-      products = products.filter((product) => product.idProduct !== id);
+      products = products.filter((product) => String(product.idProduct) !== String(id));
       render();
+      await load();
     } catch (deleteError) {
       error = deleteError instanceof Error ? deleteError.message : "Falha ao excluir o produto.";
       render();
@@ -432,20 +623,57 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, o
     loading = true;
     render();
     try {
-      const [groupResponse, productResponse] = await Promise.all([
+      const [groupResponse, productResponse, operationResponse, typeResponse, unitResponse, generalSettingsResponse] = await Promise.all([
         fetch(`${getApiUrl()}/api/groups?includeInactive=1`),
-        fetch(`${getApiUrl()}/api/products?includeInactive=1`)
+        fetch(`${getApiUrl()}/api/products?includeInactive=1&productType=${encodeURIComponent(productTypeDescription)}`),
+        fetch(`${getApiUrl()}/api/fiscal-operations`),
+        fetch(`${getApiUrl()}/api/product-types`),
+        fetch(`${getApiUrl()}/api/units`),
+        fetch(`${getApiUrl()}/api/general-settings`)
       ]);
       const groupPayload = await groupResponse.json();
       const productPayload = await productResponse.json();
+      const operationPayload = await operationResponse.json();
+      const typePayload = await typeResponse.json();
+      const unitPayload = await unitResponse.json();
+      const generalSettingsPayload = await generalSettingsResponse.json();
       if (!groupResponse.ok || !Array.isArray(groupPayload.groups)) {
         throw new Error(groupPayload.error || "Não foi possível carregar os grupos.");
       }
       if (!productResponse.ok || !Array.isArray(productPayload.products)) {
         throw new Error(productPayload.error || "Não foi possível carregar os produtos.");
       }
+      if (!operationResponse.ok || !Array.isArray(operationPayload.fiscalOperations)) {
+        throw new Error(operationPayload.error || "Não foi possível carregar as operações fiscais.");
+      }
+      if (!typeResponse.ok || !Array.isArray(typePayload.productTypes)) {
+        throw new Error(typePayload.error || "Não foi possível carregar os tipos de produto.");
+      }
+      if (!unitResponse.ok || !Array.isArray(unitPayload.units)) {
+        throw new Error(unitPayload.error || "Não foi possível carregar as unidades.");
+      }
+      if (!generalSettingsResponse.ok || !Array.isArray(generalSettingsPayload.settings)) {
+        throw new Error(generalSettingsPayload.error || "Não foi possível carregar as configurações gerais.");
+      }
       groups = groupPayload.groups;
       products = productPayload.products;
+      fiscalOperations = operationPayload.fiscalOperations.filter(({ typeFiscalOperation }) => typeFiscalOperation === "exit");
+      productTypes = typePayload.productTypes;
+      units = unitPayload.units;
+      allowNegativeStock = Boolean(
+        generalSettingsPayload.settings.find(({ keyGeneralSetting }) => keyGeneralSetting === "allowNegativeStock")
+          ?.booleanValueGeneralSetting
+      );
+      const screenProductType = getScreenProductType();
+      if (!newProductDraft.idProductTypeProduct && screenProductType) {
+        newProductDraft.idProductTypeProduct = String(screenProductType.idProductType);
+      }
+      if (!newProductDraft.idUnitProduct && getDefaultUnit()) {
+        newProductDraft.idUnitProduct = String(getDefaultUnit().idUnit);
+      }
+      if (!newProductDraft.idFiscalOperationSaleProduct && getDefaultFiscalOperation()) {
+        newProductDraft.idFiscalOperationSaleProduct = String(getDefaultFiscalOperation().idFiscalOperation);
+      }
       const ncmResponse = await fetch(`${getApiUrl()}/api/ncm-cest/ncms`);
       const ncmPayload = await ncmResponse.json();
       if (!ncmResponse.ok || !Array.isArray(ncmPayload.ncms)) {
@@ -493,12 +721,21 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, o
           ...(productId ? { idProduct: productId } : {}),
           nameProduct: formData.get("nameProduct"),
           skuProduct: formData.get("skuProduct"),
-          barcodeProduct: formData.get("barcodeProduct") || null,
+          pdvCodeProduct: formData.get("pdvCodeProduct") || null,
           idGroup: Number(formData.get("idGroup")),
+          idFiscalOperationSaleProduct: formData.get("idFiscalOperationSaleProduct") ? Number(formData.get("idFiscalOperationSaleProduct")) : null,
+          idProductTypeProduct: formData.get("idProductTypeProduct") ? Number(formData.get("idProductTypeProduct")) : null,
+          idUnitProduct: formData.get("idUnitProduct") ? Number(formData.get("idUnitProduct")) : null,
           ncmProduct: formData.get("ncmProduct") || null,
           cestProduct: formData.get("cestProduct") || null,
           priceProduct: normalizeMaskedNumber(formData.get("priceProduct")),
           stockQuantityProduct: formData.get("stockQuantityProduct")
+            ?? (productId ? editingProduct?.stockQuantityProduct : newProductDraft.stockQuantityProduct)
+            ?? "0",
+          controlsStockProduct: formData.get("controlsStockProduct") === "on",
+          isFractionalProduct: formData.get("isFractionalProduct") === "on",
+          printsKitchenProduct: formData.get("printsKitchenProduct") === "on",
+          showsInPdvProduct: formData.get("showsInPdvProduct") === "on"
         })
       });
       const payload = await response.json();
@@ -529,6 +766,23 @@ export function createCatalogScreen({ onBack, onClasses, onGroups, onProducts, o
       await load();
     } catch (statusError) {
       error = statusError instanceof Error ? statusError.message : "Falha ao alterar o status do produto.";
+      render();
+    }
+  };
+
+  const updateProductPdvVisibility = async (idProduct, showsInPdvProduct) => {
+    try {
+      const response = await fetch(`${getApiUrl()}/api/products/pdv-status`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idProduct, showsInPdvProduct })
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Não foi possível alterar a exibição do produto no PDV.");
+      message = showsInPdvProduct ? "Produto exibido no PDV." : "Produto ocultado do PDV.";
+      await load();
+    } catch (visibilityError) {
+      error = visibilityError instanceof Error ? visibilityError.message : "Falha ao alterar a exibição do produto no PDV.";
       render();
     }
   };

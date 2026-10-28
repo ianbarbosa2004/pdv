@@ -1,4 +1,5 @@
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
+import { setProjectIcon } from "../ui/project-icon.js";
 
 const getApiUrl = () =>
   window.__PDV_API_URL__ || `http://${window.location.hostname}:3000`;
@@ -47,7 +48,9 @@ const emptyCompany = {
   nfceCertificateExpiresCompany: "",
   nfceCertificateSerialCompany: "",
   logoMimeCompany: "",
-  logoDataCompany: ""
+  logoDataCompany: "",
+  projectIconMimeCompany: "",
+  projectIconDataCompany: ""
 };
 
 const formValue = (company, key) => company?.[key] ?? emptyCompany[key];
@@ -136,6 +139,7 @@ export function createCompanyScreen({
   let saving = false;
   let lookingUpCep = false;
   let selectedLogo = null;
+  let selectedProjectIcon = null;
   let error = "";
   let message = "";
 
@@ -219,16 +223,31 @@ export function createCompanyScreen({
               ${renderField("E-mail", "emailCompany", { type: "email", maxlength: 180, autocomplete: "email" })}
               ${renderField("Site", "websiteCompany", { maxlength: 180, autocomplete: "url" })}
             </div>
-            <div class="company-logo-field">
-              <div class="form-field">
-                <span>Logotipo principal</span>
-                <input name="logoCompany" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
-                <small>Usado nos relatórios e cupons. Formatos aceitos: PNG, JPEG, WebP ou GIF, até 2 MB.</small>
-              </div>
-              <div class="company-logo-preview" data-logo-preview>
-                ${company.logoDataCompany
-                  ? `<img src="${escapeHtml(company.logoDataCompany)}" alt="Pré-visualização do logotipo principal" />`
-                  : `<span>Nenhum logotipo selecionado</span>`}
+              <div class="company-brand-fields">
+                <div class="company-logo-field">
+                  <div class="form-field">
+                    <span>Logotipo principal</span>
+                    <input name="logoCompany" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+                    <small>Usado nos relatórios e cupons. Formatos aceitos: PNG, JPEG, WebP ou GIF, até 2 MB.</small>
+                  </div>
+                  <div class="company-logo-preview" data-logo-preview>
+                    ${company.logoDataCompany
+                      ? `<img src="${escapeHtml(company.logoDataCompany)}" alt="Pré-visualização do logotipo principal" />`
+                      : `<span>Nenhum logotipo selecionado</span>`}
+                  </div>
+                </div>
+                <div class="company-logo-field">
+                  <div class="form-field">
+                    <span>Icone do aplicativo</span>
+                    <input name="projectIconCompany" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+                    <small>Exibido no título da aplicação e no favicon. Formatos aceitos: PNG, JPEG, WebP ou GIF, até 512 KB.</small>
+                  </div>
+                  <div class="company-logo-preview" data-project-icon-preview>
+                    ${company.projectIconDataCompany
+                      ? `<img src="${escapeHtml(company.projectIconDataCompany)}" alt="Pré-visualização do ícone do aplicativo" />`
+                      : `<span>Nenhum ícone selecionado</span>`}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -258,6 +277,7 @@ export function createCompanyScreen({
     root.querySelector("[data-reset]")?.addEventListener("click", () => {
       company = { ...emptyCompany };
       selectedLogo = null;
+      selectedProjectIcon = null;
       error = "";
       message = "";
       render();
@@ -303,6 +323,16 @@ export function createCompanyScreen({
         preview.innerHTML = `<img src="${escapeHtml(reader.result)}" alt="Pré-visualização do logotipo principal" />`;
       });
       reader.readAsDataURL(selectedLogo);
+    });
+    root.querySelector("[name='projectIconCompany']")?.addEventListener("change", (event) => {
+      selectedProjectIcon = event.currentTarget.files?.[0] || null;
+      const preview = root.querySelector("[data-project-icon-preview]");
+      if (!selectedProjectIcon || !preview) return;
+      const reader = new FileReader();
+      reader.addEventListener("load", () => {
+        preview.innerHTML = `<img src="${escapeHtml(reader.result)}" alt="Pré-visualização do ícone do projeto" />`;
+      });
+      reader.readAsDataURL(selectedProjectIcon);
     });
     root.querySelector("[data-form]")?.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -364,6 +394,7 @@ export function createCompanyScreen({
         throw new Error(payload.error || "Não foi possível carregar o cadastro da empresa.");
       }
       company = { ...emptyCompany, ...payload.company };
+      setProjectIcon(company.projectIconDataCompany, company.projectIconMimeCompany);
       error = "";
     } catch (loadError) {
       error = loadError instanceof Error ? loadError.message : "Falha ao carregar o cadastro da empresa.";
@@ -389,6 +420,15 @@ export function createCompanyScreen({
         payload.logoDataCompany = company.logoDataCompany || "";
         payload.logoMimeCompany = company.logoMimeCompany || "";
       }
+      delete payload.projectIconCompany;
+      if (selectedProjectIcon) {
+        const projectIconDataCompany = await readProjectIcon(selectedProjectIcon);
+        payload.projectIconDataCompany = projectIconDataCompany;
+        payload.projectIconMimeCompany = selectedProjectIcon.type;
+      } else {
+        payload.projectIconDataCompany = company.projectIconDataCompany || "";
+        payload.projectIconMimeCompany = company.projectIconMimeCompany || "";
+      }
       const response = await fetch(`${getApiUrl()}/api/company`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -399,7 +439,9 @@ export function createCompanyScreen({
         throw new Error(result.error || "Não foi possível salvar o cadastro da empresa.");
       }
       company = { ...emptyCompany, ...result.company };
+      setProjectIcon(company.projectIconDataCompany, company.projectIconMimeCompany);
       selectedLogo = null;
+      selectedProjectIcon = null;
       message = "Cadastro da empresa salvo com sucesso.";
     } catch (saveError) {
       error = saveError instanceof Error ? saveError.message : "Falha ao salvar o cadastro da empresa.";
@@ -422,6 +464,22 @@ export function createCompanyScreen({
       const reader = new FileReader();
       reader.addEventListener("load", () => resolve(String(reader.result)));
       reader.addEventListener("error", () => reject(new Error("Não foi possível ler o logotipo.")));
+      reader.readAsDataURL(file);
+    });
+
+  const readProjectIcon = (file) =>
+    new Promise((resolve, reject) => {
+      if (!["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.type)) {
+        reject(new Error("O ícone deve estar em PNG, JPEG, WebP ou GIF."));
+        return;
+      }
+      if (file.size > 512 * 1024) {
+        reject(new Error("O ícone deve ter no máximo 512 KB."));
+        return;
+      }
+      const reader = new FileReader();
+      reader.addEventListener("load", () => resolve(String(reader.result)));
+      reader.addEventListener("error", () => reject(new Error("Não foi possível ler o ícone.")));
       reader.readAsDataURL(file);
     });
 

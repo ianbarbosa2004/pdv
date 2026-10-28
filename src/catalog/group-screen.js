@@ -1,5 +1,6 @@
 import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
+import { bindFormRowPreview } from "../ui/form-row-preview.js";
 import { bindProductNavigation, renderProductNavigation } from "./product-navigation.js";
 
 const escapeHtml = (value) =>
@@ -13,7 +14,7 @@ const escapeHtml = (value) =>
 const getApiUrl = () =>
   window.__PDV_API_URL__ || `http://${window.location.hostname}:3000`;
 
-export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onNcmCest, onFiscalOperations, onThermalPrint, onNcmCestUpdate, onSettings, onCompany, onNfce, onFinancial, onPaymentMethods }) {
+export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onProductTypes, onUnits, onNcmCest, onFiscalOperations, onThermalPrint, onNcmCestUpdate, onSettings, onCompany, onNfce, onFinancial, onPaymentMethods }) {
   const root = document.createElement("main");
   let classes = [];
   let groups = [];
@@ -68,6 +69,10 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onN
                 ${classes.map((item) => `<option value="${item.idClass}">${escapeHtml(item.descriptionClass)}</option>`).join("")}
               </select>
             </label>
+            <label class="form-field checkbox-field">
+              <span>Exibir no PDV</span>
+              <input name="showsInPdvGroup" type="checkbox" />
+            </label>
             ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}
             ${message ? `<p class="success-message">${escapeHtml(message)}</p>` : ""}
           </div>
@@ -95,12 +100,19 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onN
                       <th aria-sort="${sortState.key === "descriptionClass" ? (sortState.direction === "asc" ? "ascending" : "descending") : "none"}">
                         <button class="table-sort-button" type="button" data-sort="descriptionClass">Classe <span aria-hidden="true">${sortIndicator("descriptionClass")}</span></button>
                       </th>
+                      <th>Exibir no PDV</th>
                       <th>Status</th><th class="actions-column">Ações</th>
                     </tr></thead>
                     <tbody>${getVisibleGroups().map((item) => `
-                      <tr class="${item.isActiveGroup ? "" : "is-inactive"}">
+                      <tr class="${item.isActiveGroup ? "" : "is-inactive"}" data-view-record="${escapeHtml(JSON.stringify(item))}">
                         <td>${escapeHtml(item.descriptionGroup)}</td>
                         <td>${escapeHtml(item.descriptionClass)}</td>
+                        <td>
+                          <button class="status-toggle ${Number(item.showsInPdvGroup) ? "is-active" : "is-inactive"}" type="button" role="switch" aria-checked="${Number(item.showsInPdvGroup) ? "true" : "false"}" data-pdv-status-id="${item.idGroup}" aria-label="Alternar exibição do grupo ${escapeHtml(item.descriptionGroup)} no PDV">
+                            <span class="status-toggle-track"><span class="status-toggle-thumb"></span></span>
+                            <span class="status-toggle-label">${Number(item.showsInPdvGroup) ? "Sim" : "Não"}</span>
+                          </button>
+                        </td>
                         <td>
                           <button class="status-toggle ${item.isActiveGroup ? "is-active" : "is-inactive"}" type="button" role="switch" aria-checked="${item.isActiveGroup ? "true" : "false"}" data-status-id="${item.idGroup}" aria-label="Alternar status do grupo ${escapeHtml(item.descriptionGroup)}">
                             <span class="status-toggle-track"><span class="status-toggle-thumb"></span></span>
@@ -120,7 +132,7 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onN
       ${editingGroup ? `
         <div class="classic-modal-backdrop" data-modal-backdrop>
           <section class="classic-modal" role="dialog" aria-modal="true" aria-labelledby="edit-group-title">
-            <div class="classic-panel-header" id="edit-group-title">Editar grupo</div>
+            <div class="classic-panel-header modal-panel-header"><span id="edit-group-title">Editar grupo</span><button class="modal-close-button" data-cancel-edit type="button" aria-label="Fechar" title="Fechar"><i data-lucide="x"></i></button></div>
             <form data-edit-group-form>
               <div class="classic-form-body">
                 <label class="form-field">
@@ -132,6 +144,10 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onN
                   <select name="idClass" required>
                     ${classes.map((item) => `<option value="${item.idClass}" ${item.idClass === editingGroup.idClass ? "selected" : ""}>${escapeHtml(item.descriptionClass)}</option>`).join("")}
                   </select>
+                </label>
+                <label class="form-field checkbox-field">
+                  <span>Exibir no PDV</span>
+                  <input name="showsInPdvGroup" type="checkbox" ${Number(editingGroup.showsInPdvGroup) ? "checked" : ""} />
                 </label>
                 ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}
               </div>
@@ -147,6 +163,8 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onN
     renderLucideIcons(root);
     bindMainMenu(root, {
       products: onProducts,
+      "product-types": onProductTypes,
+      units: onUnits,
       "fiscal-operations": onFiscalOperations,
       "thermal-print": onThermalPrint,
       "ncm-cest-update": onNcmCestUpdate,
@@ -156,7 +174,8 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onN
       financial: onFinancial,
       "payment-methods": onPaymentMethods
     });
-    bindProductNavigation(root, { back: onBack, classes: onClasses, groups: onGroups, products: onProducts, "ncm-cest": onNcmCest });
+    bindProductNavigation(root, { back: onBack, classes: onClasses, groups: onGroups, products: onProducts, "product-types": onProductTypes, units: onUnits, "ncm-cest": onNcmCest });
+    bindFormRowPreview(root, { formSelector: "[data-group-form]" });
     root.querySelector("[data-search]")?.addEventListener("input", (event) => {
       searchTerm = event.currentTarget.value;
       render();
@@ -191,6 +210,11 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onN
         void updateGroupStatus(Number(toggle.dataset.statusId), toggle.getAttribute("aria-checked") !== "true")
       );
     });
+    root.querySelectorAll("[data-pdv-status-id]").forEach((toggle) => {
+      toggle.addEventListener("click", () =>
+        void updateGroupPdvVisibility(Number(toggle.dataset.pdvStatusId), toggle.getAttribute("aria-checked") !== "true")
+      );
+    });
     root.querySelector("[data-clear]")?.addEventListener("click", () => {
       root.querySelector("[data-group-form]")?.reset();
       editingGroup = null;
@@ -201,12 +225,20 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onN
     root.querySelector("[data-group-form]")?.addEventListener("submit", (event) => {
       event.preventDefault();
       const form = Object.fromEntries(new FormData(event.currentTarget));
-      void submitGroup({ ...form, idClass: Number(form.idClass) });
+      void submitGroup({
+        ...form,
+        idClass: Number(form.idClass),
+        showsInPdvGroup: form.showsInPdvGroup === "on"
+      });
     });
     root.querySelector("[data-edit-group-form]")?.addEventListener("submit", (event) => {
       event.preventDefault();
       const form = Object.fromEntries(new FormData(event.currentTarget));
-      void submitGroup({ ...form, idClass: Number(form.idClass) }, editingGroup?.idGroup);
+      void submitGroup({
+        ...form,
+        idClass: Number(form.idClass),
+        showsInPdvGroup: form.showsInPdvGroup === "on"
+      }, editingGroup?.idGroup);
     });
     root.querySelector("[data-cancel-edit]")?.addEventListener("click", () => {
       editingGroup = null;
@@ -284,6 +316,8 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onN
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Não foi possível excluir o grupo.");
       message = "Grupo excluído com sucesso.";
+      groups = groups.filter((item) => String(item.idGroup) !== String(idGroup));
+      render();
       await load();
     } catch (deleteError) {
       error = deleteError instanceof Error ? deleteError.message : "Falha ao excluir o grupo.";
@@ -304,6 +338,23 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onN
       await load();
     } catch (statusError) {
       error = statusError instanceof Error ? statusError.message : "Falha ao alterar o status do grupo.";
+      render();
+    }
+  };
+
+  const updateGroupPdvVisibility = async (idGroup, showsInPdvGroup) => {
+    try {
+      const response = await fetch(`${getApiUrl()}/api/groups/pdv-status`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idGroup, showsInPdvGroup })
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Não foi possível alterar a exibição do grupo no PDV.");
+      message = showsInPdvGroup ? "Grupo exibido no PDV." : "Grupo ocultado do PDV.";
+      await load();
+    } catch (visibilityError) {
+      error = visibilityError instanceof Error ? visibilityError.message : "Falha ao alterar a exibição do grupo no PDV.";
       render();
     }
   };

@@ -7,17 +7,19 @@ USE `pdv`;
 CREATE TABLE IF NOT EXISTS classes (
   idClass BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   descriptionClass VARCHAR(120) NOT NULL,
+  idFiscalOperationClass BIGINT UNSIGNED NULL,
   isActiveClass TINYINT(1) NOT NULL DEFAULT 1,
   createdAtClass TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAtClass TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (idClass),
-  UNIQUE KEY uqClassesDescriptionClass (descriptionClass)
+  UNIQUE KEY uqClassesDescriptionClass (descriptionClass),
+  KEY idxClassesFiscalOperation (idFiscalOperationClass)
 ) ENGINE=InnoDB;
-
 CREATE TABLE IF NOT EXISTS `groups` (
   idGroup BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   descriptionGroup VARCHAR(120) NOT NULL,
   idClass BIGINT UNSIGNED NOT NULL,
+  showsInPdvGroup TINYINT(1) NOT NULL DEFAULT 0,
   isActiveGroup TINYINT(1) NOT NULL DEFAULT 1,
   createdAtGroup TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAtGroup TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -33,24 +35,48 @@ CREATE TABLE IF NOT EXISTS products (
   idProduct BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   idGroup BIGINT UNSIGNED NOT NULL,
   skuProduct VARCHAR(64) NOT NULL,
-  barcodeProduct VARCHAR(64) NULL,
+  pdvCodeProduct VARCHAR(64) NULL,
   nameProduct VARCHAR(180) NOT NULL,
+  idFiscalOperationSaleProduct BIGINT UNSIGNED NULL,
+  idProductTypeProduct BIGINT UNSIGNED NULL,
+  idUnitProduct BIGINT UNSIGNED NULL,
   ncmProduct CHAR(8) NULL,
   cestProduct CHAR(7) NULL,
   priceProduct DECIMAL(12,2) NOT NULL,
   stockQuantityProduct DECIMAL(12,3) NOT NULL DEFAULT 0,
+  controlsStockProduct TINYINT(1) NOT NULL DEFAULT 1,
+  isFractionalProduct TINYINT(1) NOT NULL DEFAULT 0,
+  printsKitchenProduct TINYINT(1) NOT NULL DEFAULT 0,
+  showsInPdvProduct TINYINT(1) NOT NULL DEFAULT 1,
   isActiveProduct TINYINT(1) NOT NULL DEFAULT 1,
   createdAtProduct TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAtProduct TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (idProduct),
   UNIQUE KEY uqProductsSkuProduct (skuProduct),
-  UNIQUE KEY uqProductsBarcodeProduct (barcodeProduct),
+  UNIQUE KEY uqProductsPdvCodeProduct (pdvCodeProduct),
   KEY idxProductsNcmProduct (ncmProduct),
   KEY idxProductsCestProduct (cestProduct),
   KEY idxProductsIsActiveProductNameProduct (isActiveProduct, nameProduct),
   CONSTRAINT fkProductsGroup
     FOREIGN KEY (idGroup) REFERENCES `groups` (idGroup)
     ON DELETE RESTRICT
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS product_types (
+  idProductType BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  descriptionProductType VARCHAR(120) NOT NULL,
+  isActiveProductType TINYINT(1) NOT NULL DEFAULT 1,
+  PRIMARY KEY (idProductType),
+  UNIQUE KEY uqProductTypesDescription (descriptionProductType)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS units (
+  idUnit BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  codeUnit CHAR(6) NOT NULL,
+  descriptionUnit VARCHAR(80) NOT NULL,
+  isActiveUnit TINYINT(1) NOT NULL DEFAULT 1,
+  PRIMARY KEY (idUnit),
+  UNIQUE KEY uqUnitsCode (codeUnit)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS ncm_catalog (
@@ -125,9 +151,16 @@ CREATE TABLE IF NOT EXISTS printer_settings (
   PRIMARY KEY (idPrinterSetting)
 ) ENGINE=InnoDB;
 
-INSERT INTO printer_settings (idPrinterSetting)
-VALUES (1)
-ON DUPLICATE KEY UPDATE idPrinterSetting = idPrinterSetting;
+CREATE TABLE IF NOT EXISTS general_settings (
+  idGeneralSetting BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  keyGeneralSetting VARCHAR(80) NOT NULL,
+  labelGeneralSetting VARCHAR(160) NOT NULL,
+  typeGeneralSetting ENUM('boolean') NOT NULL DEFAULT 'boolean',
+  booleanValueGeneralSetting TINYINT(1) NOT NULL DEFAULT 0,
+  updatedAtGeneralSetting TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (idGeneralSetting),
+  UNIQUE KEY uqGeneralSettingsKey (keyGeneralSetting)
+) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS company_settings (
   idCompanySetting TINYINT UNSIGNED NOT NULL,
@@ -170,17 +203,15 @@ CREATE TABLE IF NOT EXISTS company_settings (
   nfceCertificatePasswordCompany MEDIUMTEXT NULL,
   logoMimeCompany VARCHAR(50) NOT NULL DEFAULT '',
   logoDataCompany MEDIUMTEXT NULL,
+  projectIconMimeCompany VARCHAR(50) NOT NULL DEFAULT '',
+  projectIconDataCompany MEDIUMTEXT NULL,
   createdAtCompanySetting TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAtCompanySetting TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (idCompanySetting)
 ) ENGINE=InnoDB;
 
-INSERT INTO company_settings (idCompanySetting)
-VALUES (1)
-ON DUPLICATE KEY UPDATE idCompanySetting = idCompanySetting;
-
 CREATE TABLE IF NOT EXISTS navigation_menus (
-  idNavigationMenu TINYINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  idNavigationMenu SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT,
   keyNavigationMenu VARCHAR(80) NOT NULL,
   labelNavigationMenu VARCHAR(120) NOT NULL,
   orderNavigationMenu SMALLINT UNSIGNED NOT NULL,
@@ -191,14 +222,16 @@ CREATE TABLE IF NOT EXISTS navigation_menus (
 
 CREATE TABLE IF NOT EXISTS navigation_items (
   idNavigationItem BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  idNavigationMenu TINYINT UNSIGNED NOT NULL,
+  idNavigationMenu SMALLINT UNSIGNED NOT NULL,
   idParentNavigationItem BIGINT UNSIGNED NULL,
   typeNavigationItem ENUM('item', 'submenu', 'bar') NOT NULL,
   keyNavigationItem VARCHAR(80) NOT NULL,
   labelNavigationItem VARCHAR(120) NOT NULL,
   routeNavigationItem VARCHAR(120) NULL,
+  descriptionNavigationItem VARCHAR(240) NULL,
   orderNavigationItem SMALLINT UNSIGNED NOT NULL,
   isActiveNavigationItem TINYINT(1) NOT NULL DEFAULT 1,
+  showsInBackofficeHomeNavigationItem TINYINT(1) NOT NULL DEFAULT 0,
   PRIMARY KEY (idNavigationItem),
   UNIQUE KEY uqNavigationItemsMenuParentKey (idNavigationMenu, idParentNavigationItem, keyNavigationItem),
   KEY idxNavigationItemsMenuParentOrder (idNavigationMenu, idParentNavigationItem, orderNavigationItem),
@@ -209,239 +242,6 @@ CREATE TABLE IF NOT EXISTS navigation_items (
     FOREIGN KEY (idParentNavigationItem) REFERENCES navigation_items (idNavigationItem)
     ON DELETE CASCADE
 ) ENGINE=InnoDB;
-
-INSERT INTO navigation_menus (keyNavigationMenu, labelNavigationMenu, orderNavigationMenu)
-VALUES ('registrations', 'Cadastros', 2)
-ON DUPLICATE KEY UPDATE
-  labelNavigationMenu = VALUES(labelNavigationMenu),
-  orderNavigationMenu = VALUES(orderNavigationMenu);
-
-SET @registrationsMenuId = (
-  SELECT idNavigationMenu FROM navigation_menus WHERE keyNavigationMenu = 'registrations'
-);
-
-INSERT INTO navigation_items
-  (idNavigationMenu, idParentNavigationItem, typeNavigationItem, keyNavigationItem, labelNavigationItem, routeNavigationItem, orderNavigationItem)
-SELECT @registrationsMenuId, NULL, 'item', 'products', 'Produtos', NULL, 1
-FROM dual
-WHERE NOT EXISTS (
-  SELECT 1 FROM navigation_items
-  WHERE idNavigationMenu = @registrationsMenuId
-    AND idParentNavigationItem IS NULL
-    AND keyNavigationItem = 'products'
-);
-
-UPDATE navigation_items
-SET labelNavigationItem = 'Produtos', orderNavigationItem = 1
-WHERE idNavigationMenu = @registrationsMenuId
-  AND idParentNavigationItem IS NULL
-  AND keyNavigationItem = 'products';
-
-INSERT INTO navigation_items
-  (idNavigationMenu, idParentNavigationItem, typeNavigationItem, keyNavigationItem, labelNavigationItem, routeNavigationItem, orderNavigationItem)
-SELECT @registrationsMenuId, NULL, 'item', 'fiscal-operations', 'Operações Fiscais', NULL, 2
-FROM dual
-WHERE NOT EXISTS (
-  SELECT 1 FROM navigation_items
-  WHERE idNavigationMenu = @registrationsMenuId
-    AND idParentNavigationItem IS NULL
-    AND keyNavigationItem = 'fiscal-operations'
-);
-
-UPDATE navigation_items
-SET labelNavigationItem = 'Operações Fiscais', orderNavigationItem = 2
-WHERE idNavigationMenu = @registrationsMenuId
-  AND idParentNavigationItem IS NULL
-  AND keyNavigationItem = 'fiscal-operations';
-
-SET @productsItemId = (
-  SELECT idNavigationItem
-  FROM navigation_items
-  WHERE idNavigationMenu = @registrationsMenuId
-    AND idParentNavigationItem IS NULL
-    AND keyNavigationItem = 'products'
-);
-
-INSERT INTO navigation_items
-  (idNavigationMenu, idParentNavigationItem, typeNavigationItem, keyNavigationItem, labelNavigationItem, routeNavigationItem, orderNavigationItem)
-SELECT @registrationsMenuId, @productsItemId, 'bar', 'products', 'Produtos', 'products', 1
-FROM dual
-WHERE NOT EXISTS (
-  SELECT 1 FROM navigation_items
-  WHERE idNavigationMenu = @registrationsMenuId
-    AND idParentNavigationItem = @productsItemId
-    AND keyNavigationItem = 'products'
-);
-
-UPDATE navigation_items
-SET labelNavigationItem = 'Produtos', routeNavigationItem = 'products', orderNavigationItem = 1
-WHERE idNavigationMenu = @registrationsMenuId
-  AND idParentNavigationItem = @productsItemId
-  AND keyNavigationItem = 'products';
-
-INSERT INTO navigation_items
-  (idNavigationMenu, idParentNavigationItem, typeNavigationItem, keyNavigationItem, labelNavigationItem, routeNavigationItem, orderNavigationItem)
-SELECT @registrationsMenuId, @productsItemId, 'bar', 'classes', 'Classes', 'classes', 2
-FROM dual
-WHERE NOT EXISTS (
-  SELECT 1 FROM navigation_items
-  WHERE idNavigationMenu = @registrationsMenuId
-    AND idParentNavigationItem = @productsItemId
-    AND keyNavigationItem = 'classes'
-);
-
-UPDATE navigation_items
-SET labelNavigationItem = 'Classes', routeNavigationItem = 'classes', orderNavigationItem = 2
-WHERE idNavigationMenu = @registrationsMenuId
-  AND idParentNavigationItem = @productsItemId
-  AND keyNavigationItem = 'classes';
-
-INSERT INTO navigation_items
-  (idNavigationMenu, idParentNavigationItem, typeNavigationItem, keyNavigationItem, labelNavigationItem, routeNavigationItem, orderNavigationItem)
-SELECT @registrationsMenuId, @productsItemId, 'bar', 'groups', 'Grupos', 'groups', 3
-FROM dual
-WHERE NOT EXISTS (
-  SELECT 1 FROM navigation_items
-  WHERE idNavigationMenu = @registrationsMenuId
-    AND idParentNavigationItem = @productsItemId
-    AND keyNavigationItem = 'groups'
-);
-
-UPDATE navigation_items
-SET labelNavigationItem = 'Grupos', routeNavigationItem = 'groups', orderNavigationItem = 3
-WHERE idNavigationMenu = @registrationsMenuId
-  AND idParentNavigationItem = @productsItemId
-  AND keyNavigationItem = 'groups';
-
-INSERT INTO navigation_items
-  (idNavigationMenu, idParentNavigationItem, typeNavigationItem, keyNavigationItem, labelNavigationItem, routeNavigationItem, orderNavigationItem)
-SELECT @registrationsMenuId, @productsItemId, 'bar', 'ncm-cest', 'NCM / CEST', 'ncm-cest', 4
-FROM dual
-WHERE NOT EXISTS (
-  SELECT 1 FROM navigation_items
-  WHERE idNavigationMenu = @registrationsMenuId
-    AND idParentNavigationItem = @productsItemId
-    AND keyNavigationItem = 'ncm-cest'
-);
-
-UPDATE navigation_items
-SET labelNavigationItem = 'NCM / CEST', routeNavigationItem = 'ncm-cest', orderNavigationItem = 4
-WHERE idNavigationMenu = @registrationsMenuId
-  AND idParentNavigationItem = @productsItemId
-  AND keyNavigationItem = 'ncm-cest';
-
-SET @fiscalOperationsItemId = (
-  SELECT idNavigationItem
-  FROM navigation_items
-  WHERE idNavigationMenu = @registrationsMenuId
-    AND idParentNavigationItem IS NULL
-    AND keyNavigationItem = 'fiscal-operations'
-);
-
-INSERT INTO navigation_items
-  (idNavigationMenu, idParentNavigationItem, typeNavigationItem, keyNavigationItem, labelNavigationItem, routeNavigationItem, orderNavigationItem)
-SELECT @registrationsMenuId, @fiscalOperationsItemId, 'bar', 'fiscal-operations', 'Operações Fiscais', 'fiscal-operations', 1
-FROM dual
-WHERE NOT EXISTS (
-  SELECT 1 FROM navigation_items
-  WHERE idNavigationMenu = @registrationsMenuId
-    AND idParentNavigationItem = @fiscalOperationsItemId
-    AND keyNavigationItem = 'fiscal-operations'
-);
-
-UPDATE navigation_items
-SET labelNavigationItem = 'Operações Fiscais', routeNavigationItem = 'fiscal-operations', orderNavigationItem = 1
-WHERE idNavigationMenu = @registrationsMenuId
-  AND idParentNavigationItem = @fiscalOperationsItemId
-  AND keyNavigationItem = 'fiscal-operations';
-
-INSERT INTO navigation_items
-  (idNavigationMenu, idParentNavigationItem, typeNavigationItem, keyNavigationItem, labelNavigationItem, routeNavigationItem, orderNavigationItem)
-SELECT @registrationsMenuId, @fiscalOperationsItemId, 'bar', 'cfops', 'CFOP', 'cfops', 2
-FROM dual
-WHERE NOT EXISTS (
-  SELECT 1 FROM navigation_items
-  WHERE idNavigationMenu = @registrationsMenuId
-    AND idParentNavigationItem = @fiscalOperationsItemId
-    AND keyNavigationItem = 'cfops'
-);
-
-UPDATE navigation_items
-SET labelNavigationItem = 'CFOP', routeNavigationItem = 'cfops', orderNavigationItem = 2
-WHERE idNavigationMenu = @registrationsMenuId
-  AND idParentNavigationItem = @fiscalOperationsItemId
-  AND keyNavigationItem = 'cfops';
-
-INSERT INTO navigation_items
-  (idNavigationMenu, idParentNavigationItem, typeNavigationItem, keyNavigationItem, labelNavigationItem, routeNavigationItem, orderNavigationItem)
-SELECT @registrationsMenuId, @fiscalOperationsItemId, 'bar', 'tax-situations', 'CST / CSOSN', 'tax-situations', 3
-FROM dual
-WHERE NOT EXISTS (
-  SELECT 1 FROM navigation_items
-  WHERE idNavigationMenu = @registrationsMenuId
-    AND idParentNavigationItem = @fiscalOperationsItemId
-    AND keyNavigationItem = 'tax-situations'
-);
-
-UPDATE navigation_items
-SET labelNavigationItem = 'CST / CSOSN', routeNavigationItem = 'tax-situations', orderNavigationItem = 3
-WHERE idNavigationMenu = @registrationsMenuId
-  AND idParentNavigationItem = @fiscalOperationsItemId
-  AND keyNavigationItem = 'tax-situations';
-
-INSERT INTO navigation_items
-  (idNavigationMenu, idParentNavigationItem, typeNavigationItem, keyNavigationItem, labelNavigationItem, routeNavigationItem, orderNavigationItem)
-SELECT @registrationsMenuId, @fiscalOperationsItemId, 'bar', 'icms-rates', 'Alíquotas ICMS', 'icms-rates', 4
-FROM dual
-WHERE NOT EXISTS (
-  SELECT 1 FROM navigation_items
-  WHERE idNavigationMenu = @registrationsMenuId
-    AND idParentNavigationItem = @fiscalOperationsItemId
-    AND keyNavigationItem = 'icms-rates'
-);
-
-UPDATE navigation_items
-SET labelNavigationItem = 'Alíquotas ICMS', routeNavigationItem = 'icms-rates', orderNavigationItem = 4
-WHERE idNavigationMenu = @registrationsMenuId
-  AND idParentNavigationItem = @fiscalOperationsItemId
-  AND keyNavigationItem = 'icms-rates';
-
-INSERT INTO navigation_items
-  (idNavigationMenu, idParentNavigationItem, typeNavigationItem, keyNavigationItem, labelNavigationItem, routeNavigationItem, orderNavigationItem)
-VALUES
-  (@registrationsMenuId, @fiscalOperationsItemId, 'bar', 'tax-regimes', 'Regimes', 'tax-regimes', 5),
-  (@registrationsMenuId, @fiscalOperationsItemId, 'bar', 'operation-types', 'Tipos', 'operation-types', 6),
-  (@registrationsMenuId, @fiscalOperationsItemId, 'bar', 'contexts', 'Contextos', 'contexts', 7),
-  (@registrationsMenuId, @fiscalOperationsItemId, 'bar', 'origins', 'Origens', 'origins', 8),
-  (@registrationsMenuId, @fiscalOperationsItemId, 'bar', 'ipi-situations', 'IPI', 'ipi-situations', 9),
-  (@registrationsMenuId, @fiscalOperationsItemId, 'bar', 'contribution-situations', 'PIS / COFINS', 'contribution-situations', 10),
-  (@registrationsMenuId, @fiscalOperationsItemId, 'bar', 'base-modes', 'Bases', 'base-modes', 11),
-  (@registrationsMenuId, @fiscalOperationsItemId, 'bar', 'exemption-reasons', 'Desoneração', 'exemption-reasons', 12)
-ON DUPLICATE KEY UPDATE
-  labelNavigationItem = VALUES(labelNavigationItem),
-  routeNavigationItem = VALUES(routeNavigationItem),
-  orderNavigationItem = VALUES(orderNavigationItem);
-
-INSERT INTO navigation_menus (keyNavigationMenu, labelNavigationMenu, orderNavigationMenu)
-VALUES ('settings', 'Configurações', 3)
-ON DUPLICATE KEY UPDATE
-  labelNavigationMenu = VALUES(labelNavigationMenu),
-  orderNavigationMenu = VALUES(orderNavigationMenu);
-
-SET @settingsMenuId = (
-  SELECT idNavigationMenu FROM navigation_menus WHERE keyNavigationMenu = 'settings'
-);
-
-INSERT INTO navigation_items
-  (idNavigationMenu, idParentNavigationItem, typeNavigationItem, keyNavigationItem, labelNavigationItem, routeNavigationItem, orderNavigationItem)
-VALUES
-  (@settingsMenuId, NULL, 'item', 'settings', 'Impressoras', 'settings', 1),
-  (@settingsMenuId, NULL, 'item', 'company', 'Dados da Empresa', 'company', 2),
-  (@settingsMenuId, NULL, 'item', 'nfce', 'NFC-e', 'nfce', 3)
-ON DUPLICATE KEY UPDATE
-  labelNavigationItem = VALUES(labelNavigationItem),
-  routeNavigationItem = VALUES(routeNavigationItem),
-  orderNavigationItem = VALUES(orderNavigationItem);
 
 CREATE TABLE IF NOT EXISTS fiscal_operations (
   idFiscalOperation BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -532,9 +332,3 @@ CREATE TABLE IF NOT EXISTS sale_payments (
     FOREIGN KEY (idPaymentMethod) REFERENCES payment_methods (idPaymentMethod)
     ON DELETE RESTRICT
 ) ENGINE=InnoDB;
-
-INSERT IGNORE INTO payment_methods (namePaymentMethod) VALUES
-  ('Dinheiro'),
-  ('Pix'),
-  ('Cartão de débito'),
-  ('Cartão de crédito');

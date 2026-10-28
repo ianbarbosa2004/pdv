@@ -1,5 +1,6 @@
 import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
+import { bindFormRowPreview } from "../ui/form-row-preview.js";
 import { bindFiscalNavigation, renderFiscalNavigation } from "./fiscal-navigation.js";
 import {
   bindNumberMasks,
@@ -105,7 +106,7 @@ export function createFiscalCatalogScreen({
         </form>
         <section class="classic-grid-panel">
           <div class="classic-panel-header classic-list-header"><span>${title}</span><input class="classic-list-search" data-search type="search" placeholder="Pesquisar código ou descrição..." value="${escapeHtml(searchTerm)}" /></div>
-          <div class="classic-grid-wrapper">${loading ? '<p class="classic-empty">Carregando cadastro...</p>' : visible.length ? `<table class="classic-table"><thead><tr>${showCodeColumn ? "<th>Código</th>" : ""}<th>Descrição</th>${catalog === "icms-rates" ? "<th>Alíquota</th>" : ""}<th class="actions-column">Ações</th></tr></thead><tbody>${visible.map((item) => `<tr>${showCodeColumn ? `<td>${escapeHtml(item.codeFiscalCatalogItem)}</td>` : ""}<td>${escapeHtml(formatDescription(item))}</td>${catalog === "icms-rates" ? `<td>${item.valueFiscalCatalogItem == null ? "-" : `${Number(item.valueFiscalCatalogItem).toLocaleString("pt-BR")}%`}</td>` : ""}<td class="actions-column"><button class="icon-button edit" type="button" title="Editar cadastro" aria-label="Editar cadastro" data-edit="${item.idFiscalCatalogItem}"><i data-lucide="pencil"></i></button><button class="icon-button delete" type="button" title="Excluir cadastro definitivamente" aria-label="Excluir cadastro definitivamente" data-delete="${item.idFiscalCatalogItem}"><i data-lucide="trash-2"></i></button></td></tr>`).join("")}</tbody></table>` : '<p class="classic-empty">Nenhum cadastro encontrado.</p>'}</div>
+          <div class="classic-grid-wrapper">${loading ? '<p class="classic-empty">Carregando cadastro...</p>' : visible.length           ? `<table class="classic-table"><thead><tr>${showCodeColumn ? "<th>Código</th>" : ""}<th>Descrição</th>${catalog === "icms-rates" ? "<th>Alíquota</th>" : ""}<th class="actions-column">Ações</th></tr></thead><tbody>${visible.map((item) => `<tr data-view-record="${escapeHtml(JSON.stringify(item))}">${showCodeColumn ? `<td>${escapeHtml(item.codeFiscalCatalogItem)}</td>` : ""}<td>${escapeHtml(formatDescription(item))}</td>${catalog === "icms-rates" ? `<td>${item.valueFiscalCatalogItem == null ? "-" : `${Number(item.valueFiscalCatalogItem).toLocaleString("pt-BR")}%`}</td>` : ""}<td class="actions-column"><button class="icon-button edit" type="button" title="Editar cadastro" aria-label="Editar cadastro" data-edit="${item.idFiscalCatalogItem}"><i data-lucide="pencil"></i></button><button class="icon-button delete" type="button" title="Excluir cadastro definitivamente" aria-label="Excluir cadastro definitivamente" data-delete="${item.idFiscalCatalogItem}"><i data-lucide="trash-2"></i></button></td></tr>`).join("")}</tbody></table>` : '<p class="classic-empty">Nenhum cadastro encontrado.</p>'}</div>
         </section>
       </section>`;
     renderLucideIcons(root);
@@ -122,6 +123,7 @@ export function createFiscalCatalogScreen({
       "payment-methods": onPaymentMethods
     });
     bind();
+    bindFormRowPreview(root, { formSelector: "[data-form]" });
   };
 
   const bind = () => {
@@ -223,6 +225,8 @@ export function createFiscalCatalogScreen({
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Não foi possível excluir o cadastro fiscal.");
+      items = items.filter((item) => String(item.idFiscalCatalogItem) !== String(idFiscalCatalogItem));
+      render();
       await load();
     } catch (removeError) {
       error = removeError instanceof Error ? removeError.message : "Falha ao excluir o cadastro fiscal.";

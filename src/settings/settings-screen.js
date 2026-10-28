@@ -21,8 +21,10 @@ export function createSettingsScreen({
   onThermalPrint,
   onNcmCestUpdate,
   onSettings,
+  onGeneralSettings,
   onCompany,
   onNfce,
+  onNavigationBuilder,
   onFinancial,
   onPaymentMethods
 }) {
@@ -56,6 +58,9 @@ export function createSettingsScreen({
       <div class="classic-toolbar">
         <button class="classic-tool-button" data-back type="button">← Retaguarda</button>
         <strong>Configurações do sistema</strong>
+      </div>
+      <div class="classic-toolbar-secondary">
+        <button class="classic-tool-button" data-navigation-builder type="button">Construtor de menu</button>
       </div>
       <section class="settings-content">
         <div class="backoffice-home-heading">
@@ -98,8 +103,10 @@ export function createSettingsScreen({
       "thermal-print": onThermalPrint,
       "ncm-cest-update": onNcmCestUpdate,
       settings: onSettings,
+      "general-settings": onGeneralSettings,
       company: onCompany,
       nfce: onNfce,
+      "navigation-builder": onNavigationBuilder,
       financial: onFinancial,
       "payment-methods": onPaymentMethods
     });
@@ -132,6 +139,7 @@ export function createSettingsScreen({
 
   const bind = () => {
     root.querySelector("[data-back]")?.addEventListener("click", onBack);
+    root.querySelector("[data-navigation-builder]")?.addEventListener("click", onNavigationBuilder);
     root.querySelectorAll("[data-classes]").forEach((button) => button.addEventListener("click", onClasses));
     root.querySelectorAll("[data-groups]").forEach((button) => button.addEventListener("click", onGroups));
     root.querySelectorAll("[data-products]").forEach((button) => button.addEventListener("click", onProducts));

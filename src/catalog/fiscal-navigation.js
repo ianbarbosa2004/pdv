@@ -1,3 +1,8 @@
+import {
+  getContextualNavigationItems,
+  renderContextualNavigationItems
+} from "../ui/contextual-navigation.js";
+
 const fiscalNavigation = [
   ["fiscal-operations", "Operações Fiscais"],
   ["cfops", "CFOP"],
@@ -13,14 +18,15 @@ const fiscalNavigation = [
   ["exemption-reasons", "Desoneração"]
 ];
 
-export const renderFiscalNavigation = (active) => `
-  <div class="classic-toolbar">
-    <button class="classic-tool-button" data-fiscal-nav="back" type="button">← Frente de caixa</button>
-    ${fiscalNavigation
-      .map(([key, label]) => `<button class="classic-tool-button ${active === key ? "is-active" : ""}" data-fiscal-nav="${key}" type="button">${label}</button>`)
-      .join("")}
-  </div>
-`;
+export const renderFiscalNavigation = (active) => {
+  const items = getContextualNavigationItems("fiscal-operations", fiscalNavigation);
+  return `
+    <div class="classic-toolbar">
+      <button class="classic-tool-button" data-fiscal-nav="back" type="button">← Frente de caixa</button>
+      ${renderContextualNavigationItems(items, active, "fiscal-nav")}
+    </div>
+  `;
+};
 
 export const bindFiscalNavigation = (root, handlers) => {
   root.querySelectorAll("[data-fiscal-nav]").forEach((button) => {
