@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import forge from "node-forge";
 import { createPool } from "./database.js";
 import { getConfig } from "./config.js";
@@ -16,7 +16,6 @@ import {
 const config = getConfig();
 const pool = createPool(config);
 let ncmCestUpdateRunning = false;
-let apiRestarting = false;
 const apiStartedAt = new Date();
 
 const getCertificateEncryptionKey = () => {
@@ -759,43 +758,6 @@ const server = createServer(async (request, response) => {
       console.error("Falha ao verificar o MariaDB:", error);
       json(response, 503, { ok: false, database: "unavailable" });
     }
-    return;
-  }
-
-  if (request.method === "POST" && request.url === "/api/restart") {
-    if (apiRestarting) {
-      json(response, 409, { error: "A API já está sendo reiniciada." });
-      return;
-    }
-    apiRestarting = true;
-    response.writeHead(202, {
-      "Content-Type": "application/json; charset=utf-8",
-      "Access-Control-Allow-Origin": "*",
-      Connection: "close"
-    });
-    response.end(JSON.stringify({ ok: true, restarting: true }));
-    setTimeout(() => {
-      server.close(async () => {
-        try {
-          await pool.end();
-          const child = spawn(
-            process.execPath,
-            [...process.execArgv, ...process.argv.slice(1)],
-            {
-              cwd: process.cwd(),
-              detached: true,
-              env: process.env,
-              stdio: "ignore"
-            }
-          );
-          child.unref();
-          process.exit(0);
-        } catch (error) {
-          console.error("Falha ao reiniciar a API:", error);
-          process.exit(1);
-        }
-      });
-    }, 100);
     return;
   }
 

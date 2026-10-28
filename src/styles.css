@@ -880,7 +880,7 @@ h2 {
   margin: 0;
 }
 
-.api-restart-log {
+.api-service-note {
   display: grid;
   gap: 8px;
   margin-top: 18px;
@@ -888,65 +888,20 @@ h2 {
   border-top: 1px solid #dfe5eb;
 }
 
-.api-restart-log-heading {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
+.api-service-note strong {
   color: #2f4054;
   font-size: 0.8rem;
 }
 
-.api-restart-log-heading span {
-  color: #718092;
-  font-size: 0.72rem;
-}
-
-.api-restart-log ol {
-  display: grid;
-  gap: 7px;
+.api-service-note p,
+.api-service-note small {
   margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.api-restart-log-entry {
-  display: grid;
-  grid-template-columns: 8px 64px minmax(0, 1fr);
-  align-items: baseline;
-  gap: 8px;
   color: #3e4c5c;
   font-size: 0.78rem;
 }
 
-.api-restart-log-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #65809c;
-}
-
-.api-restart-log-entry.is-warning .api-restart-log-dot {
-  background: #c58b2f;
-}
-
-.api-restart-log-entry.is-success .api-restart-log-dot {
-  background: #3c9860;
-}
-
-.api-restart-log-entry.is-error .api-restart-log-dot {
-  background: #c35353;
-}
-
-.api-restart-log-time {
+.api-service-note small {
   color: #718092;
-  font-variant-numeric: tabular-nums;
-}
-
-.api-restart-log-empty {
-  margin: 0;
-  color: #718092;
-  font-size: 0.78rem;
 }
 
 .general-settings-table {

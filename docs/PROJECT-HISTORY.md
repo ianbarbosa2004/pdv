@@ -193,11 +193,12 @@ Foi criada a tela Status da API, com:
 - início do processo;
 - uptime;
 - endereço consultado;
-- log visual do reinício.
+- indicação da recuperação automática pelo serviço Windows.
 
-`POST /api/restart` reinicia a instância de forma controlada. Depois de
-qualquer alteração em `src/server/`, a API deve ser reiniciada e validada por
-`GET /api/health` antes do teste pela interface.
+O reinício interno foi removido quando a API passou a operar sob o serviço
+Windows `PDV-API`. Depois de qualquer alteração em `src/server/`, o serviço deve
+ser reinstalado ou reiniciado pelos procedimentos administrativos e validado
+por `GET /api/health` antes do teste pela interface.
 
 ## 10. Navegação configurável
 

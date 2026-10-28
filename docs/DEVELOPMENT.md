@@ -489,11 +489,10 @@ da empresa e em futuras configurações estaduais.
 
 Em **Ferramentas > Status da API**, o terminal consulta `GET /api/health` para
 exibir a disponibilidade da API, a conexão com o MariaDB, o início do processo,
-o tempo de atividade e o endereço consultado. O botão **Reiniciar API** chama
-`POST /api/restart`; a tela registra visualmente a solicitação, a transição da
-instância e cada tentativa de reconexão até a API voltar a responder. O servidor
-inicia uma nova instância com os mesmos argumentos e encerra a anterior de
-forma controlada.
+o tempo de atividade e o endereço consultado. A tela informa que a recuperação
+automática é responsabilidade do serviço Windows `PDV-API`. O terminal não
+reinicia processos nem chama comandos administrativos; a manutenção manual
+usa os scripts documentados em `docs/DEPLOYMENT.md`.
 
 ### Bancada de impressão térmica
 
