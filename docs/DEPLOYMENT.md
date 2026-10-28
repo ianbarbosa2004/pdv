@@ -116,18 +116,37 @@ configuração dos terminais de forma controlada.
 
 ## Execução como serviço
 
-A API deve operar como serviço do Windows para reiniciar automaticamente após
-uma queda ou reinicialização do computador. O mecanismo oficial ainda será
-definido; até lá, não instale um serviço por script improvisado.
+A API opera como o serviço Windows `PDV-API`, usando o wrapper WinSW. O
+instalador baixa o artefato oficial WinSW `v2.12.0` diretamente do repositório
+`winsw/winsw`, valida o SHA-256 fixado no script, gera a configuração com o
+caminho deste checkout e instala o serviço com a conta interna `LocalService`.
 
-Quando o serviço for definido, ele deverá:
+Abra o PowerShell como administrador no checkout publicado e execute:
 
-- iniciar depois que o MariaDB estiver disponível;
-- carregar `.env` sem copiar seus valores para logs;
-- reiniciar em falhas;
-- gravar logs sem senhas, tokens ou dados desnecessários;
-- permitir parada controlada para manutenção;
-- usar uma conta do Windows com privilégios mínimos.
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\scripts\install-windows-service.ps1
+```
+
+O instalador exige o serviço `MariaDB`, configura a dependência para iniciar a
+API depois do banco, habilita início automático atrasado e configura três
+tentativas de reinício com atrasos de 10, 30 e 60 segundos. Os logs ficam fora
+do repositório em `C:\ProgramData\PDV\logs`, com rotação por tamanho e data.
+
+Verifique o serviço e a API:
+
+```powershell
+.\scripts\status-windows-service.ps1
+```
+
+Para remover somente o serviço, preservando checkout, `.env` e logs:
+
+```powershell
+.\scripts\uninstall-windows-service.ps1
+```
+
+Não versionar o executável WinSW, `.env`, logs ou backups. O serviço lê o
+`.env` somente no servidor e não distribui credenciais aos terminais.
 
 ## Validação antes de publicar uma versão
 
@@ -192,20 +211,21 @@ Valide separadamente:
 - reimpressão controlada;
 - comportamento quando a impressora estiver desligada.
 
-## Publicação futura
+## Atualização publicada
 
-O projeto ainda não possui um script oficial de deploy ou atualização remota.
-Até que esse procedimento seja definido:
+Publique somente uma versão validada de `main`. Antes de atualizar:
 
-- não use scripts de cPanel, Passenger ou outro projeto;
-- não copie `.env`, credenciais ou dumps para repositórios;
-- não faça upload automático;
-- não altere o banco de produção por inferência;
-- não considere uma versão publicada sem validar a API e o MariaDB no servidor.
+1. crie e verifique um backup do MariaDB;
+2. atualize o checkout sem sobrescrever `.env`, backups ou dados locais;
+3. execute os testes e o build;
+4. execute `scripts/install-windows-service.ps1` para reinstalar e reiniciar o
+   serviço com a configuração atual;
+5. confirme `scripts/status-windows-service.ps1` e uma leitura real da API.
 
-Quando existir um procedimento oficial, ele deverá publicar somente uma versão
-validada de `main`, preservar o banco e os backups, permitir rollback e
-registrar a versão instalada.
+Não use scripts de cPanel, Passenger ou outro projeto, não copie credenciais
+para repositórios e não considere a versão publicada sem validar API e
+MariaDB. O wrapper WinSW é mantido fora do Git em
+`C:\ProgramData\PDV\service`.
 
 ## Diretriz de nomenclatura
 

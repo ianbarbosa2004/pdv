@@ -52,22 +52,7 @@ export function createApiStatusScreen({
   const root = document.createElement("main");
   let status = null;
   let loading = true;
-  let restarting = false;
-  let message = "";
   let error = "";
-  let restartLog = [];
-
-  const addRestartLog = (message, tone = "info") => {
-    restartLog = [
-      ...restartLog,
-      {
-        message,
-        tone,
-        time: new Date().toLocaleTimeString("pt-BR")
-      }
-    ];
-    render();
-  };
 
   const request = async (path, options) => {
     const response = await fetch(`${getApiUrl()}${path}`, {
@@ -118,26 +103,14 @@ export function createApiStatusScreen({
                   <div><dt>Endereço consultado</dt><dd>${escapeHtml(getApiUrl())}</dd></div>
                 </dl>`}
             ${error ? `<p class="error-message">${escapeHtml(error)}</p>` : ""}
-            ${message ? `<p class="success-message">${escapeHtml(message)}</p>` : ""}
-            <section class="api-restart-log" aria-live="polite" aria-label="Log do reinício da API">
-              <div class="api-restart-log-heading">
-                <strong>Log do reinício</strong>
-                ${restartLog.length ? `<span>${restartLog.length} ${restartLog.length === 1 ? "evento" : "eventos"}</span>` : ""}
-              </div>
-              ${restartLog.length
-                ? `<ol>${restartLog.map((entry) => `
-                    <li class="api-restart-log-entry is-${escapeHtml(entry.tone)}">
-                      <span class="api-restart-log-dot" aria-hidden="true"></span>
-                      <span class="api-restart-log-time">${escapeHtml(entry.time)}</span>
-                      <span>${escapeHtml(entry.message)}</span>
-                    </li>
-                  `).join("")}</ol>`
-                : '<p class="api-restart-log-empty">Nenhum reinício foi solicitado nesta sessão.</p>'}
+            <section class="api-service-note" aria-label="Recuperação automática da API">
+              <strong>Recuperação automática ativa</strong>
+              <p>O serviço Windows PDV-API inicia com o MariaDB e tenta recuperar a API automaticamente após uma falha.</p>
+              <small>Para manutenção manual, use os scripts administrativos documentados em Instalação e publicação.</small>
             </section>
           </div>
           <div class="classic-form-actions">
-            <button class="classic-button primary" data-refresh type="button" ${loading || restarting ? "disabled" : ""}>${loading ? "Consultando..." : "Atualizar status"}</button>
-            <button class="classic-button danger" data-restart type="button" ${loading || restarting || !isConnected ? "disabled" : ""}>${restarting ? "Reiniciando..." : "Reiniciar API"}</button>
+            <button class="classic-button primary" data-refresh type="button" ${loading ? "disabled" : ""}>${loading ? "Consultando..." : "Atualizar status"}</button>
           </div>
         </section>
       </section>
@@ -174,52 +147,9 @@ export function createApiStatusScreen({
     }
   };
 
-  const restart = async () => {
-    if (!window.confirm("Deseja reiniciar a API agora? O serviço ficará indisponível por alguns segundos.")) return;
-    restarting = true;
-    message = "";
-    error = "";
-    restartLog = [];
-    render();
-    try {
-      addRestartLog("Enviando solicitação de reinício para a API.");
-      await request("/api/restart", { method: "POST" });
-      addRestartLog("Solicitação aceita. A instância atual está sendo encerrada.", "warning");
-      message = "Reinício solicitado. Aguardando a API voltar...";
-      addRestartLog("Aguardando a nova instância responder.");
-      const startedAt = Date.now();
-      let attempts = 0;
-      while (Date.now() - startedAt < 15000) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        attempts += 1;
-        try {
-          status = await request("/api/health");
-          addRestartLog(`API online novamente após ${attempts} tentativa${attempts === 1 ? "" : "s"}.`, "success");
-          message = "API reiniciada e online novamente.";
-          return;
-        } catch {
-          addRestartLog(`Tentativa ${attempts}: API ainda indisponível.`, "warning");
-        }
-      }
-      addRestartLog("Tempo limite atingido sem reconectar à API.", "error");
-      throw new Error("A API não voltou a responder dentro do tempo esperado.");
-    } catch (restartError) {
-      status = null;
-      error = restartError instanceof Error ? restartError.message : String(restartError);
-      if (!restartLog.some((entry) => entry.tone === "error")) {
-        addRestartLog(error, "error");
-      }
-    } finally {
-      restarting = false;
-      loading = false;
-      render();
-    }
-  };
-
   const bind = () => {
     root.querySelector("[data-back]")?.addEventListener("click", onBack);
     root.querySelector("[data-refresh]")?.addEventListener("click", () => void load());
-    root.querySelector("[data-restart]")?.addEventListener("click", () => void restart());
   };
 
   render();

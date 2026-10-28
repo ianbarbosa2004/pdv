@@ -260,7 +260,6 @@ auxiliares ao projeto.
 | Método | Rota | Descrição |
 | --- | --- | --- |
 | `GET` | `/api/health` | Verifica a API e a conexão com o MariaDB |
-| `POST` | `/api/restart` | Reinicia a API de forma controlada |
 | `GET` | `/api/products` | Lista produtos ativos |
 | `GET` | `/api/classes` | Lista classes ativas |
 | `GET` | `/api/groups` | Lista grupos ativos com sua classe |
@@ -497,3 +496,4 @@ Consulte:
 - [Automação de consolidação documental](docs/AUTOMATIONS.md#consolidar-documentação-do-pdv)
 - [Prompt de continuidade](docs/CONTINUITY-PROMPT.md)
 - [Instalação e publicação](docs/DEPLOYMENT.md)
+- [Instalação do serviço Windows da API](scripts/install-windows-service.ps1)
