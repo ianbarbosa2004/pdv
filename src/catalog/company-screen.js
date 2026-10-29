@@ -1,8 +1,7 @@
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { setProjectIcon } from "../ui/project-icon.js";
-
-const getApiUrl = () =>
-  window.__PDV_API_URL__ || `http://${window.location.hostname}:3000`;
+import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { getApiUrl } from "../shared/api.js";
 
 const escapeHtml = (value) =>
   String(value ?? "")
@@ -142,6 +141,7 @@ export function createCompanyScreen({
   let selectedProjectIcon = null;
   let error = "";
   let message = "";
+  const scheduleMessageClear = createFeedbackTimer();
 
   const renderField = (label, name, options = {}) => {
     const { type = "text", required = false, maxlength = 255, autocomplete = "off" } = options;
@@ -162,10 +162,11 @@ export function createCompanyScreen({
       </header>
       ${renderMainMenu()}
       <div class="classic-toolbar">
-        <button class="classic-tool-button" data-back type="button">← Retaguarda</button>
+        <button class="classic-tool-button" data-back type="button">← Frente de caixa</button>
         <strong>Configurações do sistema</strong>
       </div>
       <section class="classic-content company-content">
+        ${renderSuccessFeedback(message, escapeHtml)}
         <form class="classic-form-panel company-form" data-form>
           <div class="classic-panel-header">Dados da empresa</div>
           <div class="classic-form-body">
@@ -253,7 +254,6 @@ export function createCompanyScreen({
           </div>
 
           ${error ? `<p class="payment-error" data-company-feedback>${escapeHtml(error)}</p>` : `<p class="payment-error" data-company-feedback hidden></p>`}
-          ${message ? `<p class="success-message">${escapeHtml(message)}</p>` : ""}
           <div class="classic-form-actions">
             <button class="classic-button primary" type="submit" ${loading || saving ? "disabled" : ""}>${saving ? "Salvando..." : "Salvar empresa"}</button>
             <button class="classic-button" data-reset type="button" ${loading || saving ? "disabled" : ""}>Limpar</button>
@@ -443,6 +443,10 @@ export function createCompanyScreen({
       selectedLogo = null;
       selectedProjectIcon = null;
       message = "Cadastro da empresa salvo com sucesso.";
+      scheduleMessageClear(() => {
+        message = "";
+        render();
+      });
     } catch (saveError) {
       error = saveError instanceof Error ? saveError.message : "Falha ao salvar o cadastro da empresa.";
     } finally {

@@ -1,6 +1,7 @@
 import { createHash, createPrivateKey, randomBytes } from "node:crypto";
 import { request as httpsRequest } from "node:https";
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { SignedXml } from "xml-crypto";
 
 const NFE_NS = "http://www.portalfiscal.inf.br/nfe";
@@ -97,38 +98,70 @@ const buildAccessKey = ({ document, series, number }) => {
   return `${base}${modulo11(base)}`;
 };
 
-const getPrivateKey = (certificateData, password) => {
+const getOpenSslPath = () => {
+  const configured = String(process.env.PDV_OPENSSL_PATH || "").trim();
+  const candidates = [
+    configured,
+    "C:\\Program Files\\OpenSSL-Win64\\bin\\openssl.exe",
+    "C:\\Program Files\\OpenSSL\\bin\\openssl.exe",
+    "C:\\Program Files\\Git\\ucrt64\\bin\\openssl.exe",
+    "C:\\Program Files\\Git\\usr\\bin\\openssl.exe",
+    "openssl"
+  ].filter(Boolean);
+  return candidates.find((candidate) => candidate === "openssl" || existsSync(candidate)) || "openssl";
+};
+
+const extractCertificatePart = (certificateData, password, argumentsList, expectedMarker, label) => {
+  const opensslPath = getOpenSslPath();
   const result = spawnSync(
-    "openssl",
-    ["pkcs12", "-in", "-", "-passin", "env:PDV_PKCS12_PASSWORD", "-nocerts", "-nodes"],
+    opensslPath,
+    ["pkcs12", "-in", "-", "-passin", "env:PDV_PKCS12_PASSWORD", ...argumentsList],
     {
       input: Buffer.from(String(certificateData), "base64"),
       encoding: "utf8",
       env: { ...process.env, PDV_PKCS12_PASSWORD: String(password) },
-      windowsHide: true
+      windowsHide: true,
+      windowsVerbatimArguments: false
     }
   );
-  if (result.error || result.status !== 0 || !String(result.stdout).includes("PRIVATE KEY")) {
-    throw new Error("Não foi possível extrair a chave privada do certificado A1.");
+  if (result.error?.code === "ENOENT") {
+    throw new Error("OpenSSL não está instalado ou não está acessível pelo serviço PDV-API.");
   }
-  return createPrivateKey(String(result.stdout));
+  if (result.error?.code === "EACCES" || result.error?.code === "EPERM") {
+    throw new Error("O serviço PDV-API não tem permissão para executar o OpenSSL.");
+  }
+  if (result.status !== 0 || !String(result.stdout).includes(expectedMarker)) {
+    const stderr = String(result.stderr || "").toLowerCase();
+    if (stderr.includes("mac verify error") || stderr.includes("invalid password")) {
+      throw new Error("A senha do certificado A1 está incorreta.");
+    }
+    if (stderr.includes("unable to load") || stderr.includes("not a pkcs12")) {
+      throw new Error(`O arquivo do certificado A1 é inválido ou não pôde ser lido (${label}).`);
+    }
+    throw new Error(`Não foi possível extrair ${label} do certificado A1.`);
+  }
+  return String(result.stdout);
+};
+
+const getPrivateKey = (certificateData, password) => {
+  const privateKeyPem = extractCertificatePart(
+    certificateData,
+    password,
+    ["-nocerts", "-nodes"],
+    "PRIVATE KEY",
+    "a chave privada"
+  );
+  return createPrivateKey(privateKeyPem);
 };
 
 const getCertificatePem = (certificateData, password) => {
-  const result = spawnSync(
-    "openssl",
-    ["pkcs12", "-in", "-", "-passin", "env:PDV_PKCS12_PASSWORD", "-clcerts", "-nokeys"],
-    {
-      input: Buffer.from(String(certificateData), "base64"),
-      encoding: "utf8",
-      env: { ...process.env, PDV_PKCS12_PASSWORD: String(password) },
-      windowsHide: true
-    }
+  return extractCertificatePart(
+    certificateData,
+    password,
+    ["-clcerts", "-nokeys"],
+    "BEGIN CERTIFICATE",
+    "o certificado público"
   );
-  if (result.error || result.status !== 0 || !String(result.stdout).includes("BEGIN CERTIFICATE")) {
-    throw new Error("Não foi possível extrair o certificado público do arquivo A1.");
-  }
-  return String(result.stdout);
 };
 
 const signNfe = (xml, privateKey, publicCert) => {

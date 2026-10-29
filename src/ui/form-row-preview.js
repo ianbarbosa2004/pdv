@@ -20,6 +20,7 @@ export const bindFormRowPreview = (root, {
   if (!form) return;
   const title = form.querySelector(titleSelector);
   let previewing = false;
+  const hasOpenModal = () => Boolean(root.querySelector("[data-modal-backdrop]"));
 
   const clearPreview = () => {
     previewing = false;
@@ -33,9 +34,11 @@ export const bindFormRowPreview = (root, {
       title.textContent = title.dataset.previewTitle;
       delete title.dataset.previewTitle;
     }
+    root.querySelectorAll(".is-previewing").forEach((item) => item.classList.remove("is-previewing"));
   };
 
   const showPreview = (row) => {
+    if (hasOpenModal()) return;
     let record;
     try {
       record = JSON.parse(row.dataset.viewRecord || "{}");
@@ -71,10 +74,10 @@ export const bindFormRowPreview = (root, {
 
   root.querySelectorAll(rowSelector).forEach((row) => {
     row.addEventListener("click", (event) => {
+      if (hasOpenModal()) return;
       if (event.target.closest("button, a, input, select, textarea")) return;
       if (previewing && row.classList.contains("is-previewing")) {
         clearPreview();
-        row.classList.remove("is-previewing");
         return;
       }
       root.querySelectorAll(".is-previewing").forEach((item) => item.classList.remove("is-previewing"));

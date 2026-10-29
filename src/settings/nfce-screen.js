@@ -1,8 +1,7 @@
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { renderLucideIcons } from "../ui/icons.js";
-
-const getApiUrl = () =>
-  window.__PDV_API_URL__ || `http://${window.location.hostname}:3000`;
+import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { getApiUrl } from "../shared/api.js";
 
 const escapeHtml = (value) =>
   String(value ?? "")
@@ -36,6 +35,7 @@ export function createNfceScreen({
   let diagnosticResult = null;
   let selectedCertificate = null;
   let certificatePassword = "";
+  const scheduleMessageClear = createFeedbackTimer();
 
   const normalizeDateInput = (value) => String(value ?? "").slice(0, 10);
 
@@ -48,10 +48,11 @@ export function createNfceScreen({
       </header>
       ${renderMainMenu()}
       <div class="classic-toolbar">
-        <button class="classic-tool-button" data-back type="button">← Retaguarda</button>
+        <button class="classic-tool-button" data-back type="button">← Frente de caixa</button>
         <strong>Configurações do sistema</strong>
       </div>
       <section class="classic-content company-content">
+        ${renderSuccessFeedback(message, escapeHtml)}
         <form class="classic-form-panel company-form" data-form>
           <div class="classic-panel-header">Fiscal - NFC-e</div>
           <div class="classic-form-body">
@@ -110,7 +111,6 @@ export function createNfceScreen({
             </div>
             <div class="company-info-note">O arquivo e a senha são criptografados antes de serem armazenados no servidor. Ao enviar um certificado A1, a validade e o número de série são extraídos automaticamente.</div>
             ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}
-            ${message ? `<p class="success-message">${escapeHtml(message)}</p>` : ""}
             ${testResult ? `
               <div class="nfce-test-result ${testResult.status === "authorized" ? "is-success" : "is-error"}">
                 <strong>${testResult.status === "authorized" ? "NFC-e de teste autorizada" : "NFC-e de teste rejeitada"}</strong>
@@ -258,6 +258,10 @@ export function createNfceScreen({
       selectedCertificate = null;
       certificatePassword = "";
       message = "Configuração NFC-e salva com sucesso.";
+      scheduleMessageClear(() => {
+        message = "";
+        render();
+      });
     } catch (saveError) {
       error = saveError instanceof Error ? saveError.message : "Falha ao salvar a configuração NFC-e.";
     } finally {
@@ -280,6 +284,10 @@ export function createNfceScreen({
       message = testResult.status === "authorized"
         ? "Teste de homologação concluído com autorização."
         : "A SEF/MG respondeu com rejeição ao teste.";
+      scheduleMessageClear(() => {
+        message = "";
+        render();
+      });
     } catch (testError) {
       error = testError instanceof Error ? testError.message : "Falha ao testar a emissão NFC-e.";
     } finally {
@@ -302,6 +310,10 @@ export function createNfceScreen({
       }
       diagnosticResult = result.diagnostic;
       message = "XML de diagnóstico gerado localmente. Nenhum documento foi enviado.";
+      scheduleMessageClear(() => {
+        message = "";
+        render();
+      });
     } catch (diagnosticError) {
       error = diagnosticError instanceof Error
         ? diagnosticError.message

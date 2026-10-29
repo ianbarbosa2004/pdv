@@ -64,11 +64,16 @@ CREATE TABLE IF NOT EXISTS products (
 
 CREATE TABLE IF NOT EXISTS product_types (
   idProductType BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  codeSpedProductType VARCHAR(30) NULL,
   descriptionProductType VARCHAR(120) NOT NULL,
   isActiveProductType TINYINT(1) NOT NULL DEFAULT 1,
   PRIMARY KEY (idProductType),
   UNIQUE KEY uqProductTypesDescription (descriptionProductType)
 ) ENGINE=InnoDB;
+
+INSERT INTO product_types (descriptionProductType, isActiveProductType)
+VALUES ('Produto Acabado', 1)
+ON DUPLICATE KEY UPDATE isActiveProductType = 1;
 
 CREATE TABLE IF NOT EXISTS units (
   idUnit BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -140,6 +145,32 @@ CREATE TABLE IF NOT EXISTS payment_methods (
   isActivePaymentMethod TINYINT(1) NOT NULL DEFAULT 1,
   PRIMARY KEY (idPaymentMethod),
   UNIQUE KEY uqPaymentMethodsNamePaymentMethod (namePaymentMethod)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS suppliers (
+  idSupplier BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  typeSupplier ENUM('juridica', 'fisica') NOT NULL DEFAULT 'juridica',
+  documentSupplier VARCHAR(20) NOT NULL,
+  companyNameSupplier VARCHAR(180) NOT NULL DEFAULT '',
+  tradeNameSupplier VARCHAR(120) NOT NULL DEFAULT '',
+  contactNameSupplier VARCHAR(120) NOT NULL DEFAULT '',
+  phoneSupplier VARCHAR(25) NOT NULL DEFAULT '',
+  emailSupplier VARCHAR(180) NOT NULL DEFAULT '',
+  zipCodeSupplier VARCHAR(9) NOT NULL DEFAULT '',
+  addressSupplier VARCHAR(180) NOT NULL DEFAULT '',
+  addressNumberSupplier VARCHAR(20) NOT NULL DEFAULT '',
+  addressComplementSupplier VARCHAR(80) NOT NULL DEFAULT '',
+  neighborhoodSupplier VARCHAR(100) NOT NULL DEFAULT '',
+  citySupplier VARCHAR(100) NOT NULL DEFAULT '',
+  stateSupplier CHAR(2) NOT NULL DEFAULT '',
+  countrySupplier VARCHAR(80) NOT NULL DEFAULT 'Brasil',
+  notesSupplier VARCHAR(400) NULL,
+  isActiveSupplier TINYINT(1) NOT NULL DEFAULT 1,
+  createdAtSupplier TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAtSupplier TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (idSupplier),
+  UNIQUE KEY uqSuppliersDocumentType (documentSupplier, typeSupplier),
+  KEY idxSuppliersTypeStatus (typeSupplier, isActiveSupplier)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS printer_settings (
@@ -286,6 +317,13 @@ CREATE TABLE IF NOT EXISTS fiscal_catalog_items (
   UNIQUE KEY uqFiscalCatalogItemsCatalogCode (catalogFiscalCatalogItem, codeFiscalCatalogItem),
   KEY idxFiscalCatalogItemsCatalogActive (catalogFiscalCatalogItem, isActiveFiscalCatalogItem, descriptionFiscalCatalogItem)
 ) ENGINE=InnoDB;
+
+INSERT INTO fiscal_catalog_items
+  (catalogFiscalCatalogItem, codeFiscalCatalogItem, descriptionFiscalCatalogItem, valueFiscalCatalogItem)
+VALUES ('cfops', '5.101', 'Venda de produção do estabelecimento', NULL)
+ON DUPLICATE KEY UPDATE
+  descriptionFiscalCatalogItem = VALUES(descriptionFiscalCatalogItem),
+  isActiveFiscalCatalogItem = 1;
 
 CREATE TABLE IF NOT EXISTS sales (
   idSale BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

@@ -8,6 +8,20 @@ $ErrorActionPreference = 'Stop'
 
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $nodePath = (Get-Command node.exe -ErrorAction Stop).Source
+$opensslCommand = Get-Command openssl.exe -ErrorAction SilentlyContinue
+$opensslPath = if ($opensslCommand) { $opensslCommand.Source } else { $null }
+if (-not $opensslPath) {
+  $opensslCandidates = @(
+    'C:\Program Files\OpenSSL-Win64\bin\openssl.exe',
+    'C:\Program Files\OpenSSL\bin\openssl.exe',
+    'C:\Program Files\Git\ucrt64\bin\openssl.exe',
+    'C:\Program Files\Git\usr\bin\openssl.exe'
+  )
+  $opensslPath = $opensslCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+}
+if (-not $opensslPath) {
+  throw "OpenSSL não foi encontrado. Instale o OpenSSL antes de instalar o serviço PDV-API."
+}
 $winswPath = Join-Path $InstallDirectory "$ServiceName.exe"
 $configPath = Join-Path $InstallDirectory "$ServiceName.xml"
 $winswVersion = 'v2.12.0'
@@ -61,6 +75,7 @@ if ($actualHash -ne $winswSha256) {
 
 $escapedRoot = [System.Security.SecurityElement]::Escape($repositoryRoot)
 $escapedNode = [System.Security.SecurityElement]::Escape($nodePath)
+$escapedOpenSsl = [System.Security.SecurityElement]::Escape($opensslPath)
 $escapedLog = [System.Security.SecurityElement]::Escape($LogDirectory)
 $config = @"
 <service>
@@ -70,6 +85,7 @@ $config = @"
   <executable>$escapedNode</executable>
   <arguments>--env-file=.env src/server/server.js</arguments>
   <workingdirectory>$escapedRoot</workingdirectory>
+  <env name="PDV_OPENSSL_PATH" value="$escapedOpenSsl" />
   <stoptimeout>15sec</stoptimeout>
   <startmode>Automatic</startmode>
   <delayedAutoStart>true</delayedAutoStart>

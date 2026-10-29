@@ -1,8 +1,7 @@
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { renderLucideIcons } from "../ui/icons.js";
-
-const getApiUrl = () =>
-  window.__PDV_API_URL__ || `http://${window.location.hostname}:3000`;
+import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { getApiUrl } from "../shared/api.js";
 
 const escapeHtml = (value) =>
   String(value ?? "")
@@ -24,6 +23,7 @@ export function createNcmCestUpdateScreen({ onBack, onTools, onProducts, onTherm
   let status = null;
   let message = "";
   let error = "";
+  const scheduleMessageClear = createFeedbackTimer();
 
   const loadStatus = async () => {
     statusLoading = true;
@@ -53,6 +53,10 @@ export function createNcmCestUpdateScreen({ onBack, onTools, onProducts, onTherm
       if (!response.ok) throw new Error(payload.error || "Não foi possível atualizar os catálogos.");
       message = `Atualização concluída: ${payload.ncmCount} NCMs, ${payload.cestCount} CESTs e ${payload.relationCount} relações.`;
       await loadStatus();
+      scheduleMessageClear(() => {
+        message = "";
+        render();
+      });
     } catch (requestError) {
       error = requestError.message || "Não foi possível atualizar os catálogos.";
     } finally {
@@ -74,10 +78,11 @@ export function createNcmCestUpdateScreen({ onBack, onTools, onProducts, onTherm
       </header>
       ${renderMainMenu()}
       <div class="classic-toolbar">
-        <button class="classic-tool-button" data-back type="button">← Retaguarda</button>
+        <button class="classic-tool-button" data-back type="button">← Frente de caixa</button>
         <button class="classic-tool-button is-active" data-ncm-cest-update type="button">Atualizar NCM / CEST</button>
       </div>
       <section class="classic-content">
+        ${renderSuccessFeedback(message, escapeHtml)}
         <div class="classic-form-panel">
           <div class="classic-panel-header">Atualização dos catálogos oficiais</div>
           <div class="classic-form-body">
@@ -95,7 +100,6 @@ export function createNcmCestUpdateScreen({ onBack, onTools, onProducts, onTherm
               <p><strong>Status:</strong> ${escapeHtml(update.status)} — ${escapeHtml(updateMessage || "")}</p>
               <p><strong>Registros:</strong> ${update.ncmCount} NCMs, ${update.cestCount} CESTs e ${update.relationCount} relações.</p>
             ` : ""}
-            ${message ? `<p class="success-message">${escapeHtml(message)}</p>` : ""}
             ${error ? `<p class="error-message">${escapeHtml(error)}</p>` : ""}
           </div>
           <div class="classic-form-actions">

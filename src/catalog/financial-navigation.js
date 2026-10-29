@@ -2,6 +2,7 @@ import {
   getContextualNavigationItems,
   renderContextualNavigationItems
 } from "../ui/contextual-navigation.js";
+import { resolveNavigationHandler } from "../ui/navigation-routing.js";
 
 const financialNavigation = [
   ["payment-methods", "Formas de pagamento"]
@@ -19,6 +20,11 @@ export const renderFinancialNavigation = (active) => {
 
 export const bindFinancialNavigation = (root, handlers) => {
   root.querySelectorAll("[data-financial-nav]").forEach((button) => {
-    button.addEventListener("click", () => handlers[button.dataset.financialNav]?.());
+    button.addEventListener("click", () => {
+      const route = button.dataset.financialNav;
+      const handler = resolveNavigationHandler(handlers, route)
+        || resolveNavigationHandler(window.__PDV_NAVIGATION_HANDLERS__, route);
+      handler?.();
+    });
   });
 };

@@ -7,6 +7,7 @@ import {
   formatMaskedNumber,
   normalizeMaskedNumber
 } from "../ui/number-mask.js";
+import { getApiUrl } from "../shared/api.js";
 
 const catalogLabels = {
   cfops: "CFOP",
@@ -35,9 +36,6 @@ const catalogPresentation = {
   "base-modes": { hideCode: true },
   "exemption-reasons": { stripCodeFromDescription: true }
 };
-
-const getApiUrl = () =>
-  window.__PDV_API_URL__ || `http://${window.location.hostname}:3000`;
 
 const escapeHtml = (value) =>
   String(value ?? "")

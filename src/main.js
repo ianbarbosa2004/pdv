@@ -17,8 +17,11 @@ import { createNfceScreen } from "./settings/nfce-screen.js";
 import { createProductReferenceScreen } from "./catalog/product-reference-screen.js";
 import { createNavigationBuilderScreen } from "./settings/navigation-builder-screen.js";
 import { createGeneralSettingsScreen } from "./settings/general-settings-screen.js";
+import { createCatalogImportScreen } from "./tools/catalog-import-screen.js";
 import { loadProjectIcon } from "./ui/project-icon.js";
 import { installTablePagination } from "./ui/table-pagination.js";
+import { getApiUrl, loadConfiguredApiUrl } from "./shared/api.js";
+import { getFallbackNavigation } from "./shared/navigation-defaults.js";
 
 const app = document.querySelector("#app");
 
@@ -32,6 +35,8 @@ const common = () => ({
   onClasses: showClasses,
   onGroups: showGroups,
   onProducts: showCatalog,
+  "finished-goods": showCatalog,
+  "finished-products": showFinishedProducts,
   onRawMaterials: showRawMaterials,
   "raw-materials": showRawMaterials,
   onPackaging: showPackaging,
@@ -54,10 +59,12 @@ const common = () => ({
   onNavigationBuilder: showNavigationBuilder,
   "navigation-builder": showNavigationBuilder,
   onFinancial: showPaymentMethods,
-  onPaymentMethods: showPaymentMethods
+  onPaymentMethods: showPaymentMethods,
+  onCatalogImport: showCatalogImport,
+  "import-catalogs": showCatalogImport
 });
 
-const showSales = () => mount(createSaleScreen({ onBackoffice: showBackoffice }));
+const showSales = (options = {}) => mount(createSaleScreen({ onBackoffice: showBackoffice, ...options }));
 const showBackoffice = () =>
   mount(createBackofficeScreen({ onBack: showSales, ...common() }));
 const showSettings = () =>
@@ -79,6 +86,8 @@ const showNcmCestUpdate = () =>
   }));
 const showApiStatus = () =>
   mount(createApiStatusScreen({ onBack: showBackoffice, onTools: showApiStatus, ...common() }));
+const showCatalogImport = () =>
+  mount(createCatalogImportScreen({ onBack: showBackoffice, onTools: showCatalogImport, ...common() }));
 const showFiscalOperations = () =>
   mount(createFiscalOperationScreen({
     onBack: showBackoffice,
@@ -94,10 +103,23 @@ const showFiscalCatalog = (catalog) =>
   }));
 const showCatalog = () =>
   mount(createCatalogScreen({
-    title: "Produtos",
+    title: "Mercadoria para Revenda",
+    listTitle: "Mercadorias para Revenda",
     productTypeDescription: "Mercadoria para Revenda",
-    navigationActive: "products",
-    singularLabel: "produto",
+    navigationActive: "finished-goods",
+    singularLabel: "mercadoria para revenda",
+    createFormTitle: "Nova mercadoria para revenda",
+    skuPrefix: "REV-",
+    onBack: showSales,
+    ...common()
+  }));
+const showFinishedProducts = () =>
+  mount(createCatalogScreen({
+    title: "Produtos Acabados",
+    productTypeDescription: "Produto Acabado",
+    navigationActive: "finished-products",
+    singularLabel: "produto acabado",
+    defaultFiscalOperationDescription: "Venda de produção",
     onBack: showSales,
     ...common()
   }));
@@ -167,18 +189,61 @@ const showNavigationBuilder = () =>
 
 window.__PDV_NAVIGATION_HANDLERS__ = common();
 
+
+
 const loadNavigation = async () => {
+
   try {
-    const apiUrl = window.__PDV_API_URL__ || `http://${window.location.hostname}:3000`;
+
+    const apiUrl = getApiUrl();
+
     const response = await fetch(`${apiUrl}/api/navigation`);
+
     const payload = await response.json();
+
     if (response.ok && Array.isArray(payload.menus) && Array.isArray(payload.items)) {
+
       window.__PDV_NAVIGATION__ = payload;
+      window.__PDV_NAVIGATION_SOURCE__ = "api";
+      return;
+
     }
+
   } catch {
-    // Sem resposta da API, o terminal inicia sem menus persistidos.
+  }
+  window.__PDV_NAVIGATION__ = getFallbackNavigation();
+  window.__PDV_NAVIGATION_SOURCE__ = "fallback";
+
+};
+
+const checkApiHealth = async () => {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(`${getApiUrl()}/api/health`, { signal: controller.signal });
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    window.clearTimeout(timeout);
   }
 };
 
-const apiUrl = window.__PDV_API_URL__ || `http://${window.location.hostname}:3000`;
-void Promise.all([loadNavigation(), loadProjectIcon(apiUrl)]).finally(showSales);
+const startApplication = async () => {
+  const apiHealthy = await checkApiHealth();
+  await loadNavigation();
+  await loadProjectIcon(getApiUrl()).catch(() => {});
+  showSales({
+    initialApiError: !apiHealthy,
+    onApiConfigured: async () => {
+      const connected = await checkApiHealth();
+      if (connected) await loadNavigation();
+      return connected;
+    }
+  });
+};
+
+void loadConfiguredApiUrl()
+  .catch(() => {})
+  .then(startApplication)
+  .catch(() => showSales({ initialApiError: true }));

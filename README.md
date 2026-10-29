@@ -265,7 +265,7 @@ auxiliares ao projeto.
 | `GET` | `/api/groups` | Lista grupos ativos com sua classe |
 | `GET` | `/api/payment-methods` | Lista formas de pagamento ativas |
 | `GET` | `/api/fiscal-operations` | Lista operações fiscais |
-| `GET` | `/api/product-types` | Lista tipos de produto ativos |
+| `GET` | `/api/product-types` | Lista tipos de produto ativos, ordenados por Código SPED |
 | `GET` | `/api/units` | Lista unidades tributáveis ativas |
 | `GET` | `/api/fiscal-catalogs?catalog=...` | Lista itens de um cadastro fiscal |
 | `GET` | `/api/ncm-cest/ncms` | Lista NCMs ativos |
@@ -280,7 +280,7 @@ auxiliares ao projeto.
 | `POST` | `/api/classes` | Cria uma classe |
 | `POST` | `/api/groups` | Cria um grupo vinculado a uma classe |
 | `POST` | `/api/products` | Cadastra um produto |
-| `POST` | `/api/product-types` | Cadastra um tipo de produto |
+| `POST` | `/api/product-types` | Cadastra um tipo de produto e seu Código SPED opcional |
 | `POST` | `/api/units` | Cadastra uma unidade tributável |
 | `POST` | `/api/ncm-cest` | Cria uma relação NCM / CEST |
 | `POST` | `/api/ncm-cest/update` | Atualiza os catálogos NCM / CEST |
@@ -296,7 +296,9 @@ produtos, formas de pagamento, catálogos fiscais, operações fiscais e
 relações NCM/CEST também possuem rotas de status ou consulta com
 `includeInactive=1`. O backend valida os dados antes do SQL e retorna erro
 explícito quando há duplicidade, vínculo que impede exclusão ou payload
-incompatível.
+incompatível. Em Tipos de Produtos, `codeSpedProductType` é opcional, limitado
+a 30 caracteres, normalizado para maiúsculas e usado como primeiro critério de
+ordenação; registros sem código aparecem ao final.
 
 As configurações de empresa e NFC-e são separadas: `/api/company` mantém os
 dados cadastrais e `/api/company/nfce` mantém os parâmetros fiscais. A API
@@ -497,3 +499,11 @@ Consulte:
 - [Prompt de continuidade](docs/CONTINUITY-PROMPT.md)
 - [Instalação e publicação](docs/DEPLOYMENT.md)
 - [Instalação do serviço Windows da API](scripts/install-windows-service.ps1)
+
+O executável Tauri local consulta a API em `http://127.0.0.1:3000`. Para um
+terminal apontar para o servidor da loja durante a compilação, defina
+`VITE_PDV_API_URL` antes de executar o build.
+
+O teste de emissão NFC-e no servidor também requer o OpenSSL instalado. A
+instalação do serviço Windows detecta o executável e configura
+`PDV_OPENSSL_PATH` automaticamente.

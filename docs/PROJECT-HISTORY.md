@@ -309,7 +309,9 @@ atual:
 - **Cadastros e estoque:** foram adicionados tipos de produto, unidades,
   Código PDV, operação fiscal de saída, NCM/CEST relacionado, flags de estoque,
   fração, cozinha e exibição no PDV; a regra de estoque negativo ficou
-  configurável e a instalação nova deixou de inserir cargas padrão.
+  configurável e a instalação nova deixou de inserir cargas padrão. Tipos de
+  Produtos passaram a possuir Código SPED opcional, com migração idempotente,
+  normalização para maiúsculas e listagem ordenada por esse código.
 - **Fiscal e NFC-e:** operações e catálogos fiscais ganharam telas próprias;
   NFC-e mantém dados cadastrais separados, protege o certificado no servidor e
   limita diagnóstico e autorização ao fluxo previsto de homologação.
@@ -322,10 +324,11 @@ atual:
 - **Interface e operação:** visualização por seleção de linha, paginação,
   toggles sem reconstrução da árvore, Status da API, reinício controlado e
   ícone configurável em runtime foram consolidados.
-- **Testes e pendências:** os testes `node:test` cobrem domínio, API, vendas,
-  NCM/CEST e formatação NFC-e; continuam pendentes integração MariaDB
-  controlada, caixa, autenticação de operadores, emissão fiscal completa,
-  serviço oficial da API e deploy/rollback documentado.
+- **Testes e operação:** os testes `node:test` cobrem domínio, API, vendas,
+  NCM/CEST e formatação NFC-e. O serviço Windows `PDV-API`, seus scripts de
+  instalação/status/remoção e o procedimento de publicação estão documentados
+  em `docs/DEPLOYMENT.md`. Continuam pendentes integração MariaDB controlada,
+  caixa, autenticação de operadores e emissão fiscal completa.
 
 Este documento descreve o estado funcional conhecido no workspace atual. Ele
 não substitui validação do Git, do banco ou do ambiente de execução. Antes de
@@ -341,11 +344,9 @@ Ainda não estão concluídos:
 - abertura, fechamento, sangria e suprimento de caixa;
 - emissão fiscal completa em produção;
 - cancelamento, inutilização e contingência NFC-e;
-- serviço oficial do Windows para manter a API;
-- procedimento oficial de deploy e rollback;
 - política definitiva de atualização dos terminais;
 - suíte de integração MariaDB em ambiente controlado;
 - definição completa de auditoria e cancelamento de vendas.
 
-As pendências não alteram a arquitetura atual nem autorizam procedimentos de
-deploy improvisados.
+As pendências não alteram a arquitetura atual nem autorizam procedimentos
+improvisados fora de `docs/DEPLOYMENT.md`.

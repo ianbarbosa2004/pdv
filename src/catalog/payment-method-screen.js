@@ -10,9 +10,8 @@ import {
   formatMaskedNumber,
   normalizeMaskedNumber
 } from "../ui/number-mask.js";
-
-const getApiUrl = () =>
-  window.__PDV_API_URL__ || `http://${window.location.hostname}:3000`;
+import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { getApiUrl } from "../shared/api.js";
 
 const escapeHtml = (value) =>
   String(value ?? "")
@@ -60,6 +59,7 @@ export function createPaymentMethodScreen({
   let error = "";
   let message = "";
   let searchTerm = "";
+  const scheduleMessageClear = createFeedbackTimer();
 
   const renderStatusToggle = (isActive, attributes = "") => `
     <button class="status-toggle ${isActive ? "is-active" : "is-inactive"}" type="button"
@@ -136,6 +136,7 @@ export function createPaymentMethodScreen({
       ${renderMainMenu()}
       ${renderFinancialNavigation("payment-methods")}
       <section class="classic-content payment-method-content">
+        ${renderSuccessFeedback(message, escapeHtml)}
         <form class="classic-form-panel" data-form>
           <div class="classic-panel-header">Nova forma de pagamento</div>
           <div class="classic-form-body">
@@ -146,7 +147,6 @@ export function createPaymentMethodScreen({
               ${renderStatusToggle(true, "data-form-status-toggle")}
             </div>
             ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}
-            ${message ? `<p class="success-message">${escapeHtml(message)}</p>` : ""}
           </div>
           <div class="classic-form-actions">
             <button class="classic-button primary" type="submit" ${submitting ? "disabled" : ""}>${submitting ? "Salvando..." : "Salvar"}</button>
@@ -259,10 +259,12 @@ export function createPaymentMethodScreen({
       event.preventDefault();
       void submit(Object.fromEntries(new FormData(event.currentTarget)), editing?.idPaymentMethod);
     });
-    root.querySelector("[data-cancel-edit]")?.addEventListener("click", () => {
-      editing = null;
-      error = "";
-      render();
+    root.querySelectorAll("[data-cancel-edit]").forEach((button) => {
+      button.addEventListener("click", () => {
+        editing = null;
+        error = "";
+        render();
+      });
     });
     root.querySelector("[data-modal-backdrop]")?.addEventListener("click", (event) => {
       if (event.target === event.currentTarget) {
@@ -326,6 +328,10 @@ export function createPaymentMethodScreen({
       editing = null;
       message = idPaymentMethod ? "Forma de pagamento alterada com sucesso." : "Forma de pagamento cadastrada com sucesso.";
       await load();
+      scheduleMessageClear(() => {
+        message = "";
+        render();
+      });
     } catch (submitError) {
       error = submitError instanceof Error ? submitError.message : "Falha ao salvar a forma de pagamento.";
       render();
@@ -349,6 +355,10 @@ export function createPaymentMethodScreen({
       paymentMethods = paymentMethods.filter((item) => String(item.idPaymentMethod) !== String(idPaymentMethod));
       render();
       await load();
+      scheduleMessageClear(() => {
+        message = "";
+        render();
+      });
     } catch (removeError) {
       error = removeError instanceof Error ? removeError.message : "Falha ao excluir a forma de pagamento.";
       render();
@@ -366,6 +376,10 @@ export function createPaymentMethodScreen({
       if (!response.ok) throw new Error(result.error || "Não foi possível alterar o status da forma de pagamento.");
       message = isActivePaymentMethod ? "Forma de pagamento ativada com sucesso." : "Forma de pagamento inativada com sucesso.";
       await load();
+      scheduleMessageClear(() => {
+        message = "";
+        render();
+      });
     } catch (statusError) {
       error = statusError instanceof Error ? statusError.message : "Falha ao alterar o status da forma de pagamento.";
       render();

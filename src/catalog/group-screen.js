@@ -2,6 +2,8 @@ import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { bindFormRowPreview } from "../ui/form-row-preview.js";
 import { bindProductNavigation, renderProductNavigation } from "./product-navigation.js";
+import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { getApiUrl } from "../shared/api.js";
 
 const escapeHtml = (value) =>
   String(value)
@@ -10,9 +12,6 @@ const escapeHtml = (value) =>
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
-
-const getApiUrl = () =>
-  window.__PDV_API_URL__ || `http://${window.location.hostname}:3000`;
 
 export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onProductTypes, onUnits, onNcmCest, onFiscalOperations, onThermalPrint, onNcmCestUpdate, onSettings, onCompany, onNfce, onFinancial, onPaymentMethods }) {
   const root = document.createElement("main");
@@ -23,6 +22,7 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onP
   let message = "";
   let submitting = false;
   let editingGroup = null;
+  const scheduleMessageClear = createFeedbackTimer();
   let sortState = { key: "descriptionGroup", direction: "asc" };
   let searchTerm = "";
 
@@ -55,6 +55,7 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onP
       ${renderMainMenu()}
       ${renderProductNavigation("groups")}
       <section class="classic-content">
+        ${renderSuccessFeedback(message, escapeHtml)}
         <form class="classic-form-panel" data-group-form>
           <div class="classic-panel-header">Novo grupo</div>
           <div class="classic-form-body">
@@ -74,7 +75,6 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onP
               <input name="showsInPdvGroup" type="checkbox" />
             </label>
             ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}
-            ${message ? `<p class="success-message">${escapeHtml(message)}</p>` : ""}
           </div>
           <div class="classic-form-actions">
             <button class="classic-button primary" type="submit" ${submitting || loading ? "disabled" : ""}>
@@ -240,10 +240,12 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onP
         showsInPdvGroup: form.showsInPdvGroup === "on"
       }, editingGroup?.idGroup);
     });
-    root.querySelector("[data-cancel-edit]")?.addEventListener("click", () => {
-      editingGroup = null;
-      error = "";
-      render();
+    root.querySelectorAll("[data-cancel-edit]").forEach((button) => {
+      button.addEventListener("click", () => {
+        editingGroup = null;
+        error = "";
+        render();
+      });
     });
     root.querySelector("[data-modal-backdrop]")?.addEventListener("click", (event) => {
       if (event.target === event.currentTarget) {
@@ -297,6 +299,10 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onP
       message = idGroup ? "Grupo alterado com sucesso." : "Grupo cadastrado com sucesso.";
       editingGroup = null;
       await load();
+      scheduleMessageClear(() => {
+        message = "";
+        render();
+      });
     } catch (submitError) {
       error = submitError instanceof Error ? submitError.message : "Falha ao salvar o grupo.";
     } finally {
@@ -319,6 +325,10 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onP
       groups = groups.filter((item) => String(item.idGroup) !== String(idGroup));
       render();
       await load();
+      scheduleMessageClear(() => {
+        message = "";
+        render();
+      });
     } catch (deleteError) {
       error = deleteError instanceof Error ? deleteError.message : "Falha ao excluir o grupo.";
       render();
@@ -336,6 +346,10 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onP
       if (!response.ok) throw new Error(payload.error || "Não foi possível alterar o status do grupo.");
       message = isActiveGroup ? "Grupo ativado com sucesso." : "Grupo inativado com sucesso.";
       await load();
+      scheduleMessageClear(() => {
+        message = "";
+        render();
+      });
     } catch (statusError) {
       error = statusError instanceof Error ? statusError.message : "Falha ao alterar o status do grupo.";
       render();
@@ -353,6 +367,10 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onP
       if (!response.ok) throw new Error(payload.error || "Não foi possível alterar a exibição do grupo no PDV.");
       message = showsInPdvGroup ? "Grupo exibido no PDV." : "Grupo ocultado do PDV.";
       await load();
+      scheduleMessageClear(() => {
+        message = "";
+        render();
+      });
     } catch (visibilityError) {
       error = visibilityError instanceof Error ? visibilityError.message : "Falha ao alterar a exibição do grupo no PDV.";
       render();

@@ -1,5 +1,6 @@
-use base64::{engine::general_purpose::STANDARD, Engine};
+use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::Deserialize;
+use serde_json::{Map, Value};
 use std::io::Write;
 use std::net::TcpStream;
 use std::thread;
@@ -92,7 +93,9 @@ fn send_raw_print(request: PrintRequest) -> Result<String, String> {
                 request.font_size.unwrap_or(14),
                 request.bold.unwrap_or(false),
             )?;
-            Ok(format!("Cupom renderizado pelo driver e enviado para {printer_name}."))
+            Ok(format!(
+                "Cupom renderizado pelo driver e enviado para {printer_name}."
+            ))
         }
         _ => Err("Transporte de impressão inválido.".to_string()),
     }
@@ -178,6 +181,125 @@ fn printer_preference_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf,
         .app_data_dir()
         .map_err(|error| format!("Não foi possível localizar os dados da aplicação: {error}"))?
         .join("thermal-printer.txt"))
+}
+
+fn offline_config_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Não foi possível localizar os dados da aplicação: {error}"))?
+        .join("offline-config.json"))
+}
+
+#[tauri::command]
+fn load_offline_config(app: tauri::AppHandle) -> Result<Value, String> {
+    let path = offline_config_path(&app)?;
+    match std::fs::read_to_string(&path) {
+        Ok(contents) => serde_json::from_str(&contents)
+            .map_err(|error| format!("Não foi possível ler as configurações offline: {error}")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let legacy_path = app
+                .path()
+                .app_data_dir()
+                .map_err(|path_error| format!("Não foi possível localizar os dados da aplicação: {path_error}"))?
+                .join("api-config.json");
+            match std::fs::read_to_string(&legacy_path) {
+                Ok(contents) => {
+                    let config: Value = serde_json::from_str(&contents)
+                        .map_err(|parse_error| format!("Não foi possível migrar a configuração da API: {parse_error}"))?;
+                    save_offline_config(app.clone(), config.clone())?;
+                    let _ = std::fs::remove_file(legacy_path);
+                    Ok(config)
+                }
+                Err(legacy_error) if legacy_error.kind() == std::io::ErrorKind::NotFound => {
+                    Ok(Value::Object(Map::new()))
+                }
+                Err(legacy_error) => Err(format!("Não foi possível ler as configurações offline: {legacy_error}")),
+            }
+        }
+        Err(error) => Err(format!("Não foi possível ler as configurações offline: {error}")),
+    }
+}
+
+#[tauri::command]
+fn save_offline_config(app: tauri::AppHandle, config: Value) -> Result<(), String> {
+    let Some(incoming) = config.as_object() else {
+        return Err("As configurações offline devem estar em formato de objeto JSON.".to_string());
+    };
+    let path = offline_config_path(&app)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| {
+            format!("Não foi possível criar o diretório de configuração: {error}")
+        })?;
+    }
+    let mut merged = match std::fs::read_to_string(&path) {
+        Ok(contents) => serde_json::from_str::<Value>(&contents)
+            .map_err(|error| format!("Não foi possível ler as configurações offline existentes: {error}"))?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Value::Object(Map::new()),
+        Err(error) => return Err(format!("Não foi possível ler as configurações offline existentes: {error}")),
+    };
+    let Some(existing) = merged.as_object_mut() else {
+        return Err("As configurações offline existentes devem estar em formato de objeto JSON.".to_string());
+    };
+    for (key, value) in incoming {
+        existing.insert(key.clone(), value.clone());
+    }
+    let contents = serde_json::to_string_pretty(&merged)
+        .map_err(|error| format!("Não foi possível serializar as configurações offline: {error}"))?;
+    let temporary_path = path.with_extension("json.tmp");
+    std::fs::write(&temporary_path, contents)
+        .map_err(|error| format!("Não foi possível preparar as configurações offline: {error}"))?;
+    if let Err(error) = std::fs::remove_file(&path) {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            let _ = std::fs::remove_file(&temporary_path);
+            return Err(format!("Não foi possível substituir as configurações offline: {error}"));
+        }
+    }
+    std::fs::rename(&temporary_path, &path)
+        .map_err(|error| format!("Não foi possível salvar as configurações offline: {error}"))
+}
+
+#[tauri::command]
+fn clear_offline_config(app: tauri::AppHandle) -> Result<(), String> {
+    let path = offline_config_path(&app)?;
+    let contents = match std::fs::read_to_string(&path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(format!("Não foi possível ler as configurações offline: {error}")),
+    };
+    if !contents.is_empty() {
+        let mut config = serde_json::from_str::<Value>(&contents)
+            .map_err(|error| format!("Não foi possível ler as configurações offline: {error}"))?;
+        if let Some(object) = config.as_object_mut() {
+            object.remove("apiUrl");
+            let updated = serde_json::to_string_pretty(&config)
+                .map_err(|error| format!("Não foi possível serializar as configurações offline: {error}"))?;
+            let temporary_path = path.with_extension("json.tmp");
+            std::fs::write(&temporary_path, updated)
+                .map_err(|error| format!("Não foi possível preparar as configurações offline: {error}"))?;
+            if let Err(error) = std::fs::remove_file(&path) {
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    let _ = std::fs::remove_file(&temporary_path);
+                    return Err(format!("Não foi possível substituir as configurações offline: {error}"));
+                }
+            }
+            std::fs::rename(&temporary_path, &path)
+                .map_err(|error| format!("Não foi possível salvar as configurações offline: {error}"))?;
+        } else {
+            return Err("As configurações offline existentes devem estar em formato de objeto JSON.".to_string());
+        }
+    }
+    let legacy_path = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Não foi possível localizar os dados da aplicação: {error}"))?
+        .join("api-config.json");
+    if let Err(error) = std::fs::remove_file(legacy_path) {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            return Err(format!("Não foi possível remover a configuração antiga da API: {error}"));
+        }
+    }
+    Ok(())
 }
 
 fn list_windows_printers() -> Result<Vec<String>, String> {
@@ -278,13 +400,12 @@ fn send_to_windows_driver(
 ) -> Result<(), String> {
     use std::iter::once;
     use std::os::windows::ffi::OsStrExt;
+    use windows::Win32::Foundation::SIZE;
     use windows::Win32::Graphics::Gdi::{
         CLIP_DEFAULT_PRECIS, CreateDCW, CreateFontW, DEFAULT_CHARSET, DEFAULT_PITCH,
         DEFAULT_QUALITY, DeleteObject, FF_DONTCARE, GetDeviceCaps, GetTextExtentPoint32W,
-        GetTextMetricsW, HORZRES, OUT_DEFAULT_PRECIS, SelectObject,
-        TextOutW, TEXTMETRICW,
+        GetTextMetricsW, HORZRES, OUT_DEFAULT_PRECIS, SelectObject, TEXTMETRICW, TextOutW,
     };
-    use windows::Win32::Foundation::SIZE;
     use windows::Win32::Storage::Xps::{DOCINFOW, EndDoc, EndPage, StartDocW, StartPage};
     use windows::core::PCWSTR;
 
@@ -330,13 +451,15 @@ fn send_to_windows_driver(
         }
 
         let printable_lines = lines.map(|items| items.to_vec()).unwrap_or_else(|| {
-            text.lines().map(|value| PrintLine {
-                text: value.to_string(),
-                align: "left".to_string(),
-                font_family: font_family.to_string(),
-                font_size,
-                bold,
-            }).collect()
+            text.lines()
+                .map(|value| PrintLine {
+                    text: value.to_string(),
+                    align: "left".to_string(),
+                    font_family: font_family.to_string(),
+                    font_size,
+                    bold,
+                })
+                .collect()
         });
         let page_width = GetDeviceCaps(Some(device), HORZRES).max(1);
         let mut y = 0i32;
@@ -344,11 +467,23 @@ fn send_to_windows_driver(
             let item_size = item.font_size.clamp(6, 48);
             let height = -item_size;
             let family: Vec<u16> = std::ffi::OsStr::new(&item.font_family)
-                .encode_wide().chain(once(0)).collect();
+                .encode_wide()
+                .chain(once(0))
+                .collect();
             let font = CreateFontW(
-                height, 0, 0, 0, if item.bold { 700 } else { 400 }, 0, 0, 0,
-                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                DEFAULT_QUALITY, DEFAULT_PITCH.0 as u32 | FF_DONTCARE.0 as u32,
+                height,
+                0,
+                0,
+                0,
+                if item.bold { 700 } else { 400 },
+                0,
+                0,
+                0,
+                DEFAULT_CHARSET,
+                OUT_DEFAULT_PRECIS,
+                CLIP_DEFAULT_PRECIS,
+                DEFAULT_QUALITY,
+                DEFAULT_PITCH.0 as u32 | FF_DONTCARE.0 as u32,
                 PCWSTR(family.as_ptr()),
             );
             if font.is_invalid() {
@@ -415,6 +550,7 @@ fn send_to_windows_driver(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_http::init())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -430,7 +566,10 @@ pub fn run() {
             list_installed_printers,
             update_window_icon,
             get_selected_printer,
-            save_selected_printer
+            save_selected_printer,
+            load_offline_config,
+            save_offline_config,
+            clear_offline_config
         ])
         .run(tauri::generate_context!())
         .expect("error while building tauri application");

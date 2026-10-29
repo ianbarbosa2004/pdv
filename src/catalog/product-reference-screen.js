@@ -2,6 +2,8 @@ import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { bindFormRowPreview } from "../ui/form-row-preview.js";
 import { bindProductNavigation, renderProductNavigation } from "./product-navigation.js";
+import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { getApiUrl } from "../shared/api.js";
 
 const escapeHtml = (value) =>
   String(value)
@@ -10,9 +12,6 @@ const escapeHtml = (value) =>
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
-
-const getApiUrl = () =>
-  window.__PDV_API_URL__ || `http://${window.location.hostname}:3000`;
 
 const definitions = {
   productTypes: {
@@ -23,7 +22,10 @@ const definitions = {
     collection: "productTypes",
     id: "idProductType",
     description: "descriptionProductType",
-    fields: [["descriptionProductType", "Descrição do tipo de produto"]]
+    fields: [
+      ["codeSpedProductType", "Código SPED", false],
+      ["descriptionProductType", "Descrição do tipo de produto", true]
+    ]
   },
   units: {
     title: "Unidades tributáveis",
@@ -68,6 +70,7 @@ export function createProductReferenceScreen({
   let error = "";
   let message = "";
   let editingItem = null;
+  const scheduleMessageClear = createFeedbackTimer();
   let searchTerm = "";
 
   const load = async () => {
@@ -96,7 +99,10 @@ export function createProductReferenceScreen({
     render();
     try {
       const body = Object.fromEntries(formData);
-      if (id) body[definition.id] = id;
+      if (definition.fields.some(([field]) => field === "codeSpedProductType") && !body.codeSpedProductType?.trim()) {
+        body.codeSpedProductType = "";
+      }
+      if (id !== null && id !== undefined) body[definition.id] = id;
       const response = await fetch(`${getApiUrl()}${definition.endpoint}`, {
         method: id ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
@@ -105,8 +111,12 @@ export function createProductReferenceScreen({
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || `Não foi possível salvar ${definition.singular}.`);
       message = id ? `${definition.singular[0].toUpperCase()}${definition.singular.slice(1)} alterada com sucesso.` : `${definition.singular[0].toUpperCase()}${definition.singular.slice(1)} cadastrada com sucesso.`;
-      editingItem = null;
       await load();
+      editingItem = null;
+      scheduleMessageClear(() => {
+        message = "";
+        render();
+      });
     } catch (submitError) {
       error = submitError instanceof Error ? submitError.message : `Falha ao salvar ${definition.singular}.`;
     } finally {
@@ -145,6 +155,10 @@ export function createProductReferenceScreen({
       items = items.filter((item) => String(item[definition.id]) !== String(id));
       render();
       await load();
+      scheduleMessageClear(() => {
+        message = "";
+        render();
+      });
     } catch (removeError) {
       error = removeError instanceof Error ? removeError.message : `Falha ao excluir ${definition.singular}.`;
       render();
@@ -165,12 +179,12 @@ export function createProductReferenceScreen({
       ${renderMainMenu()}
       ${renderProductNavigation(kind === "productTypes" ? "product-types" : "units")}
       <section class="classic-content">
+        ${renderSuccessFeedback(message, escapeHtml)}
         <form class="classic-form-panel" data-reference-form>
           <div class="classic-panel-header">Novo ${definition.singular}</div>
           <div class="classic-form-body">
-            ${definition.fields.map(([field, label]) => `<label class="form-field"><span>${label}</span><input name="${field}" maxlength="${field === "codeUnit" ? 6 : 120}" required /></label>`).join("")}
+            ${definition.fields.map(([field, label, required]) => `<label class="form-field"><span>${label}</span><input name="${field}" maxlength="${field === "codeUnit" ? 6 : field === "codeSpedProductType" ? 30 : 120}" ${required ? "required" : ""} /></label>`).join("")}
             ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}
-            ${message ? `<p class="success-message">${escapeHtml(message)}</p>` : ""}
           </div>
           <div class="classic-form-actions">
             <button class="classic-button primary" type="submit" ${submitting || loading ? "disabled" : ""}>${submitting ? "Salvando..." : "Salvar"}</button>
@@ -193,7 +207,7 @@ export function createProductReferenceScreen({
           </div>
         </section>
       </section>
-      ${editingItem ? `<div class="classic-modal-backdrop" data-modal-backdrop><section class="classic-modal" role="dialog" aria-modal="true" aria-labelledby="edit-reference-title"><div class="classic-panel-header modal-panel-header"><span id="edit-reference-title">Editar ${definition.singular}</span><button class="modal-close-button" data-cancel type="button" aria-label="Fechar" title="Fechar"><i data-lucide="x"></i></button></div><form data-edit-form><div class="classic-form-body">${definition.fields.map(([field, label]) => `<label class="form-field"><span>${label}</span><input name="${field}" maxlength="${field === "codeUnit" ? 6 : 120}" required value="${escapeHtml(editingItem[field])}" /></label>`).join("")}${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}</div><div class="classic-form-actions"><button class="classic-button primary" type="submit" ${submitting ? "disabled" : ""}>Salvar alterações</button><button class="classic-button" data-cancel type="button">Cancelar</button></div></form></section></div>` : ""}
+      ${editingItem ? `<div class="classic-modal-backdrop" data-modal-backdrop><section class="classic-modal" role="dialog" aria-modal="true" aria-labelledby="edit-reference-title"><div class="classic-panel-header modal-panel-header"><span id="edit-reference-title">Editar ${definition.singular}</span><button class="modal-close-button" data-cancel type="button" aria-label="Fechar" title="Fechar"><i data-lucide="x"></i></button></div><form data-edit-form><div class="classic-form-body">${definition.fields.map(([field, label, required]) => `<label class="form-field"><span>${label}</span><input name="${field}" maxlength="${field === "codeUnit" ? 6 : field === "codeSpedProductType" ? 30 : 120}" ${required ? "required" : ""} value="${escapeHtml(editingItem[field])}" /></label>`).join("")}${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}</div><div class="classic-form-actions"><button class="classic-button primary" type="submit" ${submitting ? "disabled" : ""}>Salvar alterações</button><button class="classic-button" data-cancel type="button">Cancelar</button></div></form></section></div>` : ""}
     `;
     renderLucideIcons(root);
     bindMainMenu(root, { products: onProducts, "product-types": onProductTypes, units: onUnits, "fiscal-operations": onFiscalOperations, "thermal-print": onThermalPrint, "ncm-cest-update": onNcmCestUpdate, settings: onSettings, company: onCompany, nfce: onNfce, financial: onFinancial, "payment-methods": onPaymentMethods });
@@ -210,7 +224,8 @@ export function createProductReferenceScreen({
     });
     root.querySelector("[data-edit-form]")?.addEventListener("submit", (event) => {
       event.preventDefault();
-      void submit(new FormData(event.currentTarget), editingItem?.[definition.id]);
+      const editingId = editingItem?.[definition.id];
+      void submit(new FormData(event.currentTarget), editingId);
     });
     root.querySelector("[data-clear]")?.addEventListener("click", () => {
       error = "";
@@ -218,10 +233,12 @@ export function createProductReferenceScreen({
       root.querySelector("[data-reference-form]")?.reset();
       render();
     });
-    root.querySelector("[data-cancel]")?.addEventListener("click", () => {
-      editingItem = null;
-      error = "";
-      render();
+    root.querySelectorAll("[data-cancel]").forEach((button) => {
+      button.addEventListener("click", () => {
+        editingItem = null;
+        error = "";
+        render();
+      });
     });
     root.querySelectorAll("[data-edit]").forEach((button) => button.addEventListener("click", () => {
       editingItem = items.find((item) => String(item[definition.id]) === button.dataset.edit) || null;
