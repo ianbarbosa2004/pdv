@@ -49,7 +49,8 @@ export const renderMainMenu = () => {
 export const bindMainMenu = (root, handlers) => {
   root.querySelectorAll("[data-main-menu]").forEach((button) => {
     button.addEventListener("click", () => {
-      const handler = resolveNavigationHandler(handlers, button.dataset.mainMenu);
+      const handler = resolveNavigationHandler(handlers, button.dataset.mainMenu)
+        || resolveNavigationHandler(window.__PDV_NAVIGATION_HANDLERS__, button.dataset.mainMenu);
       handler?.();
     });
   });

@@ -6,19 +6,25 @@ const escapeHtml = (value) =>
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 
-export const getContextualNavigationItems = (parentKey, fallbackItems) => {
-  const navigation = window.__PDV_NAVIGATION__;
+const normalizeNavigationValue = (value) =>
+  String(value ?? "").trim().toLocaleLowerCase("pt-BR");
+
+const isActive = (item) =>
+  Number(item?.isActiveNavigationItem) !== 0
+  && item?.routeNavigationItem;
+
+export const selectContextualNavigationItems = (navigation, parentKey, fallbackItems) => {
   const items = Array.isArray(navigation?.items) ? navigation.items : [];
+  const normalizedParentKey = normalizeNavigationValue(parentKey);
   const parent = items.find((item) =>
-    item.keyNavigationItem === parentKey
-    && item.typeNavigationItem !== "bar"
+    [item.keyNavigationItem, item.routeNavigationItem, item.labelNavigationItem]
+      .some((value) => normalizeNavigationValue(value) === normalizedParentKey)
   );
   if (!parent) return fallbackItems;
 
   const configuredItems = items
     .filter((item) =>
-      item.typeNavigationItem === "bar"
-      && item.isActiveNavigationItem !== 0
+      isActive(item)
       && String(item.idParentNavigationItem) === String(parent.idNavigationItem)
     )
     .sort((left, right) =>
@@ -26,8 +32,30 @@ export const getContextualNavigationItems = (parentKey, fallbackItems) => {
     )
     .map((item) => [item.keyNavigationItem, item.labelNavigationItem]);
 
-  return configuredItems.length ? configuredItems : fallbackItems;
+  if (!configuredItems.length) return fallbackItems;
+
+  const configuredKeys = new Set(
+    configuredItems.map(([key]) => normalizeNavigationValue(key))
+  );
+  const parentItem = isActive(parent)
+    ? [[parent.keyNavigationItem, parent.labelNavigationItem]]
+    : fallbackItems.filter(([key]) =>
+        normalizeNavigationValue(key) === normalizedParentKey
+      );
+  for (const [key] of parentItem) {
+    configuredKeys.add(normalizeNavigationValue(key));
+  }
+  const primaryFallbackItem = fallbackItems[0];
+  const itemsWithPrimaryFallback = primaryFallbackItem
+    && !configuredKeys.has(normalizeNavigationValue(primaryFallbackItem[0]))
+    ? [primaryFallbackItem, ...configuredItems]
+    : configuredItems;
+
+  return [...parentItem, ...itemsWithPrimaryFallback];
 };
+
+export const getContextualNavigationItems = (parentKey, fallbackItems) =>
+  selectContextualNavigationItems(window.__PDV_NAVIGATION__, parentKey, fallbackItems);
 
 export const renderContextualNavigationItems = (items, active, dataAttribute) =>
   items

@@ -14,6 +14,7 @@ const shortcutDescriptions = {
   "fiscal-operations": "Cadastre CFOP, CST, PIS, COFINS, ICMS e regras fiscais.",
   financial: "Gerencie formas de pagamento e tabelas financeiras.",
   "thermal-print": "Teste caracteres, tamanhos e alinhamento em papel de 80 mm.",
+  "nfce-query": "Teste a consulta oficial e prepare itens para futuras entradas de compras.",
   settings: "Selecione as impressoras padrão de cupons e relatórios."
 };
 
@@ -95,6 +96,7 @@ export function createBackofficeScreen({
   onGeneralSettings,
   onCompany,
   onNfce,
+  onNfceQuery,
   onNavigationBuilder,
   onPaymentMethods
 }) {
@@ -118,6 +120,7 @@ export function createBackofficeScreen({
     "general-settings": onGeneralSettings,
     company: onCompany,
     nfce: onNfce,
+    "nfce-query": onNfceQuery,
     "navigation-builder": onNavigationBuilder,
     "payment-methods": onPaymentMethods
   };
@@ -147,6 +150,12 @@ export function createBackofficeScreen({
             <span>${escapeHtml(shortcut.descriptionNavigationItem || shortcutDescriptions[shortcut.keyNavigationItem] || "Acesse este recurso da retaguarda.")}</span>
           </button>
         `).join("")}
+        ${shortcuts.some(({ keyNavigationItem }) => keyNavigationItem === "nfce-query") ? "" : `
+          <button class="backoffice-shortcut" data-shortcut-key="nfce-query" type="button">
+            <strong>Consulta de NFC-e</strong>
+            <span>${escapeHtml(shortcutDescriptions["nfce-query"])}</span>
+          </button>
+        `}
       </div>
     </section>
   `;

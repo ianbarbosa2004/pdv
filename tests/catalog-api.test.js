@@ -69,6 +69,7 @@ test("libera CORS e expõe rotas de edição e exclusão dos cadastros", async (
     ["PUT", "/api/groups/status"],
     ["DELETE", "/api/groups"],
     ["PUT", "/api/products"],
+    ["POST", "/api/products/import"],
     ["PUT", "/api/products/status"],
     ["DELETE", "/api/products"],
     ["POST", "/api/fiscal-operations"],

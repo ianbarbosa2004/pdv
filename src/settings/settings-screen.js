@@ -1,8 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
-
-const getApiUrl = () =>
-  window.__PDV_API_URL__ || `http://${window.location.hostname}:3000`;
+import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { getApiUrl } from "../shared/api.js";
 
 const escapeHtml = (value) =>
   String(value ?? "")
@@ -36,6 +35,7 @@ export function createSettingsScreen({
   let saving = false;
   let message = "";
   let error = "";
+  const scheduleMessageClear = createFeedbackTimer();
 
   const request = async (path, options) => {
     const response = await fetch(`${getApiUrl()}${path}`, {
@@ -56,13 +56,14 @@ export function createSettingsScreen({
       </header>
       ${renderMainMenu()}
       <div class="classic-toolbar">
-        <button class="classic-tool-button" data-back type="button">← Retaguarda</button>
+        <button class="classic-tool-button" data-back type="button">← Frente de caixa</button>
         <strong>Configurações do sistema</strong>
       </div>
       <div class="classic-toolbar-secondary">
         <button class="classic-tool-button" data-navigation-builder type="button">Construtor de menu</button>
       </div>
       <section class="settings-content">
+        ${renderSuccessFeedback(message, escapeHtml)}
         <div class="backoffice-home-heading">
           <p class="eyebrow">Sistema</p>
           <h1>Impressoras</h1>
@@ -88,7 +89,6 @@ export function createSettingsScreen({
               <small>Usada para relatórios administrativos.</small>
             </label>
             ${error ? `<p class="error-message">${escapeHtml(error)}</p>` : ""}
-            ${message ? `<p class="success-message">${escapeHtml(message)}</p>` : ""}
           </div>
           <div class="classic-form-actions">
             <button class="classic-button primary" data-save type="submit" ${loading || saving ? "disabled" : ""}>${saving ? "Salvando..." : "Salvar configurações"}</button>
@@ -165,6 +165,10 @@ export function createSettingsScreen({
         receiptPrinterName = settings.receiptPrinterName;
         reportsPrinterName = settings.reportsPrinterName;
         message = "Configurações salvas no banco de dados.";
+        scheduleMessageClear(() => {
+          message = "";
+          render();
+        });
       } catch (saveError) {
         error = saveError instanceof Error ? saveError.message : String(saveError);
       } finally {

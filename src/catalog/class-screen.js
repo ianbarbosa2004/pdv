@@ -2,6 +2,8 @@ import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { bindFormRowPreview } from "../ui/form-row-preview.js";
 import { bindProductNavigation, renderProductNavigation } from "./product-navigation.js";
+import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { getApiUrl } from "../shared/api.js";
 
 const escapeHtml = (value) =>
   String(value)
@@ -10,9 +12,6 @@ const escapeHtml = (value) =>
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
-
-const getApiUrl = () =>
-  window.__PDV_API_URL__ || `http://${window.location.hostname}:3000`;
 
 export function createClassScreen({ onBack, onClasses, onGroups, onProducts, onProductTypes, onUnits, onNcmCest, onFiscalOperations, onThermalPrint, onNcmCestUpdate, onSettings, onCompany, onNfce, onFinancial, onPaymentMethods }) {
   const root = document.createElement("main");
@@ -23,6 +22,7 @@ export function createClassScreen({ onBack, onClasses, onGroups, onProducts, onP
   let message = "";
   let submitting = false;
   let editingClass = null;
+  const scheduleMessageClear = createFeedbackTimer();
   let sortState = { key: "descriptionClass", direction: "asc" };
   let searchTerm = "";
 
@@ -55,6 +55,7 @@ export function createClassScreen({ onBack, onClasses, onGroups, onProducts, onP
       ${renderMainMenu()}
       ${renderProductNavigation("classes")}
       <section class="classic-content">
+        ${renderSuccessFeedback(message, escapeHtml)}
         <form class="classic-form-panel" data-class-form>
           <div class="classic-panel-header">Nova classe</div>
           <div class="classic-form-body">
@@ -70,7 +71,6 @@ export function createClassScreen({ onBack, onClasses, onGroups, onProducts, onP
               </select>
             </label>
             ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}
-            ${message ? `<p class="success-message">${escapeHtml(message)}</p>` : ""}
           </div>
           <div class="classic-form-actions">
             <button class="classic-button primary" type="submit" ${submitting || loading ? "disabled" : ""}>
@@ -209,10 +209,12 @@ export function createClassScreen({ onBack, onClasses, onGroups, onProducts, onP
       event.preventDefault();
       void submitClass(Object.fromEntries(new FormData(event.currentTarget)), editingClass?.idClass);
     });
-    root.querySelector("[data-cancel-edit]")?.addEventListener("click", () => {
-      editingClass = null;
-      error = "";
-      render();
+    root.querySelectorAll("[data-cancel-edit]").forEach((button) => {
+      button.addEventListener("click", () => {
+        editingClass = null;
+        error = "";
+        render();
+      });
     });
     root.querySelector("[data-modal-backdrop]")?.addEventListener("click", (event) => {
       if (event.target === event.currentTarget) {
@@ -266,6 +268,10 @@ export function createClassScreen({ onBack, onClasses, onGroups, onProducts, onP
       message = idClass ? "Classe alterada com sucesso." : "Classe cadastrada com sucesso.";
       editingClass = null;
       await load();
+      scheduleMessageClear(() => {
+        message = "";
+        render();
+      });
     } catch (submitError) {
       error = submitError instanceof Error ? submitError.message : "Falha ao salvar a classe.";
     } finally {
@@ -288,6 +294,10 @@ export function createClassScreen({ onBack, onClasses, onGroups, onProducts, onP
       classes = classes.filter((item) => String(item.idClass) !== String(idClass));
       render();
       await load();
+      scheduleMessageClear(() => {
+        message = "";
+        render();
+      });
     } catch (deleteError) {
       error = deleteError instanceof Error ? deleteError.message : "Falha ao excluir a classe.";
       render();
@@ -305,6 +315,10 @@ export function createClassScreen({ onBack, onClasses, onGroups, onProducts, onP
       if (!response.ok) throw new Error(payload.error || "Não foi possível alterar o status da classe.");
       message = isActiveClass ? "Classe ativada com sucesso." : "Classe inativada com sucesso.";
       await load();
+      scheduleMessageClear(() => {
+        message = "";
+        render();
+      });
     } catch (statusError) {
       error = statusError instanceof Error ? statusError.message : "Falha ao alterar o status da classe.";
       render();

@@ -7,6 +7,8 @@ import {
   formatMaskedNumber,
   normalizeMaskedNumber
 } from "../ui/number-mask.js";
+import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { getApiUrl } from "../shared/api.js";
 
 const escapeHtml = (value) =>
   String(value)
@@ -24,13 +26,15 @@ const formatIntegerStock = (value) => {
 };
 
 const formatStockForInput = (value, isFractionalProduct) =>
-  isFractionalProduct ? String(value ?? "") : formatIntegerStock(value);
+  isFractionalProduct
+    ? String(value ?? "0") || "0"
+    : formatIntegerStock(value ?? "0") || "0";
 
-const getApiUrl = () =>
-  window.__PDV_API_URL__ || `http://${window.location.hostname}:3000`;
+const normalizeSku = (value) => String(value ?? "").trim().toUpperCase();
 
 export function createCatalogScreen({
   title = "Produtos",
+  listTitle = title,
   productTypeDescription = "Mercadoria para Revenda",
   navigationActive = "products",
   singularLabel = "produto",
@@ -38,8 +42,10 @@ export function createCatalogScreen({
   editFormTitle = `Editar ${singularLabel}`,
   skuPrefix = "PROD-",
   defaultControlsStock = true,
+  defaultIsFractionalProduct = false,
   defaultShowsInPdv = true,
   defaultFiscalOperation = true,
+  defaultFiscalOperationDescription = "Revenda de mercadorias",
   onBack,
   onClasses,
   onGroups,
@@ -71,6 +77,7 @@ export function createCatalogScreen({
   let message = "";
   let submitting = false;
   let editingProduct = null;
+  const scheduleMessageClear = createFeedbackTimer();
   let ncms = [];
   let cestOptions = [];
   let newNcmProduct = "";
@@ -86,13 +93,13 @@ export function createCatalogScreen({
     priceProduct: "0,00",
     stockQuantityProduct: "0",
     controlsStockProduct: defaultControlsStock,
-    isFractionalProduct: false,
+    isFractionalProduct: defaultIsFractionalProduct,
     printsKitchenProduct: false,
     showsInPdvProduct: defaultShowsInPdv
   };
   let ncmLookupOpen = false;
   let ncmLookupTerm = "";
-  let ncmLookupField = "description";
+  let ncmLookupField = "code";
   let sortState = { key: "nameProduct", direction: "asc" };
   let searchTerm = "";
 
@@ -143,14 +150,16 @@ export function createCatalogScreen({
     const formData = new FormData(form);
     newProductDraft = {
       nameProduct: String(formData.get("nameProduct") ?? ""),
-      skuProduct: String(formData.get("skuProduct") ?? ""),
+      skuProduct: normalizeSku(formData.get("skuProduct")),
       pdvCodeProduct: String(formData.get("pdvCodeProduct") ?? ""),
       idGroup: String(formData.get("idGroup") ?? ""),
       idFiscalOperationSaleProduct: String(formData.get("idFiscalOperationSaleProduct") ?? ""),
       idProductTypeProduct: String(formData.get("idProductTypeProduct") ?? ""),
       idUnitProduct: String(formData.get("idUnitProduct") ?? ""),
       priceProduct: String(formData.get("priceProduct") ?? ""),
-      stockQuantityProduct: String(formData.get("stockQuantityProduct") ?? ""),
+      stockQuantityProduct: String(
+        formData.get("stockQuantityProduct") ?? newProductDraft.stockQuantityProduct ?? "0"
+      ) || "0",
       controlsStockProduct: formData.get("controlsStockProduct") === "on",
       isFractionalProduct: formData.get("isFractionalProduct") === "on",
       printsKitchenProduct: formData.get("printsKitchenProduct") === "on",
@@ -189,8 +198,34 @@ export function createCatalogScreen({
   const getDefaultFiscalOperation = () =>
     defaultFiscalOperation &&
     fiscalOperations.find(({ descriptionFiscalOperation }) =>
-      String(descriptionFiscalOperation).trim().toLocaleLowerCase("pt-BR") === "revenda de mercadorias"
+      String(descriptionFiscalOperation).trim().toLocaleLowerCase("pt-BR")
+        === defaultFiscalOperationDescription.trim().toLocaleLowerCase("pt-BR")
     );
+
+  const resetNewProductDraft = () => {
+    newProductDraft = {
+      nameProduct: "",
+      skuProduct: skuPrefix,
+      pdvCodeProduct: "",
+      idGroup: "",
+      idFiscalOperationSaleProduct: getDefaultFiscalOperation()
+        ? String(getDefaultFiscalOperation().idFiscalOperation)
+        : "",
+      idProductTypeProduct: getScreenProductType()
+        ? String(getScreenProductType().idProductType)
+        : "",
+      idUnitProduct: "",
+      priceProduct: "0,00",
+      stockQuantityProduct: "0",
+      controlsStockProduct: defaultControlsStock,
+      isFractionalProduct: defaultIsFractionalProduct,
+      printsKitchenProduct: false,
+      showsInPdvProduct: defaultShowsInPdv
+    };
+    newNcmProduct = "";
+    newCestProduct = "";
+    cestOptions = [];
+  };
 
   const isStockControlled = (product) =>
     Number(product.controlsStockProduct) !== 0;
@@ -200,7 +235,7 @@ export function createCatalogScreen({
     const value = formatStockForInput(product.stockQuantityProduct, product.isFractionalProduct);
     return `
       <label class="form-field"><span>${label}</span>
-        <input name="stockQuantityProduct" type="number" ${allowNegativeStock ? "" : 'min="0"'} step="${product.isFractionalProduct ? "0.001" : "1"}" ${stockControlled ? "" : "readonly disabled"} required value="${escapeHtml(value)}" />
+        <input name="stockQuantityProduct" type="${product.isFractionalProduct ? "text" : "number"}" inputmode="decimal" ${allowNegativeStock ? "" : 'min="0"'} step="${product.isFractionalProduct ? "0.001" : "1"}" ${stockControlled ? "" : "readonly disabled"} required value="${escapeHtml(value)}" />
       </label>
     `;
   };
@@ -231,12 +266,13 @@ export function createCatalogScreen({
       ${renderMainMenu()}
       ${renderProductNavigation(navigationActive)}
       <section class="classic-content">
+        ${renderSuccessFeedback(message, escapeHtml)}
         <form class="classic-form-panel" data-product-form>
           <div class="classic-panel-header">${createFormTitle}</div>
           <div class="classic-form-body">
           <label class="form-field"><span>Nome</span><input name="nameProduct" required maxlength="180" value="${escapeHtml(newProductDraft.nameProduct)}" /></label>
           <div class="classic-form-grid">
-            <label class="form-field"><span>SKU</span><input name="skuProduct" required maxlength="64" value="${escapeHtml(newProductDraft.skuProduct)}" /></label>
+            <label class="form-field"><span>SKU</span><input name="skuProduct" data-uppercase-mask required maxlength="64" value="${escapeHtml(normalizeSku(newProductDraft.skuProduct))}" /></label>
             <label class="form-field"><span>Código PDV</span><input name="pdvCodeProduct" maxlength="64" value="${escapeHtml(newProductDraft.pdvCodeProduct)}" /></label>
           </div>
           <div class="classic-form-grid">
@@ -265,7 +301,6 @@ export function createCatalogScreen({
           </div>
           ${renderProductFlags()}
           ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}
-          ${message ? `<p class="success-message">${escapeHtml(message)}</p>` : ""}
           </div>
           <div class="classic-form-actions">
             <button class="classic-button primary" type="submit" ${submitting || loading ? "disabled" : ""}>
@@ -276,7 +311,7 @@ export function createCatalogScreen({
         </form>
         <section class="classic-grid-panel">
           <div class="classic-panel-header classic-list-header">
-            <span>${escapeHtml(title)}</span>
+            <span>${escapeHtml(listTitle)}</span>
             <input class="classic-list-search" data-search dir="ltr" type="search" placeholder="Pesquisar..." aria-label="Pesquisar produtos" value="${escapeHtml(searchTerm)}" />
           </div>
           <div class="classic-grid-wrapper">
@@ -287,7 +322,7 @@ export function createCatalogScreen({
                   ? `<table class="classic-table">
                       <thead><tr>
                         ${[
-                          ["skuProduct", "SKU"],
+                          ["pdvCodeProduct", "# PDV"],
                           ["nameProduct", "Produto"],
                           ["descriptionGroup", "Grupo"],
                           ["priceProduct", "Preço"],
@@ -301,7 +336,7 @@ export function createCatalogScreen({
                       </tr></thead>
                       <tbody>${getVisibleProducts().map((product) => `
                         <tr class="${product.isActiveProduct ? "" : "is-inactive"}" data-view-record="${escapeHtml(JSON.stringify(product))}">
-                          <td>${escapeHtml(product.skuProduct)}</td>
+                          <td>${escapeHtml(product.pdvCodeProduct || "—")}</td>
                           <td>${escapeHtml(product.nameProduct)}</td>
                           <td>${escapeHtml(product.descriptionGroup || "Sem grupo")}</td>
                           <td>R$ ${Number(product.priceProduct).toFixed(2).replace(".", ",")}</td>
@@ -338,7 +373,7 @@ export function createCatalogScreen({
               <div class="classic-form-body">
                 <label class="form-field"><span>Nome</span><input name="nameProduct" required maxlength="180" value="${escapeHtml(editingProduct.nameProduct)}" /></label>
                 <div class="classic-form-grid">
-                  <label class="form-field"><span>SKU</span><input name="skuProduct" required maxlength="64" value="${escapeHtml(editingProduct.skuProduct)}" /></label>
+                  <label class="form-field"><span>SKU</span><input name="skuProduct" data-uppercase-mask required maxlength="64" value="${escapeHtml(normalizeSku(editingProduct.skuProduct))}" /></label>
                   <label class="form-field"><span>Código PDV</span><input name="pdvCodeProduct" maxlength="64" value="${escapeHtml(editingProduct.pdvCodeProduct || "")}" /></label>
                 </div>
                 <div class="classic-form-grid">
@@ -456,7 +491,7 @@ export function createCatalogScreen({
         if (!editingProduct) captureNewProductDraft();
         ncmLookupOpen = true;
         ncmLookupTerm = "";
-        ncmLookupField = "description";
+        ncmLookupField = "code";
         render();
         root.querySelector("[data-ncm-lookup-search]")?.focus();
       });
@@ -492,9 +527,11 @@ export function createCatalogScreen({
         void loadCestOptions(selectedCode);
       });
     });
-    root.querySelector("[data-close-ncm]")?.addEventListener("click", () => {
-      ncmLookupOpen = false;
-      render();
+    root.querySelectorAll("[data-close-ncm]").forEach((button) => {
+      button.addEventListener("click", () => {
+        ncmLookupOpen = false;
+        render();
+      });
     });
     root.querySelector("[data-ncm-modal-backdrop]")?.addEventListener("click", (event) => {
       if (event.target === event.currentTarget) {
@@ -535,29 +572,8 @@ export function createCatalogScreen({
       );
     });
     root.querySelector("[data-clear-form]")?.addEventListener("click", () => {
-      root.querySelector("[data-product-form]")?.reset();
       editingProduct = null;
-      newNcmProduct = "";
-      newCestProduct = "";
-      newProductDraft = {
-        nameProduct: "",
-        skuProduct: skuPrefix,
-        pdvCodeProduct: "",
-        idGroup: "",
-        idFiscalOperationSaleProduct: getDefaultFiscalOperation()
-          ? String(getDefaultFiscalOperation().idFiscalOperation)
-          : "",
-        idProductTypeProduct: getScreenProductType()
-          ? String(getScreenProductType().idProductType)
-          : "",
-        idUnitProduct: "",
-        priceProduct: "0,00",
-        stockQuantityProduct: "0",
-        controlsStockProduct: defaultControlsStock,
-        isFractionalProduct: false,
-        printsKitchenProduct: false,
-        showsInPdvProduct: defaultShowsInPdv
-      };
+      resetNewProductDraft();
       error = "";
       message = "";
       render();
@@ -565,6 +581,16 @@ export function createCatalogScreen({
     root.querySelector("[data-product-form]")?.addEventListener("submit", (event) => {
       event.preventDefault();
       void createProduct(new FormData(event.currentTarget));
+    });
+    root.querySelectorAll("[data-uppercase-mask]").forEach((input) => {
+      input.addEventListener("input", (event) => {
+        const field = event.currentTarget;
+        const start = field.selectionStart;
+        const end = field.selectionEnd;
+        const uppercaseValue = field.value.toUpperCase();
+        if (field.value !== uppercaseValue) field.value = uppercaseValue;
+        if (start !== null && end !== null) field.setSelectionRange(start, end);
+      });
     });
     root.querySelectorAll("[name='isFractionalProduct']").forEach((checkbox) => {
       checkbox.addEventListener("change", () => {
@@ -585,10 +611,12 @@ export function createCatalogScreen({
       event.preventDefault();
       void createProduct(new FormData(event.currentTarget), editingProduct?.idProduct);
     });
-    root.querySelector("[data-cancel-edit]")?.addEventListener("click", () => {
-      editingProduct = null;
-      error = "";
-      render();
+    root.querySelectorAll("[data-cancel-edit]").forEach((button) => {
+      button.addEventListener("click", () => {
+        editingProduct = null;
+        error = "";
+        render();
+      });
     });
     root.querySelector("[data-modal-backdrop]")?.addEventListener("click", (event) => {
       if (event.target === event.currentTarget) {
@@ -613,6 +641,10 @@ export function createCatalogScreen({
       products = products.filter((product) => String(product.idProduct) !== String(id));
       render();
       await load();
+      scheduleMessageClear(() => {
+        message = "";
+        render();
+      });
     } catch (deleteError) {
       error = deleteError instanceof Error ? deleteError.message : "Falha ao excluir o produto.";
       render();
@@ -720,7 +752,7 @@ export function createCatalogScreen({
         body: JSON.stringify({
           ...(productId ? { idProduct: productId } : {}),
           nameProduct: formData.get("nameProduct"),
-          skuProduct: formData.get("skuProduct"),
+          skuProduct: normalizeSku(formData.get("skuProduct")),
           pdvCodeProduct: formData.get("pdvCodeProduct") || null,
           idGroup: Number(formData.get("idGroup")),
           idFiscalOperationSaleProduct: formData.get("idFiscalOperationSaleProduct") ? Number(formData.get("idFiscalOperationSaleProduct")) : null,
@@ -742,9 +774,15 @@ export function createCatalogScreen({
       if (!response.ok) {
         throw new Error(payload.error || "Não foi possível cadastrar o produto.");
       }
-      message = productId ? "Produto alterado com sucesso." : "Produto cadastrado com sucesso.";
+      const wasEditing = Boolean(productId);
+      message = wasEditing ? "Produto alterado com sucesso." : "Produto cadastrado com sucesso.";
+      if (!wasEditing) resetNewProductDraft();
       editingProduct = null;
       await load();
+      scheduleMessageClear(() => {
+        message = "";
+        render();
+      });
     } catch (createError) {
       error = createError instanceof Error ? createError.message : "Falha ao cadastrar produto.";
     } finally {
@@ -764,6 +802,10 @@ export function createCatalogScreen({
       if (!response.ok) throw new Error(payload.error || "Não foi possível alterar o status do produto.");
       message = isActiveProduct ? "Produto ativado com sucesso." : "Produto inativado com sucesso.";
       await load();
+      scheduleMessageClear(() => {
+        message = "";
+        render();
+      });
     } catch (statusError) {
       error = statusError instanceof Error ? statusError.message : "Falha ao alterar o status do produto.";
       render();
@@ -781,6 +823,10 @@ export function createCatalogScreen({
       if (!response.ok) throw new Error(payload.error || "Não foi possível alterar a exibição do produto no PDV.");
       message = showsInPdvProduct ? "Produto exibido no PDV." : "Produto ocultado do PDV.";
       await load();
+      scheduleMessageClear(() => {
+        message = "";
+        render();
+      });
     } catch (visibilityError) {
       error = visibilityError instanceof Error ? visibilityError.message : "Falha ao alterar a exibição do produto no PDV.";
       render();

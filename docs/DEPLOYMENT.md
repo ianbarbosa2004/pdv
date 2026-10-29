@@ -77,6 +77,40 @@ npm.cmd ci
 npm.cmd run api
 ```
 
+O executável Tauri usa `http://127.0.0.1:3000` por padrão quando é executado
+no próprio servidor da loja. Para gerar um executável de um terminal que deve
+acessar outro computador, informe o endereço da API no build:
+
+```powershell
+$env:VITE_PDV_API_URL = "http://IP_DO_SERVIDOR:3000"
+npm.cmd run tauri -- build --no-bundle
+```
+
+Não use o endereço do frontend Vite como endereço da API. Se a aplicação
+receber uma página HTML no lugar de JSON, confirme essa variável e valide
+`http://IP_DO_SERVIDOR:3000/api/health`.
+
+Também é possível configurar o endereço por terminal em **Configurações >
+Configurações Gerais > Conexão com o servidor**. Informe a URL base da API,
+por exemplo `http://192.168.0.10:3000`, e salve. Esse valor fica armazenado
+localmente no arquivo JSON de configuração da aplicação Tauri e tem prioridade
+sobre o endereço padrão do executável. Use **Restaurar padrão** para remover o
+arquivo local e voltar ao valor definido pelo build ou pelo ambiente. No
+navegador de desenvolvimento, o endereço fica somente em memória durante a
+execução. O arquivo é um `offline-config.json` geral, destinado a concentrar
+outras preferências locais do terminal no futuro. A gravação nativa faz merge
+das propriedades e substitui o arquivo de forma atômica; portanto, salvar uma
+configuração não descarta as demais. O bundle de instalação não contém esse
+arquivo: ele permanece no diretório de dados da aplicação e não é sobrescrito
+pela compilação ou atualização do executável.
+
+Em **Ferramentas > Status da API**, o campo **Identificador do frontend** mostra
+o fingerprint da versão compilada. Ele é calculado a partir do commit e das
+alterações locais presentes no código no momento da execução do Vite. Dev e
+bundle gerados a partir da mesma árvore de código devem exibir o mesmo
+identificador; valores diferentes indicam que o `.exe` foi gerado de outra
+versão. A tela também informa se o menu veio da API ou da contingência local.
+
 Se a instalação usar NFC-e ou armazenar certificado A1, configure
 `PDV_CERTIFICATE_ENCRYPTION_KEY` antes de iniciar a API. A chave deve ser
 mantida somente no servidor e não pode ser recuperada a partir do banco.
@@ -132,6 +166,11 @@ O instalador exige o serviço `MariaDB`, configura a dependência para iniciar a
 API depois do banco, habilita início automático atrasado e configura três
 tentativas de reinício com atrasos de 10, 30 e 60 segundos. Os logs ficam fora
 do repositório em `C:\ProgramData\PDV\logs`, com rotação por tamanho e data.
+
+O teste de emissão NFC-e exige o executável `openssl.exe` no servidor. O
+instalador procura uma instalação disponível e registra o caminho no serviço
+como `PDV_OPENSSL_PATH`. Se o OpenSSL for instalado depois do serviço, execute
+novamente o instalador para atualizar essa configuração.
 
 Verifique o serviço e a API:
 
@@ -226,6 +265,18 @@ Não use scripts de cPanel, Passenger ou outro projeto, não copie credenciais
 para repositórios e não considere a versão publicada sem validar API e
 MariaDB. O wrapper WinSW é mantido fora do Git em
 `C:\ProgramData\PDV\service`.
+
+Após alterações no cadastro de Tipos de Produtos, confirme na API:
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:3000/api/product-types?includeInactive=1"
+```
+
+O retorno deve incluir `codeSpedProductType`. A listagem deve apresentar os
+registros em ordem crescente de Código SPED, deixando tipos sem código ao
+final. Se o endpoint ainda retornar o contrato anterior, o serviço está
+executando uma versão antiga e deve ser reinstalado pelo procedimento acima
+antes de validar a interface.
 
 ## Diretriz de nomenclatura
 

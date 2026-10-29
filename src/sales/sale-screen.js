@@ -4,15 +4,13 @@ import {
   formatMaskedNumber,
   normalizeMaskedNumber
 } from "../ui/number-mask.js";
+import { getApiUrl, saveConfiguredApiUrl } from "../shared/api.js";
 
 const formatCurrency = (value) =>
   new Intl.NumberFormat("pt-BR", {
     style: "currency",
     currency: "BRL"
   }).format(value);
-
-const getApiUrl = () =>
-  window.__PDV_API_URL__ || `http://${window.location.hostname}:3000`;
 
 const loadProducts = async () => {
   const response = await fetch(`${getApiUrl()}/api/products`);
@@ -40,7 +38,7 @@ const escapeHtml = (value) =>
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 
-export function createSaleScreen({ onBackoffice } = {}) {
+export function createSaleScreen({ onBackoffice, initialApiError = false, onApiConfigured } = {}) {
   const root = document.createElement("main");
   let products = [];
   let paymentMethods = [];
@@ -55,6 +53,10 @@ export function createSaleScreen({ onBackoffice } = {}) {
   let idPaymentMethod = "";
   let paymentAmount = "";
   let submittingPayment = false;
+  let apiConfigOpen = initialApiError;
+  let apiConfigSaving = false;
+  let apiConfigError = "";
+  let apiConfigUrl = getApiUrl();
 
   const render = () => {
     const groups = ["Todos", ...new Set(products.map(({ group }) => group))];
@@ -247,6 +249,37 @@ export function createSaleScreen({ onBackoffice } = {}) {
           `
           : ""
       }
+      ${
+        apiConfigOpen
+          ? `
+            <div class="classic-modal-backdrop" data-api-config-backdrop>
+              <section class="classic-modal api-connection-modal" role="dialog" aria-modal="true" aria-labelledby="api-config-title">
+                <div class="classic-panel-header modal-panel-header">
+                  <div>
+                    <span class="eyebrow">Conexão do terminal</span>
+                    <span id="api-config-title">API indisponível</span>
+                  </div>
+                  <button class="modal-close-button" data-close-api-config type="button" aria-label="Fechar" title="Continuar sem conexão">×</button>
+                </div>
+                <form data-api-config-form>
+                  <div class="classic-form-body">
+                    <p class="modal-help-text">Não foi possível conectar ao servidor do PDV. Informe o IP ou nome do computador que executa a API e a porta publicada.</p>
+                    <label class="form-field">
+                      <span>Endereço da API</span>
+                      <input name="apiUrl" type="url" inputmode="url" autocomplete="off" placeholder="http://192.168.0.10:3000" value="${escapeHtml(apiConfigUrl)}" ${apiConfigSaving ? "disabled" : ""} required />
+                    </label>
+                    ${apiConfigError ? `<p class="error-message">${escapeHtml(apiConfigError)}</p>` : ""}
+                  </div>
+                  <div class="classic-form-actions">
+                    <button class="classic-button primary" type="submit" ${apiConfigSaving ? "disabled" : ""}>${apiConfigSaving ? "Testando..." : "Salvar e testar"}</button>
+                    <button class="classic-button" data-close-api-config type="button" ${apiConfigSaving ? "disabled" : ""}>Continuar sem conexão</button>
+                  </div>
+                </form>
+              </section>
+            </div>
+          `
+          : ""
+      }
     `;
 
     bindEvents();
@@ -343,6 +376,39 @@ export function createSaleScreen({ onBackoffice } = {}) {
       void fetchCatalog();
     });
     root.querySelector("[data-backoffice]")?.addEventListener("click", () => onBackoffice?.());
+    root.querySelectorAll("[data-close-api-config]").forEach((button) => {
+      button.addEventListener("click", () => {
+        apiConfigOpen = false;
+        render();
+      });
+    });
+    root.querySelector("[data-api-config-backdrop]")?.addEventListener("click", (event) => {
+      if (event.target === event.currentTarget && !apiConfigSaving) {
+        apiConfigOpen = false;
+        render();
+      }
+    });
+    root.querySelector("[data-api-config-form]")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      apiConfigSaving = true;
+      apiConfigError = "";
+      apiConfigUrl = event.currentTarget.elements.apiUrl.value;
+      render();
+      try {
+        apiConfigUrl = await saveConfiguredApiUrl(apiConfigUrl);
+        const connected = await onApiConfigured?.();
+        if (connected === false) {
+          throw new Error("Não foi possível conectar a esse endereço. Verifique o IP, a porta e o firewall do servidor.");
+        }
+        apiConfigOpen = false;
+        await Promise.all([fetchCatalog(), fetchPaymentMethods()]);
+      } catch (error) {
+        apiConfigError = error instanceof Error ? error.message : String(error);
+      } finally {
+        apiConfigSaving = false;
+        render();
+      }
+    });
     root.querySelector("[data-search]")?.addEventListener("input", (event) => {
       searchTerm = event.target.value;
       render();

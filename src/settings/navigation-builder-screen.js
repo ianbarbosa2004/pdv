@@ -1,8 +1,7 @@
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { renderLucideIcons } from "../ui/icons.js";
-
-const getApiUrl = () =>
-  window.__PDV_API_URL__ || `http://${window.location.hostname}:3000`;
+import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { getApiUrl } from "../shared/api.js";
 
 const escapeHtml = (value) => String(value ?? "")
   .replaceAll("&", "&amp;")
@@ -53,6 +52,7 @@ export function createNavigationBuilderScreen({
   let pointerDrag = null;
   let pointerController = null;
   let suppressClickUntil = 0;
+  const scheduleMessageClear = createFeedbackTimer();
   const pendingOrderChanges = new Map();
   const pendingItemChanges = new Map();
 
@@ -115,6 +115,11 @@ export function createNavigationBuilderScreen({
     try {
     await request(path, { method, body: JSON.stringify(data) });
     await refresh();
+    message = "Alterações salvas com sucesso.";
+    scheduleMessageClear(() => {
+      message = "";
+      render();
+    });
     } catch (saveError) {
       error = saveError instanceof Error ? saveError.message : String(saveError);
     } finally {
@@ -275,6 +280,11 @@ export function createNavigationBuilderScreen({
       pendingOrderChanges.clear();
       pendingItemChanges.clear();
       await refresh();
+      message = "Ordem salva com sucesso.";
+      scheduleMessageClear(() => {
+        message = "";
+        render();
+      });
     } catch (orderError) {
       error = orderError instanceof Error ? orderError.message : String(orderError);
     } finally {
@@ -344,7 +354,7 @@ export function createNavigationBuilderScreen({
       <header class="classic-titlebar"><strong>PDV - Construtor de Menu</strong><span>Operador: Operador</span></header>
       ${renderMainMenu()}
       <div class="classic-toolbar">
-        <button class="classic-tool-button" data-back type="button">← Configurações</button>
+        <button class="classic-tool-button" data-back type="button">← Frente de caixa</button>
         <strong>Construtor de menu principal</strong>
       </div>
       <section class="classic-content navigation-builder">
@@ -354,7 +364,7 @@ export function createNavigationBuilderScreen({
           <p>Altere nomes, itens, submenus e a ordem da navegação. A barra contextual continua representando o terceiro nível do sistema.</p>
         </div>
         ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}
-        ${message ? `<p class="success-message">${escapeHtml(message)}</p>` : ""}
+        ${renderSuccessFeedback(message, escapeHtml)}
         <div class="navigation-builder-grid">
           <form class="classic-form-panel" data-menu-form>
             <div class="classic-panel-header">Novo menu principal</div>

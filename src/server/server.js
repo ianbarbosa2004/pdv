@@ -6,6 +6,7 @@ import { createPool } from "./database.js";
 import { getConfig } from "./config.js";
 import { createSale, SaleValidationError } from "./sale-service.js";
 import { buildNfceDiagnostic, runNfceHomologationTest } from "./nfce-test-service.js";
+import { ensureCoreNavigationSeed, isNavigationKey, normalizeNavigationKey } from "../shared/navigation-defaults.js";
 import {
   DEFAULT_CEST_SOURCE_URL,
   DEFAULT_NCM_SOURCE_URL,
@@ -194,15 +195,15 @@ const parseBooleanFlag = (value, fieldName, fallback = false) => {
 };
 
 const parseProductQuantity = (value, allowNegativeStock, isFractionalProduct) => {
-  const rawValue = String(value).trim();
+  const rawValue = String(value).trim().replace(",", ".");
   const normalizedValue = /^-?\d+\.0+$/.test(rawValue)
     ? rawValue.slice(0, rawValue.indexOf("."))
     : rawValue;
   if (/^-?0(?:\.0+)?$/.test(rawValue)) return "0";
   const pattern = isFractionalProduct
     ? allowNegativeStock
-      ? /^-(?:[1-9]\d*)(?:\.\d{1,3})?$|^(?:[1-9]\d*)(?:\.\d{1,3})?$/
-      : /^(?:[1-9]\d*)(?:\.\d{1,3})?$/
+      ? /^-?(?:0|[1-9]\d*)(?:\.\d{1,3})?$/
+      : /^(?:0|[1-9]\d*)(?:\.\d{1,3})?$/
     : allowNegativeStock
       ? /^-[1-9]\d*$|^[1-9]\d*$/
       : /^[1-9]\d*$/;
@@ -229,6 +230,7 @@ const fiscalCatalogDefinitions = {
   cfops: {
     label: "CFOP",
     values: [
+      ["5.101", "Venda de produção do estabelecimento"],
       ["5.102", "Venda de mercadoria adquirida ou recebida de terceiros"],
       ["5.405", "Venda de mercadoria adquirida ou recebida de terceiros em operação com mercadoria sujeita ao regime de substituição tributária, na condição de contribuinte substituído"],
       ["6.102", "Venda de mercadoria adquirida ou recebida de terceiros"],
@@ -309,6 +311,14 @@ const ensureFiscalCatalogSchema = async () => {
     UNIQUE KEY uqFiscalCatalogItemsCatalogCode (catalogFiscalCatalogItem, codeFiscalCatalogItem),
     KEY idxFiscalCatalogItemsCatalogActive (catalogFiscalCatalogItem, isActiveFiscalCatalogItem, descriptionFiscalCatalogItem)
   ) ENGINE=InnoDB`);
+  await pool.query(
+    `INSERT INTO fiscal_catalog_items
+      (catalogFiscalCatalogItem, codeFiscalCatalogItem, descriptionFiscalCatalogItem, valueFiscalCatalogItem)
+     VALUES ('cfops', '5.101', 'Venda de produção do estabelecimento', NULL)
+     ON DUPLICATE KEY UPDATE
+       descriptionFiscalCatalogItem = VALUES(descriptionFiscalCatalogItem),
+       isActiveFiscalCatalogItem = 1`
+  );
 };
 
 const ensurePrinterSettingsSchema = async () => {
@@ -540,11 +550,28 @@ const ensureProductFiscalSchema = async () => {
 const ensureProductCatalogSchema = async () => {
   await pool.query(`CREATE TABLE IF NOT EXISTS product_types (
     idProductType BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    codeSpedProductType VARCHAR(30) NULL,
     descriptionProductType VARCHAR(120) NOT NULL,
     isActiveProductType TINYINT(1) NOT NULL DEFAULT 1,
     PRIMARY KEY (idProductType),
     UNIQUE KEY uqProductTypesDescription (descriptionProductType)
   ) ENGINE=InnoDB`);
+  const [productTypeColumns] = await pool.query(
+    `SELECT COLUMN_NAME
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'product_types'`
+  );
+  if (!productTypeColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "codeSpedProductType")) {
+    await pool.query(
+      "ALTER TABLE product_types ADD COLUMN codeSpedProductType VARCHAR(30) NULL AFTER idProductType"
+    );
+  }
+  await pool.query(
+    `INSERT INTO product_types (descriptionProductType, isActiveProductType)
+     VALUES ('Produto Acabado', 1)
+     ON DUPLICATE KEY UPDATE isActiveProductType = 1`
+  );
   await pool.query(`CREATE TABLE IF NOT EXISTS units (
     idUnit BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     codeUnit CHAR(6) NOT NULL,
@@ -554,6 +581,39 @@ const ensureProductCatalogSchema = async () => {
     UNIQUE KEY uqUnitsCode (codeUnit)
   ) ENGINE=InnoDB`);
   await ensureProductFiscalSchema();
+  await ensureFiscalOperationSchema();
+  const [migrationTypes] = await pool.query(
+    `SELECT
+       (SELECT idProductType
+        FROM product_types
+        WHERE descriptionProductType = 'Mercadoria para Revenda'
+        LIMIT 1) AS sourceProductType,
+       (SELECT idProductType
+        FROM product_types
+        WHERE descriptionProductType = 'Produto Acabado'
+        LIMIT 1) AS targetProductType,
+       (SELECT idFiscalOperation
+        FROM fiscal_operations
+        WHERE descriptionFiscalOperation = 'Venda de produção'
+          AND typeFiscalOperation = 'exit'
+          AND isActiveFiscalOperation = 1
+        ORDER BY idFiscalOperation
+        LIMIT 1) AS targetFiscalOperation`
+  );
+  const migration = migrationTypes[0];
+  if (migration?.sourceProductType && migration?.targetProductType && migration?.targetFiscalOperation) {
+    await pool.query(
+      `UPDATE products
+       SET idProductTypeProduct = ?,
+           idFiscalOperationSaleProduct = ?
+       WHERE idProductTypeProduct = ?`,
+      [
+        migration.targetProductType,
+        migration.targetFiscalOperation,
+        migration.sourceProductType
+      ]
+    );
+  }
   const [columns] = await pool.query(
     `SELECT COLUMN_NAME
      FROM information_schema.COLUMNS
@@ -647,6 +707,218 @@ const prepareNavigationSchema = async () => {
       "ALTER TABLE navigation_items ADD COLUMN descriptionNavigationItem VARCHAR(240) NULL AFTER routeNavigationItem"
     );
   }
+  const defaultToolMenuKey = normalizeNavigationKey("tools");
+  const defaultCatalogMenuKey = normalizeNavigationKey("cadastros");
+
+  const [toolsMenus] = await pool.query(
+    `SELECT idNavigationMenu
+     FROM navigation_menus
+     WHERE LOWER(keyNavigationMenu) = ?
+     LIMIT 1`,
+    [defaultToolMenuKey]
+  );
+  if (toolsMenus[0]) {
+    const [nfceQueryItems] = await pool.query(
+      `SELECT idNavigationItem
+       FROM navigation_items
+       WHERE idNavigationMenu = ? AND idParentNavigationItem IS NULL
+         AND keyNavigationItem = 'nfce-query'
+       LIMIT 1`,
+      [toolsMenus[0].idNavigationMenu]
+    );
+    if (!nfceQueryItems[0]) {
+      const [lastOrder] = await pool.query(
+        `SELECT COALESCE(MAX(orderNavigationItem), 0) AS lastOrder
+         FROM navigation_items
+         WHERE idNavigationMenu = ? AND idParentNavigationItem IS NULL`,
+        [toolsMenus[0].idNavigationMenu]
+      );
+      await pool.query(
+        `INSERT INTO navigation_items
+          (idNavigationMenu, idParentNavigationItem, typeNavigationItem,
+           keyNavigationItem, labelNavigationItem, routeNavigationItem,
+           descriptionNavigationItem, orderNavigationItem, isActiveNavigationItem,
+           showsInBackofficeHomeNavigationItem)
+         VALUES (?, NULL, 'item', 'nfce-query', 'Consulta de NFC-e', 'nfce-query',
+                 'Consulte uma NFC-e no portal oficial e prepare itens para compras.',
+                 ?, 1, 0)`,
+        [toolsMenus[0].idNavigationMenu, Number(lastOrder[0]?.lastOrder || 0) + 1]
+      );
+    }
+    const [importItems] = await pool.query(
+      `SELECT idNavigationItem
+       FROM navigation_items
+       WHERE idNavigationMenu = ? AND idParentNavigationItem IS NULL
+         AND keyNavigationItem = 'import-catalogs'
+       LIMIT 1`,
+      [toolsMenus[0].idNavigationMenu]
+    );
+    if (!importItems[0]) {
+      const [lastOrder] = await pool.query(
+        `SELECT COALESCE(MAX(orderNavigationItem), 0) AS lastOrder
+         FROM navigation_items
+         WHERE idNavigationMenu = ? AND idParentNavigationItem IS NULL`,
+        [toolsMenus[0].idNavigationMenu]
+      );
+      await pool.query(
+        `INSERT INTO navigation_items
+          (idNavigationMenu, idParentNavigationItem, typeNavigationItem,
+           keyNavigationItem, labelNavigationItem, routeNavigationItem,
+           descriptionNavigationItem, orderNavigationItem, isActiveNavigationItem,
+           showsInBackofficeHomeNavigationItem)
+         VALUES (?, NULL, 'item', 'import-catalogs', 'Importar cadastros', 'import-catalogs',
+                 'Importe produtos em lote usando um arquivo CSV.',
+                 ?, 1, 0)`,
+        [toolsMenus[0].idNavigationMenu, Number(lastOrder[0]?.lastOrder || 0) + 1]
+      );
+    }
+  }
+
+  const [catalogMenus] = await pool.query(
+    `SELECT idNavigationMenu, keyNavigationMenu
+     FROM navigation_menus
+     WHERE LOWER(keyNavigationMenu) IN (?, 'registrations')
+        OR LOWER(labelNavigationMenu) = 'cadastros'
+     ORDER BY CASE
+       WHEN LOWER(keyNavigationMenu) = ? THEN 0
+       WHEN LOWER(labelNavigationMenu) = 'cadastros' THEN 1
+       ELSE 2
+     END, idNavigationMenu
+     LIMIT 1`,
+    [defaultCatalogMenuKey, defaultCatalogMenuKey]
+  );
+
+  let catalogMenuId = catalogMenus[0]?.idNavigationMenu;
+  if (!catalogMenuId) {
+    const [lastMenuOrder] = await pool.query(
+      `SELECT COALESCE(MAX(orderNavigationMenu), 0) AS lastOrder
+       FROM navigation_menus`
+    );
+    const [insertedMenu] = await pool.query(
+      `INSERT INTO navigation_menus
+        (keyNavigationMenu, labelNavigationMenu, orderNavigationMenu, isActiveNavigationMenu)
+       VALUES (?, 'Cadastros', ?, 1)`,
+      [defaultCatalogMenuKey, Number(lastMenuOrder[0]?.lastOrder || 0) + 1]
+    );
+    catalogMenuId = insertedMenu.insertId;
+  }
+
+  const [productNavigationParents] = await pool.query(
+    `SELECT idNavigationItem
+     FROM navigation_items
+     WHERE idNavigationMenu = ?
+       AND idParentNavigationItem IS NULL
+       AND (keyNavigationItem = 'products' OR labelNavigationItem = 'Produtos')
+     ORDER BY idNavigationItem
+     LIMIT 1`,
+    [catalogMenuId]
+  );
+  if (productNavigationParents[0]) {
+    const productParentId = productNavigationParents[0].idNavigationItem;
+    await pool.query(
+      `UPDATE navigation_items
+       SET typeNavigationItem = 'item',
+           keyNavigationItem = 'products',
+           labelNavigationItem = 'Produtos',
+           routeNavigationItem = NULL
+       WHERE idNavigationItem = ?`,
+      [productParentId]
+    );
+    const [finishedGoodsItems] = await pool.query(
+      `SELECT idNavigationItem
+       FROM navigation_items
+       WHERE idNavigationMenu = ?
+         AND idParentNavigationItem = ?
+         AND (keyNavigationItem = 'finished-goods'
+              OR routeNavigationItem IN ('finished-goods', 'products')
+              OR labelNavigationItem = 'Mercadoria para Revenda')
+       ORDER BY idNavigationItem
+       LIMIT 1`,
+      [catalogMenuId, productParentId]
+    );
+    if (finishedGoodsItems[0]) {
+      await pool.query(
+        `UPDATE navigation_items
+         SET typeNavigationItem = 'bar',
+             keyNavigationItem = 'finished-goods',
+             labelNavigationItem = 'Mercadoria para Revenda',
+             routeNavigationItem = 'finished-goods',
+             isActiveNavigationItem = 1
+         WHERE idNavigationItem = ?`,
+        [finishedGoodsItems[0].idNavigationItem]
+      );
+    } else {
+      const [lastOrder] = await pool.query(
+        `SELECT COALESCE(MAX(orderNavigationItem), 0) AS lastOrder
+         FROM navigation_items
+         WHERE idNavigationMenu = ? AND idParentNavigationItem = ?`,
+        [catalogMenuId, productParentId]
+      );
+      await pool.query(
+        `INSERT INTO navigation_items
+          (idNavigationMenu, idParentNavigationItem, typeNavigationItem,
+           keyNavigationItem, labelNavigationItem, routeNavigationItem,
+           descriptionNavigationItem, orderNavigationItem, isActiveNavigationItem,
+           showsInBackofficeHomeNavigationItem)
+         VALUES (?, ?, 'bar', 'finished-goods', 'Mercadoria para Revenda',
+                 'finished-goods', NULL, ?, 1, 0)`,
+        [catalogMenuId, productParentId, Number(lastOrder[0]?.lastOrder || 0) + 1]
+      );
+    }
+
+    const [finishedProductItems] = await pool.query(
+      `SELECT idNavigationItem, orderNavigationItem, isActiveNavigationItem
+       FROM navigation_items
+       WHERE idNavigationMenu = ?
+         AND idParentNavigationItem = ?
+         AND (keyNavigationItem = 'finished-products'
+              OR routeNavigationItem = 'finished-products'
+              OR labelNavigationItem = 'Produtos Acabados')
+       ORDER BY idNavigationItem
+       LIMIT 1`,
+      [catalogMenuId, productParentId]
+    );
+    const finishedProduct = finishedProductItems[0];
+    if (!finishedProduct || Number(finishedProduct.orderNavigationItem) !== 2
+      || Number(finishedProduct.isActiveNavigationItem) === 0) {
+      await pool.query(
+        `UPDATE navigation_items
+         SET orderNavigationItem = orderNavigationItem + 1
+         WHERE idNavigationMenu = ?
+           AND idParentNavigationItem = ?
+           AND keyNavigationItem <> 'finished-goods'
+           AND keyNavigationItem <> 'finished-products'
+           AND orderNavigationItem >= 2`,
+        [catalogMenuId, productParentId]
+      );
+    }
+    if (finishedProduct) {
+      await pool.query(
+        `UPDATE navigation_items
+         SET typeNavigationItem = 'bar',
+             keyNavigationItem = 'finished-products',
+             labelNavigationItem = 'Produtos Acabados',
+             routeNavigationItem = 'finished-products',
+             orderNavigationItem = 2,
+             isActiveNavigationItem = 1
+         WHERE idNavigationItem = ?`,
+        [finishedProduct.idNavigationItem]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO navigation_items
+          (idNavigationMenu, idParentNavigationItem, typeNavigationItem,
+           keyNavigationItem, labelNavigationItem, routeNavigationItem,
+           descriptionNavigationItem, orderNavigationItem, isActiveNavigationItem,
+           showsInBackofficeHomeNavigationItem)
+         VALUES (?, ?, 'bar', 'finished-products', 'Produtos Acabados',
+                 'finished-products', NULL, 2, 1, 0)`,
+        [catalogMenuId, productParentId]
+      );
+    }
+
+  }
+
   const [menuIdColumns] = await pool.query(
     `SELECT DATA_TYPE
      FROM information_schema.COLUMNS
@@ -751,6 +1023,7 @@ const server = createServer(async (request, response) => {
       json(response, 200, {
         ok: true,
         database: "connected",
+        apiVersion: "0.1.0",
         startedAt: apiStartedAt.toISOString(),
         uptimeSeconds: Math.floor(process.uptime())
       });
@@ -781,7 +1054,7 @@ const server = createServer(async (request, response) => {
          ${includeInactive ? "" : "WHERE isActiveNavigationItem = 1"}
          ORDER BY idNavigationMenu, COALESCE(idParentNavigationItem, 0), orderNavigationItem, idNavigationItem`
       );
-      json(response, 200, { menus, items });
+      json(response, 200, ensureCoreNavigationSeed({ menus, items }));
     } catch (error) {
       handleError(response, error, {
         log: "Falha ao consultar a estrutura de navegação:",
@@ -1472,8 +1745,8 @@ const server = createServer(async (request, response) => {
       json(response, 200, {
         running: ncmCestUpdateRunning,
         sources: {
-          ncm: process.env.PDV_NCM_SOURCE_URL || DEFAULT_NCM_SOURCE_URL,
-          cest: process.env.PDV_CEST_SOURCE_URL || DEFAULT_CEST_SOURCE_URL
+          ncm: config.ncmSourceUrl || DEFAULT_NCM_SOURCE_URL,
+          cest: config.cestSourceUrl || DEFAULT_CEST_SOURCE_URL
         },
         update: updates[0] || null
       });
@@ -1495,8 +1768,8 @@ const server = createServer(async (request, response) => {
     ncmCestUpdateRunning = true;
     try {
       const result = await updateCatalog(pool, {
-        ncmSourceUrl: process.env.PDV_NCM_SOURCE_URL || DEFAULT_NCM_SOURCE_URL,
-        cestSourceUrl: process.env.PDV_CEST_SOURCE_URL || DEFAULT_CEST_SOURCE_URL
+        ncmSourceUrl: config.ncmSourceUrl || DEFAULT_NCM_SOURCE_URL,
+        cestSourceUrl: config.cestSourceUrl || DEFAULT_CEST_SOURCE_URL
       });
       json(response, 200, { ok: true, ...result });
     } catch (error) {
@@ -1670,10 +1943,10 @@ const server = createServer(async (request, response) => {
     try {
       await ensureProductCatalogSchema();
       const [productTypes] = await pool.query(
-        `SELECT idProductType, descriptionProductType, isActiveProductType
+        `SELECT idProductType, codeSpedProductType, descriptionProductType, isActiveProductType
          FROM product_types
          WHERE (? OR isActiveProductType = 1)
-         ORDER BY descriptionProductType`
+        ORDER BY codeSpedProductType IS NULL, codeSpedProductType, descriptionProductType`
         , [request.url.includes("includeInactive=1")]
       );
       json(response, 200, { productTypes });
@@ -1716,15 +1989,18 @@ const server = createServer(async (request, response) => {
       const description = typeof payload[isUnit ? "descriptionUnit" : "descriptionProductType"] === "string"
         ? payload[isUnit ? "descriptionUnit" : "descriptionProductType"].trim()
         : "";
+      const spedCode = !isUnit && typeof payload.codeSpedProductType === "string"
+        ? payload.codeSpedProductType.trim().toUpperCase()
+        : null;
       const code = isUnit && typeof payload.codeUnit === "string" ? payload.codeUnit.trim().toUpperCase() : "";
-      if (!description || description.length > 120 || (isUnit && (!code || code.length > 6))) {
+      if (!description || description.length > 120 || (!isUnit && spedCode && spedCode.length > 30) || (isUnit && (!code || code.length > 6))) {
         throw new SaleValidationError(isUnit ? "Código ou descrição da unidade inválidos." : "Descrição do tipo de produto inválida.");
       }
       const [result] = await pool.query(
         isUnit
           ? "INSERT INTO units (codeUnit, descriptionUnit) VALUES (?, ?)"
-          : "INSERT INTO product_types (descriptionProductType) VALUES (?)",
-        isUnit ? [code, description] : [description]
+          : "INSERT INTO product_types (codeSpedProductType, descriptionProductType) VALUES (?, ?)",
+        isUnit ? [code, description] : [spedCode || null, description]
       );
       json(response, 201, { id: result.insertId });
     } catch (error) {
@@ -1746,15 +2022,18 @@ const server = createServer(async (request, response) => {
       const description = typeof payload[isUnit ? "descriptionUnit" : "descriptionProductType"] === "string"
         ? payload[isUnit ? "descriptionUnit" : "descriptionProductType"].trim()
         : "";
+      const spedCode = !isUnit && typeof payload.codeSpedProductType === "string"
+        ? payload.codeSpedProductType.trim().toUpperCase()
+        : null;
       const code = isUnit && typeof payload.codeUnit === "string" ? payload.codeUnit.trim().toUpperCase() : "";
-      if (!id || !description || description.length > 120 || (isUnit && (!code || code.length > 6))) {
+      if (!id || !description || description.length > 120 || (!isUnit && spedCode && spedCode.length > 30) || (isUnit && (!code || code.length > 6))) {
         throw new SaleValidationError("Dados do cadastro auxiliar inválidos.");
       }
       const [result] = await pool.query(
         isUnit
           ? "UPDATE units SET codeUnit = ?, descriptionUnit = ? WHERE idUnit = ?"
-          : "UPDATE product_types SET descriptionProductType = ? WHERE idProductType = ?",
-        isUnit ? [code, description, id] : [description, id]
+          : "UPDATE product_types SET codeSpedProductType = ?, descriptionProductType = ? WHERE idProductType = ?",
+        isUnit ? [code, description, id] : [spedCode || null, description, id]
       );
       if (!result.affectedRows) throw new SaleValidationError("Cadastro auxiliar não encontrado.", 404);
       json(response, 200, { ok: true, id });
@@ -2189,7 +2468,7 @@ const server = createServer(async (request, response) => {
     try {
       const payload = await readJsonBody(request);
       const nameProduct = typeof payload.nameProduct === "string" ? payload.nameProduct.trim() : "";
-      const skuProduct = typeof payload.skuProduct === "string" ? payload.skuProduct.trim() : "";
+      const skuProduct = typeof payload.skuProduct === "string" ? payload.skuProduct.trim().toUpperCase() : "";
       const pdvCodeProduct = payload.pdvCodeProduct === null || payload.pdvCodeProduct === undefined ? null : String(payload.pdvCodeProduct).trim() || null;
       const ncmProduct = typeof payload.ncmProduct === "string" ? payload.ncmProduct.replace(/\D/g, "") : "";
       const cestProduct = typeof payload.cestProduct === "string" ? payload.cestProduct.replace(/\D/g, "") : "";
@@ -2210,7 +2489,7 @@ const server = createServer(async (request, response) => {
       if (!groups.length) throw new SaleValidationError("Grupo não encontrado.", 409);
       const [productTypeRows] = await pool.query("SELECT idProductType, descriptionProductType FROM product_types WHERE idProductType = ? AND isActiveProductType = 1", [idProductTypeProduct]);
       if (idProductTypeProduct && !productTypeRows.length) throw new SaleValidationError("Tipo de produto não encontrado.", 409);
-      if (productTypeRows[0]?.descriptionProductType === "Matéria Prima" && !/^MP-/i.test(skuProduct)) {
+      if (productTypeRows[0]?.descriptionProductType === "Matéria-Prima" && !/^MP-/i.test(skuProduct)) {
         throw new SaleValidationError("O SKU de matéria-prima deve começar com MP-.");
       }
       const [unitRows] = await pool.query("SELECT idUnit FROM units WHERE idUnit = ? AND isActiveUnit = 1", [idUnitProduct]);
@@ -2255,12 +2534,144 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "POST" && request.url === "/api/products/import") {
+    let connection;
+    try {
+      const payload = await readJsonBody(request);
+      const rows = Array.isArray(payload.rows) ? payload.rows : [];
+      if (!rows.length || rows.length > 1000) {
+        throw new SaleValidationError("Informe entre 1 e 1000 produtos para importar.");
+      }
+      await ensureProductCatalogSchema();
+      const allowNegativeStock = await getGeneralSettingBoolean("allowNegativeStock");
+      connection = await pool.getConnection();
+      await connection.beginTransaction();
+      let importedCount = 0;
+      for (const [index, row] of rows.entries()) {
+        const line = index + 2;
+        const skuProduct = typeof row.skuProduct === "string" ? row.skuProduct.trim().toUpperCase() : "";
+        const pdvCodeProduct = typeof row.pdvCodeProduct === "string" ? row.pdvCodeProduct.trim() || null : null;
+        const nameProduct = typeof row.nameProduct === "string" ? row.nameProduct.trim() : "";
+        const descriptionGroup = typeof row.descriptionGroup === "string" ? row.descriptionGroup.trim() : "";
+        const descriptionFiscalOperation = typeof row.descriptionFiscalOperation === "string" ? row.descriptionFiscalOperation.trim() : "";
+        const descriptionProductType = typeof row.descriptionProductType === "string" ? row.descriptionProductType.trim() : "";
+        const codeUnit = typeof row.codeUnit === "string" ? row.codeUnit.trim().toUpperCase() : "";
+        const ncmProduct = typeof row.ncmProduct === "string" ? row.ncmProduct.replace(/\D/g, "") : "";
+        const cestProduct = typeof row.cestProduct === "string" ? row.cestProduct.replace(/\D/g, "") : "";
+        const priceValue = String(row.priceProduct ?? "").trim().replace(",", ".");
+        const stockValue = String(row.stockQuantityProduct ?? "0").trim().replace(",", ".");
+        const parseImportBoolean = (value, fallback) => {
+          if (value === undefined || value === null || value === "") return fallback;
+          return ["1", "true", "sim", "s", "yes", "y"].includes(String(value).trim().toLowerCase()) ? 1 : 0;
+        };
+        if (!skuProduct || skuProduct.length > 64 || !nameProduct || nameProduct.length > 180 || !descriptionGroup || !priceValue) {
+          throw new SaleValidationError(`Linha ${line}: SKU, nome, grupo e preço são obrigatórios ou inválidos.`);
+        }
+        const [groupRows] = await connection.query(
+          "SELECT idGroup FROM `groups` WHERE descriptionGroup = ? LIMIT 1",
+          [descriptionGroup]
+        );
+        if (!groupRows.length) throw new SaleValidationError(`Linha ${line}: grupo "${descriptionGroup}" não encontrado.`);
+        const [fiscalRows] = descriptionFiscalOperation
+          ? await connection.query(
+            "SELECT idFiscalOperation FROM fiscal_operations WHERE descriptionFiscalOperation = ? AND typeFiscalOperation = 'exit' AND isActiveFiscalOperation = 1 LIMIT 1",
+            [descriptionFiscalOperation]
+          )
+          : [[]];
+        if (descriptionFiscalOperation && !fiscalRows.length) {
+          throw new SaleValidationError(`Linha ${line}: operação fiscal "${descriptionFiscalOperation}" não encontrada.`);
+        }
+        const [typeRows] = descriptionProductType
+          ? await connection.query(
+            "SELECT idProductType, descriptionProductType FROM product_types WHERE descriptionProductType = ? AND isActiveProductType = 1 LIMIT 1",
+            [descriptionProductType]
+          )
+          : [[]];
+        if (descriptionProductType && !typeRows.length) {
+          throw new SaleValidationError(`Linha ${line}: tipo de produto "${descriptionProductType}" não encontrado.`);
+        }
+        if (typeRows[0]?.descriptionProductType === "Matéria-Prima" && !/^MP-/i.test(skuProduct)) {
+          throw new SaleValidationError(`Linha ${line}: o SKU de matéria-prima deve começar com MP-.`);
+        }
+        const [unitRows] = codeUnit
+          ? await connection.query(
+            "SELECT idUnit FROM units WHERE codeUnit = ? AND isActiveUnit = 1 LIMIT 1",
+            [codeUnit]
+          )
+          : [[]];
+        if (codeUnit && !unitRows.length) {
+          throw new SaleValidationError(`Linha ${line}: unidade "${codeUnit}" não encontrada.`);
+        }
+        if (ncmProduct && !/^\d{8}$/.test(ncmProduct)) {
+          throw new SaleValidationError(`Linha ${line}: NCM inválido.`);
+        }
+        if (cestProduct && !/^\d{7}$/.test(cestProduct)) {
+          throw new SaleValidationError(`Linha ${line}: CEST inválido.`);
+        }
+        if (ncmProduct) {
+          const [ncmRows] = await connection.query(
+            "SELECT idNcm FROM ncm_catalog WHERE codeNcm = ? AND isActiveNcm = 1 LIMIT 1",
+            [ncmProduct]
+          );
+          if (!ncmRows.length) throw new SaleValidationError(`Linha ${line}: NCM não encontrado no cadastro.`);
+          if (cestProduct) {
+            const [relationRows] = await connection.query(
+              `SELECT relation.idNcmCestRelation
+               FROM ncm_cest_relations relation
+               INNER JOIN ncm_catalog ncm ON ncm.idNcm = relation.idNcm
+               INNER JOIN cest_catalog cest ON cest.idCest = relation.idCest
+               WHERE ncm.codeNcm = ? AND cest.codeCest = ?`,
+              [ncmProduct, cestProduct]
+            );
+            if (!relationRows.length) throw new SaleValidationError(`Linha ${line}: o CEST não está relacionado ao NCM.`);
+          }
+        } else if (cestProduct) {
+          throw new SaleValidationError(`Linha ${line}: informe o NCM antes de selecionar o CEST.`);
+        }
+        const priceProduct = parseMoney(priceValue, `Preço da linha ${line}`);
+        const controlsStockProduct = parseImportBoolean(row.controlsStockProduct, 1);
+        const isFractionalProduct = parseImportBoolean(row.isFractionalProduct, 0);
+        const printsKitchenProduct = parseImportBoolean(row.printsKitchenProduct, 0);
+        const showsInPdvProduct = parseImportBoolean(row.showsInPdvProduct, 1);
+        const stockQuantityProduct = parseProductQuantity(stockValue || "0", allowNegativeStock, Boolean(isFractionalProduct));
+        await connection.query(
+          `INSERT INTO products
+            (idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct,
+             idProductTypeProduct, idUnitProduct, ncmProduct, cestProduct, priceProduct,
+             stockQuantityProduct, controlsStockProduct, isFractionalProduct, printsKitchenProduct,
+             showsInPdvProduct)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            groupRows[0].idGroup, skuProduct, pdvCodeProduct, nameProduct,
+            fiscalRows[0]?.idFiscalOperation || null, typeRows[0]?.idProductType || null,
+            unitRows[0]?.idUnit || null, ncmProduct || null, cestProduct || null,
+            priceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct,
+            printsKitchenProduct, showsInPdvProduct
+          ]
+        );
+        importedCount += 1;
+      }
+      await connection.commit();
+      json(response, 201, { importedCount });
+    } catch (error) {
+      if (connection) await connection.rollback().catch(() => {});
+      handleError(response, error, {
+        log: "Falha ao importar produtos:",
+        message: "Não foi possível importar os produtos.",
+        duplicate: "SKU ou código PDV duplicado no arquivo ou no cadastro."
+      });
+    } finally {
+      connection?.release();
+    }
+    return;
+  }
+
   if (request.method === "PUT" && request.url === "/api/products") {
     try {
       const payload = await readJsonBody(request);
       const idProduct = parsePositiveId(payload.idProduct);
       const nameProduct = typeof payload.nameProduct === "string" ? payload.nameProduct.trim() : "";
-      const skuProduct = typeof payload.skuProduct === "string" ? payload.skuProduct.trim() : "";
+      const skuProduct = typeof payload.skuProduct === "string" ? payload.skuProduct.trim().toUpperCase() : "";
       const pdvCodeProduct = payload.pdvCodeProduct === null || payload.pdvCodeProduct === undefined ? null : String(payload.pdvCodeProduct).trim() || null;
       const ncmProduct = typeof payload.ncmProduct === "string" ? payload.ncmProduct.replace(/\D/g, "") : "";
       const cestProduct = typeof payload.cestProduct === "string" ? payload.cestProduct.replace(/\D/g, "") : "";
@@ -2281,7 +2692,7 @@ const server = createServer(async (request, response) => {
       if (!groups.length) throw new SaleValidationError("Grupo não encontrado.", 409);
       const [productTypeRows] = await pool.query("SELECT idProductType, descriptionProductType FROM product_types WHERE idProductType = ? AND isActiveProductType = 1", [idProductTypeProduct]);
       if (idProductTypeProduct && !productTypeRows.length) throw new SaleValidationError("Tipo de produto não encontrado.", 409);
-      if (productTypeRows[0]?.descriptionProductType === "Matéria Prima" && !/^MP-/i.test(skuProduct)) {
+      if (productTypeRows[0]?.descriptionProductType === "Matéria-Prima" && !/^MP-/i.test(skuProduct)) {
         throw new SaleValidationError("O SKU de matéria-prima deve começar com MP-.");
       }
       const [unitRows] = await pool.query("SELECT idUnit FROM units WHERE idUnit = ? AND isActiveUnit = 1", [idUnitProduct]);

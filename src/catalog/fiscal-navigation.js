@@ -2,6 +2,7 @@ import {
   getContextualNavigationItems,
   renderContextualNavigationItems
 } from "../ui/contextual-navigation.js";
+import { resolveNavigationHandler } from "../ui/navigation-routing.js";
 
 const fiscalNavigation = [
   ["fiscal-operations", "Operações Fiscais"],
@@ -30,6 +31,11 @@ export const renderFiscalNavigation = (active) => {
 
 export const bindFiscalNavigation = (root, handlers) => {
   root.querySelectorAll("[data-fiscal-nav]").forEach((button) => {
-    button.addEventListener("click", () => handlers[button.dataset.fiscalNav]?.());
+    button.addEventListener("click", () => {
+      const route = button.dataset.fiscalNav;
+      const handler = resolveNavigationHandler(handlers, route)
+        || resolveNavigationHandler(window.__PDV_NAVIGATION_HANDLERS__, route);
+      handler?.();
+    });
   });
 };

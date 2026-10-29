@@ -1,9 +1,7 @@
 import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { bindProductNavigation, renderProductNavigation } from "./product-navigation.js";
-
-const getApiUrl = () =>
-  window.__PDV_API_URL__ || `http://${window.location.hostname}:3000`;
+import { getApiUrl } from "../shared/api.js";
 
 const escapeHtml = (value) =>
   String(value ?? "")

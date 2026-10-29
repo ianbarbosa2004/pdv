@@ -147,13 +147,57 @@ preenchimento seja automático. Ações interativas dentro da linha devem ficar
 em botões ou controles próprios; o helper ignora esses elementos ao detectar o
 clique de visualização.
 
+### Diretriz de edição em modal
+
+A edição de registros deve seguir o padrão de modal sobre a listagem, nunca
+reaproveitar o formulário de inclusão no mesmo bloco visual da tela. O fluxo
+padronizado é:
+
+- formulário de cadastro/entrada permanece fixo à esquerda ou acima da lista;
+- clicar em uma linha carrega o registro em modo de visualização;
+- clicar em **Editar** abre um modal com o mesmo cadastro em contexto de
+  alteração;
+- o formulário de edição usa o mesmo conjunto de campos, mas em uma camada
+  separada e com foco no modal;
+- o modal fecha com **Cancelar** ou clique fora, retornando ao estado anterior.
+
+Essa regra vale para todos os CRUDs do PDV e elimina a mistura entre
+"inclusão" e "alteração" no mesmo estado visual. O padrão foi consolidado
+nas telas de classes, grupos, produtos, pagamento e operação fiscal.
+
+### Feedback e continuidade dos formulários
+
+Mensagens de sucesso, tanto ao incluir quanto ao editar, devem ser exibidas
+como um popup temporário fixo na tela, fora do fluxo de layout do formulário
+de inclusão ou do modal de edição.
+O feedback deve usar o helper compartilhado em `src/ui/feedback.js`, possuir
+`role="status"`, esmaecer ao entrar e sair e desaparecer automaticamente após
+aproximadamente quatro segundos. Mensagens de erro permanecem visíveis até
+uma nova ação ou correção.
+
+Depois de cadastrar um novo registro, o formulário de inclusão deve retornar
+ao estado vazio e pronto para o próximo cadastro. Após editar um registro, o
+modal deve ser encerrado sem deixar a mensagem de sucesso no formulário de
+inclusão. Novas telas e alterações em formulários devem preservar esse
+comportamento, sem criar um fluxo visual diferente.
+
 ### Navegação de Produtos
 
-As telas de **Produtos**, **Classes** e **Grupos** pertencem ao item
-**Cadastros > Produtos** e compartilham a mesma barra contextual, sempre na
-ordem **Produtos**, **Classes**, **Grupos**. A barra é renderizada por
-`src/catalog/product-navigation.js`; o título permanece no cabeçalho da tela,
-sem repetir o título ou inserir separador vertical na barra.
+A tela **Mercadoria para Revenda**, além de **Classes** e **Grupos**, pertence
+ao item **Cadastros > Produtos** e compartilha sua barra contextual. O item
+**Produtos** é apenas o agrupador no menu principal, sem rota própria; ao
+acessá-lo, a navegação abre o primeiro filho, **Mercadoria para Revenda**.
+**Produtos Acabados** é o segundo filho e usa a mesma tela parametrizada, com
+tipo de produto **Produto Acabado** e operação fiscal padrão **Venda de
+produção**.
+
+Mercadoria para Revenda usa o prefixo inicial **REV-** para novos SKUs. A
+listagem é apresentada como **Mercadorias para Revenda**. Na migração para
+Produtos Acabados, os produtos existentes mantêm seus SKUs atuais, mas recebem
+o tipo **Produto Acabado** e a operação fiscal **Venda de produção**.
+A barra é renderizada por `src/catalog/product-navigation.js`; o título
+permanece no cabeçalho da tela, sem repetir o título ou inserir separador
+vertical na barra.
 
 ### Cadastro de Produtos
 
@@ -187,10 +231,39 @@ Produto e Unidade tributável na linha seguinte. Para novos produtos, o padrão
 é **Mercadoria para Revenda** e **UN**, quando esses registros estiverem
 disponíveis.
 
+O cadastro de **Tipos de Produtos** possui o campo opcional **Código SPED**,
+exibido como primeiro campo do formulário e primeira coluna da listagem. A API
+normaliza o valor para maiúsculas, limita-o a 30 caracteres e preserva `NULL`
+quando o tipo ainda não possui código informado. A coluna é criada em bases
+novas pelo `schema.sql` e adicionada de forma idempotente em bases existentes.
+
+### Consulta de NFC-e para testes
+
+A Retaguarda possui a tela **Consulta de NFC-e** para validar o fluxo antes
+da implementação de entradas de compras. Ela exibe uma demonstração baseada
+em uma NFC-e consultada no portal de Minas Gerais, permite selecionar itens
+para o desenho futuro da entrada e abre a consulta oficial para uma chave
+informada pelo operador.
+
+O portal oficial continua responsável pelo desafio Cloudflare Turnstile. A
+aplicação não tenta contorná-lo, não captura automaticamente a página externa
+e não grava os dados demonstrativos no banco. A próxima etapa pode reutilizar
+os itens selecionados para vincular produtos existentes ou iniciar cadastros
+durante o lançamento de uma compra.
+
+### Importação de cadastros
+
+Em **Ferramentas > Importar cadastros**, o painel **Importar Produtos** oferece
+um modelo CSV, a validação do arquivo antes do envio e a importação em lote.
+O arquivo usa cabeçalho fixo e referencia grupo, operação fiscal, tipo de
+produto e unidade pelos nomes já cadastrados. A API valida cada linha e grava
+todo o lote em uma única transação; se uma linha falhar, nenhum produto do
+lote é persistido.
+
 Na tela **Matérias-primas**, um novo cadastro inicia com SKU `MP-`, sem operação
 fiscal de venda, **Controla estoque** desmarcado e **Exibe no PDV** desmarcado.
 O servidor também exige o prefixo `MP-` para produtos associados ao tipo
-**Matéria Prima**. Nas quatro telas de produto, ao desmarcar **Controla
+**Matéria-Prima**. Nas quatro telas de produto, ao desmarcar **Controla
 estoque**, o campo de estoque fica somente leitura e desabilitado; o valor
 existente é preservado ao salvar uma edição.
 
@@ -274,8 +347,9 @@ Esse padrão deve ser mantido para novos grupos:
 
 ```text
 Cadastros
-└── Produtos
-    ├── Produtos       ← primeira tela aberta ao clicar no item
+└── Produtos           ← agrupador sem rota própria
+    ├── Mercadoria para Revenda ← primeira tela aberta ao clicar no item
+    ├── Produtos Acabados
     ├── Classes
     ├── Grupos
     └── NCM / CEST
@@ -297,6 +371,12 @@ Configurações
 ├── Configurações Gerais
 ├── Dados da Empresa
 └── NFC-e
+
+Ferramentas
+├── Atualizar NCM / CEST
+├── Status da API
+├── Impressão térmica
+└── Consulta de NFC-e
 ```
 
 A tela **Configurações > Configurações Gerais** persiste regras operacionais na
@@ -309,6 +389,11 @@ O construtor exibe a árvore completa para facilitar a manutenção, mas não
 transforma automaticamente uma barra contextual em submenu visual dentro do
 menu principal. O terceiro nível continua sendo renderizado pela barra
 contextual específica da tela, preservando a convenção do PDV.
+
+Na barra contextual, filhos ativos com rota são tratados como telas de cadastro
+relacionadas ao item pai, independentemente de serem registrados como `item`,
+`submenu` ou `bar`. Assim, a ativação feita no construtor de menu é respeitada
+sem exigir que cada tela cadastral seja criada com um tipo técnico específico.
 
 Portanto, um novo cadastro relacionado a um grupo não deve criar um menu
 principal independente nem uma tela intermediária do grupo. Ele deve ser

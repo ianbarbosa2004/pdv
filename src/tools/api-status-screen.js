@@ -1,7 +1,6 @@
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
-
-const getApiUrl = () =>
-  window.__PDV_API_URL__ || `http://${window.location.hostname}:3000`;
+import { getApiUrl } from "../shared/api.js";
+import { buildInfo } from "../shared/build-info.js";
 
 const escapeHtml = (value) =>
   String(value ?? "")
@@ -74,7 +73,7 @@ export function createApiStatusScreen({
       </header>
       ${renderMainMenu()}
       <div class="classic-toolbar">
-        <button class="classic-tool-button" data-back type="button">← Retaguarda</button>
+        <button class="classic-tool-button" data-back type="button">← Frente de caixa</button>
         <strong>Ferramentas do sistema</strong>
       </div>
       <section class="settings-content">
@@ -101,6 +100,9 @@ export function createApiStatusScreen({
                   <div><dt>Iniciada em</dt><dd>${escapeHtml(formatDate(status?.startedAt))}</dd></div>
                   <div><dt>Tempo de atividade</dt><dd>${escapeHtml(formatUptime(status?.uptimeSeconds))}</dd></div>
                   <div><dt>Endereço consultado</dt><dd>${escapeHtml(getApiUrl())}</dd></div>
+                  <div><dt>Ambiente do terminal</dt><dd>${escapeHtml(buildInfo.isDevelopment ? "Desenvolvimento" : "Bundle instalado")}</dd></div>
+                  <div><dt>Identificador do frontend</dt><dd>${escapeHtml(buildInfo.id)}</dd></div>
+                  <div><dt>Origem do menu</dt><dd>${escapeHtml(window.__PDV_NAVIGATION_SOURCE__ === "api" ? "API" : "Contingência local")}</dd></div>
                 </dl>`}
             ${error ? `<p class="error-message">${escapeHtml(error)}</p>` : ""}
             <section class="api-service-note" aria-label="Recuperação automática da API">
