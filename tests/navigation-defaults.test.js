@@ -1,8 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  ensureCoreNavigationSeed,
-  getFallbackNavigation,
   isNavigationKey,
   normalizeNavigationKey
 } from "../src/shared/navigation-defaults.js";
@@ -15,23 +13,8 @@ test("normaliza chaves de navegação independentemente da caixa", () => {
   assert.equal(isNavigationKey("Cadastros", "cadastros"), true);
 });
 
-test("cria semente de navegação para Cadastros quando faltar", () => {
-  const navigation = ensureCoreNavigationSeed({ menus: [], items: [] });
-  assert.equal(navigation.menus.some((menu) => isNavigationKey(menu.keyNavigationMenu, "cadastros")), true);
-  assert.equal(navigation.items.length, 0);
-});
-
-test("não duplica cadastros quando uma versão por label já existe", () => {
-  const navigation = ensureCoreNavigationSeed({
-    menus: [
-      { idNavigationMenu: 9, keyNavigationMenu: "", labelNavigationMenu: "Cadastros", orderNavigationMenu: 1, isActiveNavigationMenu: 1 },
-      { idNavigationMenu: 11, keyNavigationMenu: "cadastros", labelNavigationMenu: "Cadastros", orderNavigationMenu: 2, isActiveNavigationMenu: 1 }
-    ],
-    items: []
-  });
-
-  assert.equal(navigation.menus.filter((menu) => normalizeNavigationKey(menu.labelNavigationMenu || "") === "cadastros").length, 1);
-  assert.equal(navigation.items.length, 0);
+test("mantém o contrato sem criar navegação artificial", () => {
+  assert.equal(isNavigationKey("registrations", "cadastros"), false);
 });
 
 test("seleciona filhos ativos com rota independentemente do tipo", () => {
@@ -94,18 +77,6 @@ test("mantém o primeiro item padrão quando a navegação persistida está inco
   assert.deepEqual(items, [
     ["finished-goods", "Mercadoria para Revenda"],
     ["raw-materials", "Matérias-Primas"]
-  ]);
-});
-
-test("mantém Produtos Acabados em segundo lugar no fallback de produtos", () => {
-  const navigation = getFallbackNavigation();
-  const productItems = navigation.items
-    .filter((item) => item.idParentNavigationItem === -1)
-    .sort((left, right) => left.orderNavigationItem - right.orderNavigationItem);
-
-  assert.deepEqual(productItems.slice(0, 2).map((item) => item.keyNavigationItem), [
-    "finished-goods",
-    "finished-products"
   ]);
 });
 

@@ -6,7 +6,7 @@ import { createPool } from "./database.js";
 import { getConfig } from "./config.js";
 import { createSale, SaleValidationError } from "./sale-service.js";
 import { buildNfceDiagnostic, runNfceHomologationTest } from "./nfce-test-service.js";
-import { ensureCoreNavigationSeed, isNavigationKey, normalizeNavigationKey } from "../shared/navigation-defaults.js";
+import { isNavigationKey, normalizeNavigationKey } from "../shared/navigation-defaults.js";
 import {
   DEFAULT_CEST_SOURCE_URL,
   DEFAULT_NCM_SOURCE_URL,
@@ -777,15 +777,15 @@ const prepareNavigationSchema = async () => {
   const [catalogMenus] = await pool.query(
     `SELECT idNavigationMenu, keyNavigationMenu
      FROM navigation_menus
-     WHERE LOWER(keyNavigationMenu) IN (?, 'registrations')
+     WHERE LOWER(keyNavigationMenu) IN ('cadastros', 'registrations')
         OR LOWER(labelNavigationMenu) = 'cadastros'
      ORDER BY CASE
-       WHEN LOWER(keyNavigationMenu) = ? THEN 0
-       WHEN LOWER(labelNavigationMenu) = 'cadastros' THEN 1
-       ELSE 2
+       WHEN LOWER(keyNavigationMenu) = 'registrations' THEN 0
+       WHEN LOWER(keyNavigationMenu) = 'cadastros' THEN 1
+       WHEN LOWER(labelNavigationMenu) = 'cadastros' THEN 2
+       ELSE 3
      END, idNavigationMenu
-     LIMIT 1`,
-    [defaultCatalogMenuKey, defaultCatalogMenuKey]
+    `
   );
 
   let catalogMenuId = catalogMenus[0]?.idNavigationMenu;
@@ -802,6 +802,45 @@ const prepareNavigationSchema = async () => {
     );
     catalogMenuId = insertedMenu.insertId;
   }
+  const duplicateCatalogMenus = catalogMenus
+    .map(({ idNavigationMenu }) => Number(idNavigationMenu))
+    .filter((idNavigationMenu) => idNavigationMenu !== Number(catalogMenuId));
+  for (const duplicateMenuId of duplicateCatalogMenus) {
+    const [duplicateItems] = await pool.query(
+      `SELECT idNavigationItem
+       FROM navigation_items
+       WHERE idNavigationMenu = ?
+       ORDER BY idNavigationItem`,
+      [duplicateMenuId]
+    );
+    for (const { idNavigationItem } of duplicateItems) {
+      await pool.query(
+        `UPDATE navigation_items
+         SET idNavigationMenu = ?
+         WHERE idNavigationItem = ?`,
+        [catalogMenuId, idNavigationItem]
+      );
+    }
+    await pool.query(
+      "DELETE FROM navigation_menus WHERE idNavigationMenu = ?",
+      [duplicateMenuId]
+    );
+  }
+  await pool.query(
+    `DELETE child
+     FROM navigation_items child
+     INNER JOIN navigation_items parent
+       ON parent.idNavigationItem = child.idParentNavigationItem
+      AND parent.idNavigationMenu = child.idNavigationMenu
+     WHERE child.keyNavigationItem = parent.keyNavigationItem
+       AND child.routeNavigationItem = parent.keyNavigationItem`
+  );
+  await pool.query(
+    `UPDATE navigation_menus
+     SET keyNavigationMenu = ?, labelNavigationMenu = 'Cadastros', isActiveNavigationMenu = 1
+     WHERE idNavigationMenu = ?`,
+    [defaultCatalogMenuKey, catalogMenuId]
+  );
 
   const [productNavigationParents] = await pool.query(
     `SELECT idNavigationItem
@@ -832,7 +871,12 @@ const prepareNavigationSchema = async () => {
          AND (keyNavigationItem = 'finished-goods'
               OR routeNavigationItem IN ('finished-goods', 'products')
               OR labelNavigationItem = 'Mercadoria para Revenda')
-       ORDER BY idNavigationItem
+       ORDER BY CASE
+         WHEN keyNavigationItem = 'finished-goods' THEN 0
+         WHEN labelNavigationItem = 'Mercadoria para Revenda' THEN 1
+         WHEN routeNavigationItem = 'finished-goods' THEN 2
+         ELSE 3
+       END, idNavigationItem
        LIMIT 1`,
       [catalogMenuId, productParentId]
     );
@@ -919,6 +963,48 @@ const prepareNavigationSchema = async () => {
 
   }
 
+  const [supplierItems] = await pool.query(
+    `SELECT idNavigationItem
+     FROM navigation_items
+     WHERE keyNavigationItem = 'suppliers'
+        OR routeNavigationItem = 'suppliers'
+        OR labelNavigationItem = 'Fornecedores'
+     ORDER BY idNavigationItem
+     LIMIT 1`,
+  );
+  if (supplierItems[0]) {
+    await pool.query(
+      `UPDATE navigation_items
+       SET idNavigationMenu = ?,
+           idParentNavigationItem = NULL,
+           typeNavigationItem = 'item',
+           keyNavigationItem = 'suppliers',
+           labelNavigationItem = 'Fornecedores',
+           routeNavigationItem = 'suppliers',
+           descriptionNavigationItem = 'Cadastre e mantenha os fornecedores da loja.',
+           isActiveNavigationItem = 1
+       WHERE idNavigationItem = ?`,
+      [catalogMenuId, supplierItems[0].idNavigationItem]
+    );
+  } else {
+    const [lastOrder] = await pool.query(
+      `SELECT COALESCE(MAX(orderNavigationItem), 0) AS lastOrder
+       FROM navigation_items
+       WHERE idNavigationMenu = ? AND idParentNavigationItem IS NULL`,
+      [catalogMenuId]
+    );
+    await pool.query(
+      `INSERT INTO navigation_items
+        (idNavigationMenu, idParentNavigationItem, typeNavigationItem,
+         keyNavigationItem, labelNavigationItem, routeNavigationItem,
+         descriptionNavigationItem, orderNavigationItem, isActiveNavigationItem,
+         showsInBackofficeHomeNavigationItem)
+       VALUES (?, NULL, 'item', 'suppliers', 'Fornecedores', 'suppliers',
+               'Cadastre e mantenha os fornecedores da loja.', ?, 1, 0)`,
+      [catalogMenuId, Number(lastOrder[0]?.lastOrder || 0) + 1]
+    );
+  }
+
   const [menuIdColumns] = await pool.query(
     `SELECT DATA_TYPE
      FROM information_schema.COLUMNS
@@ -984,6 +1070,34 @@ const ensurePaymentMethodSchema = async () => {
   for (const [column, statement] of additions) {
     if (!existing.has(column)) await pool.query(statement);
   }
+};
+
+const ensureSupplierSchema = async () => {
+  await pool.query(`CREATE TABLE IF NOT EXISTS suppliers (
+    idSupplier BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    typeSupplier ENUM('juridica', 'fisica') NOT NULL DEFAULT 'juridica',
+    documentSupplier VARCHAR(20) NOT NULL,
+    companyNameSupplier VARCHAR(180) NOT NULL DEFAULT '',
+    tradeNameSupplier VARCHAR(120) NOT NULL DEFAULT '',
+    contactNameSupplier VARCHAR(120) NOT NULL DEFAULT '',
+    phoneSupplier VARCHAR(25) NOT NULL DEFAULT '',
+    emailSupplier VARCHAR(180) NOT NULL DEFAULT '',
+    zipCodeSupplier VARCHAR(9) NOT NULL DEFAULT '',
+    addressSupplier VARCHAR(180) NOT NULL DEFAULT '',
+    addressNumberSupplier VARCHAR(20) NOT NULL DEFAULT '',
+    addressComplementSupplier VARCHAR(80) NOT NULL DEFAULT '',
+    neighborhoodSupplier VARCHAR(100) NOT NULL DEFAULT '',
+    citySupplier VARCHAR(100) NOT NULL DEFAULT '',
+    stateSupplier CHAR(2) NOT NULL DEFAULT '',
+    countrySupplier VARCHAR(80) NOT NULL DEFAULT 'Brasil',
+    notesSupplier VARCHAR(400) NULL,
+    isActiveSupplier TINYINT(1) NOT NULL DEFAULT 1,
+    createdAtSupplier TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updatedAtSupplier TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (idSupplier),
+    UNIQUE KEY uqSuppliersDocumentType (documentSupplier, typeSupplier),
+    KEY idxSuppliersTypeStatus (typeSupplier, isActiveSupplier)
+  ) ENGINE=InnoDB`);
 };
 
 const catalogValues = async (catalog) => {
@@ -1054,7 +1168,7 @@ const server = createServer(async (request, response) => {
          ${includeInactive ? "" : "WHERE isActiveNavigationItem = 1"}
          ORDER BY idNavigationMenu, COALESCE(idParentNavigationItem, 0), orderNavigationItem, idNavigationItem`
       );
-      json(response, 200, ensureCoreNavigationSeed({ menus, items }));
+      json(response, 200, { menus, items });
     } catch (error) {
       handleError(response, error, {
         log: "Falha ao consultar a estrutura de navegação:",
@@ -1074,6 +1188,20 @@ const server = createServer(async (request, response) => {
       const order = parseNavigationOrder(payload.orderNavigationMenu, "Ordem do menu");
       const active = parseNavigationBoolean(payload.isActiveNavigationMenu, "Status do menu");
       assertNavigationActivationAllowed(key, active === 1);
+      if (normalizeNavigationKey(key) === "cadastros"
+        || normalizeNavigationKey(key) === "registrations"
+        || normalizeNavigationKey(label) === "cadastros") {
+        const [catalogMenus] = await pool.query(
+          `SELECT idNavigationMenu
+           FROM navigation_menus
+           WHERE LOWER(keyNavigationMenu) IN ('cadastros', 'registrations')
+              OR LOWER(labelNavigationMenu) = 'cadastros'
+           LIMIT 1`
+        );
+        if (catalogMenus[0]) {
+          throw new SaleValidationError("O menu Cadastros já existe.", 409);
+        }
+      }
       const [result] = await pool.query(
         `INSERT INTO navigation_menus
           (keyNavigationMenu, labelNavigationMenu, orderNavigationMenu, isActiveNavigationMenu)
@@ -2087,6 +2215,122 @@ const server = createServer(async (request, response) => {
       json(response, 200, { ok: true, id });
     } catch (error) {
       handleError(response, error, { log: "Falha ao excluir cadastro auxiliar:", message: "Não foi possível excluir o cadastro auxiliar.", duplicate: "" });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && request.url.startsWith("/api/suppliers")) {
+    try {
+      await ensureSupplierSchema();
+      const includeInactive = new URL(request.url, "http://localhost").searchParams.get("includeInactive") === "1";
+      const [suppliers] = await pool.query(
+        `SELECT idSupplier, typeSupplier, documentSupplier, companyNameSupplier,
+                tradeNameSupplier, contactNameSupplier, phoneSupplier, emailSupplier,
+                zipCodeSupplier, addressSupplier, addressNumberSupplier,
+                addressComplementSupplier, neighborhoodSupplier, citySupplier,
+                stateSupplier, countrySupplier, notesSupplier, isActiveSupplier
+         FROM suppliers
+         WHERE (? OR isActiveSupplier = 1)
+         ORDER BY COALESCE(NULLIF(tradeNameSupplier, ''), companyNameSupplier), idSupplier`,
+        [includeInactive]
+      );
+      json(response, 200, { suppliers });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao listar fornecedores:", message: "Não foi possível consultar os fornecedores.", duplicate: "" });
+    }
+    return;
+  }
+
+  if ((request.method === "POST" || request.method === "PUT") && request.url === "/api/suppliers") {
+    try {
+      const payload = await readJsonBody(request);
+      const idSupplier = request.method === "PUT" ? parsePositiveId(payload.idSupplier) : null;
+      const typeSupplier = ["juridica", "fisica"].includes(payload.typeSupplier) ? payload.typeSupplier : "";
+      const value = (field, max) => typeof payload[field] === "string" ? payload[field].trim().slice(0, max) : "";
+      const documentSupplier = value("documentSupplier", 20).replace(/\D/g, "");
+      const companyNameSupplier = value("companyNameSupplier", 180);
+      const tradeNameSupplier = value("tradeNameSupplier", 120);
+      const contactNameSupplier = value("contactNameSupplier", 120);
+      const phoneSupplier = value("phoneSupplier", 25);
+      const emailSupplier = value("emailSupplier", 180);
+      const zipCodeSupplier = value("zipCodeSupplier", 9);
+      const addressSupplier = value("addressSupplier", 180);
+      const addressNumberSupplier = value("addressNumberSupplier", 20);
+      const addressComplementSupplier = value("addressComplementSupplier", 80);
+      const neighborhoodSupplier = value("neighborhoodSupplier", 100);
+      const citySupplier = value("citySupplier", 100);
+      const stateSupplier = value("stateSupplier", 2).toUpperCase();
+      const countrySupplier = value("countrySupplier", 80) || "Brasil";
+      const notesSupplier = value("notesSupplier", 400);
+      const documentLength = typeSupplier === "fisica" ? 11 : 14;
+      if ((request.method === "PUT" && !idSupplier) || !typeSupplier || documentSupplier.length !== documentLength
+        || !companyNameSupplier || !countrySupplier || (emailSupplier && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailSupplier))
+        || (stateSupplier && !/^[A-Z]{2}$/.test(stateSupplier))) {
+        throw new SaleValidationError("Tipo, documento, nome ou dados de contato do fornecedor inválidos.");
+      }
+      await ensureSupplierSchema();
+      const values = [
+        typeSupplier, documentSupplier, companyNameSupplier, tradeNameSupplier, contactNameSupplier,
+        phoneSupplier, emailSupplier, zipCodeSupplier, addressSupplier, addressNumberSupplier,
+        addressComplementSupplier, neighborhoodSupplier, citySupplier, stateSupplier, countrySupplier,
+        notesSupplier || null
+      ];
+      if (request.method === "POST") {
+        const [result] = await pool.query(
+          `INSERT INTO suppliers
+            (typeSupplier, documentSupplier, companyNameSupplier, tradeNameSupplier,
+             contactNameSupplier, phoneSupplier, emailSupplier, zipCodeSupplier,
+             addressSupplier, addressNumberSupplier, addressComplementSupplier,
+             neighborhoodSupplier, citySupplier, stateSupplier, countrySupplier, notesSupplier)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          values
+        );
+        json(response, 201, { idSupplier: result.insertId });
+      } else {
+        const [result] = await pool.query(
+          `UPDATE suppliers SET typeSupplier = ?, documentSupplier = ?, companyNameSupplier = ?,
+             tradeNameSupplier = ?, contactNameSupplier = ?, phoneSupplier = ?, emailSupplier = ?,
+             zipCodeSupplier = ?, addressSupplier = ?, addressNumberSupplier = ?,
+             addressComplementSupplier = ?, neighborhoodSupplier = ?, citySupplier = ?,
+             stateSupplier = ?, countrySupplier = ?, notesSupplier = ?
+           WHERE idSupplier = ?`,
+          [...values, idSupplier]
+        );
+        if (!result.affectedRows) throw new SaleValidationError("Fornecedor não encontrado.", 404);
+        json(response, 200, { idSupplier });
+      }
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao salvar fornecedor:", message: "Não foi possível salvar o fornecedor.", duplicate: "Já existe um fornecedor com esse documento e tipo." });
+    }
+    return;
+  }
+
+  if (request.method === "PUT" && request.url === "/api/suppliers/status") {
+    try {
+      const payload = await readJsonBody(request);
+      const idSupplier = parsePositiveId(payload.idSupplier);
+      if (!idSupplier || ![true, false, 0, 1].includes(payload.isActiveSupplier)) throw new SaleValidationError("Fornecedor ou status inválido.");
+      await ensureSupplierSchema();
+      const [result] = await pool.query("UPDATE suppliers SET isActiveSupplier = ? WHERE idSupplier = ?", [payload.isActiveSupplier === true || payload.isActiveSupplier === 1 ? 1 : 0, idSupplier]);
+      if (!result.affectedRows) throw new SaleValidationError("Fornecedor não encontrado.", 404);
+      json(response, 200, { ok: true, idSupplier });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao alterar status do fornecedor:", message: "Não foi possível alterar o status do fornecedor.", duplicate: "" });
+    }
+    return;
+  }
+
+  if (request.method === "DELETE" && request.url === "/api/suppliers") {
+    try {
+      const payload = await readJsonBody(request);
+      const idSupplier = parsePositiveId(payload.idSupplier);
+      if (!idSupplier) throw new SaleValidationError("Fornecedor inválido.");
+      await ensureSupplierSchema();
+      const [result] = await pool.query("DELETE FROM suppliers WHERE idSupplier = ?", [idSupplier]);
+      if (!result.affectedRows) throw new SaleValidationError("Fornecedor não encontrado.", 404);
+      json(response, 200, { ok: true, idSupplier });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao excluir fornecedor:", message: "Não foi possível excluir o fornecedor.", duplicate: "" });
     }
     return;
   }
@@ -3213,6 +3457,9 @@ server.listen(config.apiPort, config.apiHost, () => {
   });
   void ensureCompanySchema().catch((error) => {
     console.error("Falha ao preparar o cadastro da empresa:", error);
+  });
+  void ensureSupplierSchema().catch((error) => {
+    console.error("Falha ao preparar o cadastro de fornecedores:", error);
   });
   void ensureNavigationSchema().catch((error) => {
     console.error("Falha ao preparar a estrutura de navegação:", error);

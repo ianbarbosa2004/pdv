@@ -278,6 +278,15 @@ final. Se o endpoint ainda retornar o contrato anterior, o serviço está
 executando uma versão antiga e deve ser reinstalado pelo procedimento acima
 antes de validar a interface.
 
+Após publicar o cadastro de fornecedores, confirme também:
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:3000/api/suppliers?includeInactive=1"
+```
+
+O retorno deve conter a coleção `suppliers`. A tabela é criada ou preservada
+pela inicialização idempotente da API.
+
 ## Diretriz de nomenclatura
 
 As colunas persistidas e seus contratos correspondentes usam o nome do campo

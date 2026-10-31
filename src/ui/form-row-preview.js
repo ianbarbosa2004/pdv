@@ -14,7 +14,8 @@ const setFieldValue = (field, value) => {
 export const bindFormRowPreview = (root, {
   rowSelector = "[data-view-record]",
   formSelector = "form",
-  titleSelector = ".classic-panel-header"
+  titleSelector = ".classic-panel-header",
+  formatValue = (value) => value
 } = {}) => {
   const form = root.querySelector(formSelector);
   if (!form) return;
@@ -49,7 +50,7 @@ export const bindFormRowPreview = (root, {
     form.classList.add("form-preview-mode");
     form.querySelectorAll("[name]").forEach((field) => {
       if (Object.prototype.hasOwnProperty.call(record, field.name)) {
-        setFieldValue(field, record[field.name]);
+        setFieldValue(field, formatValue(record[field.name], field.name, record));
       }
       if (field.type !== "hidden") field.disabled = true;
     });

@@ -266,6 +266,7 @@ auxiliares ao projeto.
 | `GET` | `/api/payment-methods` | Lista formas de pagamento ativas |
 | `GET` | `/api/fiscal-operations` | Lista operações fiscais |
 | `GET` | `/api/product-types` | Lista tipos de produto ativos, ordenados por Código SPED |
+| `GET` | `/api/suppliers` | Lista fornecedores ativos |
 | `GET` | `/api/units` | Lista unidades tributáveis ativas |
 | `GET` | `/api/fiscal-catalogs?catalog=...` | Lista itens de um cadastro fiscal |
 | `GET` | `/api/ncm-cest/ncms` | Lista NCMs ativos |
@@ -281,6 +282,7 @@ auxiliares ao projeto.
 | `POST` | `/api/groups` | Cria um grupo vinculado a uma classe |
 | `POST` | `/api/products` | Cadastra um produto |
 | `POST` | `/api/product-types` | Cadastra um tipo de produto e seu Código SPED opcional |
+| `POST` | `/api/suppliers` | Cadastra um fornecedor |
 | `POST` | `/api/units` | Cadastra uma unidade tributável |
 | `POST` | `/api/ncm-cest` | Cria uma relação NCM / CEST |
 | `POST` | `/api/ncm-cest/update` | Atualiza os catálogos NCM / CEST |
@@ -299,6 +301,16 @@ explícito quando há duplicidade, vínculo que impede exclusão ou payload
 incompatível. Em Tipos de Produtos, `codeSpedProductType` é opcional, limitado
 a 30 caracteres, normalizado para maiúsculas e usado como primeiro critério de
 ordenação; registros sem código aparecem ao final.
+
+Fornecedores usam `typeSupplier` (`juridica` ou `fisica`) e documento único por
+tipo. A API valida o tamanho do documento, e-mail quando informado, UF e os
+campos obrigatórios antes de persistir o cadastro.
+
+O formulário aplica máscaras de CNPJ/CPF, telefone e CEP, oferece consulta
+auxiliar de CNPJ pela BrasilAPI e de CEP pelo ViaCEP, inclusive na edição, e
+apresenta os dados retornados com capitalização de palavras. As consultas não
+substituem a revisão do operador; no salvamento, a API preserva o texto
+informado, sem alterar maiúsculas e minúsculas.
 
 As configurações de empresa e NFC-e são separadas: `/api/company` mantém os
 dados cadastrais e `/api/company/nfce` mantém os parâmetros fiscais. A API

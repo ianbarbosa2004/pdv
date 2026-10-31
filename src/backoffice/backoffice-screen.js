@@ -15,7 +15,8 @@ const shortcutDescriptions = {
   financial: "Gerencie formas de pagamento e tabelas financeiras.",
   "thermal-print": "Teste caracteres, tamanhos e alinhamento em papel de 80 mm.",
   "nfce-query": "Teste a consulta oficial e prepare itens para futuras entradas de compras.",
-  settings: "Selecione as impressoras padrão de cupons e relatórios."
+  settings: "Selecione as impressoras padrão de cupons e relatórios.",
+  suppliers: "Cadastre e mantenha os fornecedores da loja."
 };
 
 const escapeHtml = (value) => String(value ?? "")
@@ -38,6 +39,7 @@ const shortcutOrder = [
   "fiscal-operations",
   "financial",
   "thermal-print",
+  "suppliers",
   "settings"
 ];
 
@@ -98,7 +100,8 @@ export function createBackofficeScreen({
   onNfce,
   onNfceQuery,
   onNavigationBuilder,
-  onPaymentMethods
+  onPaymentMethods,
+  onSuppliers
 }) {
   const root = document.createElement("main");
   const shortcutHandlers = {
@@ -122,7 +125,8 @@ export function createBackofficeScreen({
     nfce: onNfce,
     "nfce-query": onNfceQuery,
     "navigation-builder": onNavigationBuilder,
-    "payment-methods": onPaymentMethods
+    "payment-methods": onPaymentMethods,
+    suppliers: onSuppliers
   };
   const shortcuts = getBackofficeShortcuts(shortcutHandlers);
 
