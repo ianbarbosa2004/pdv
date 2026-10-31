@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readdir, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
@@ -49,7 +49,10 @@ const safeName = (value) => String(value || "empresa")
   .toLowerCase() || "empresa";
 
 const projectName = "PDV Zanzibar";
-const releaseName = `${safeName(projectName)}-${process.env.npm_package_version || "0.1.0"}`;
+const version = process.env.npm_package_version || "0.1.0";
+const releaseName = `${safeName(projectName)}-${version}`;
+const bundleFilePattern = /^PDV Zanzibar_.*\.(msi|exe)$/i;
+const releaseFilePattern = new RegExp(`^${releaseName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-PDV(?: Zanzibar)?_.*\\.(msi|exe)$`, "i");
 const releaseMetadata = {
   projectName,
   apiUrl,
@@ -64,6 +67,11 @@ await run(npmCommand, ["run", "tauri", "--", "build"], {
 });
 
 await mkdir(releaseDir, { recursive: true });
+for (const file of await readdir(releaseDir)) {
+  if (releaseFilePattern.test(file)) {
+    await rm(join(releaseDir, file), { force: true });
+  }
+}
 const bundleDirectories = [
   join(root, "src-tauri", "target", "release", "bundle", "msi"),
   join(root, "src-tauri", "target", "release", "bundle", "nsis")
@@ -72,7 +80,7 @@ const copied = [];
 for (const directory of bundleDirectories) {
   if (!existsSync(directory)) continue;
   for (const file of await readdir(directory)) {
-    if (!/^PDV_.*\.(msi|exe)$/i.test(file)) continue;
+    if (!bundleFilePattern.test(file)) continue;
     const source = join(directory, file);
     const target = join(releaseDir, `${releaseName}-${basename(file)}`);
     await copyFile(source, target);
