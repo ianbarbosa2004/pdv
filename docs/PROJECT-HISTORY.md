@@ -20,6 +20,19 @@ capitalização de palavras para revisão, mas o salvamento preserva exatamente 
 texto informado pelo operador. A tabela `suppliers` é preparada de forma
 idempotente pela API, sem expor credenciais do MariaDB aos terminais.
 
+Também foram implementados os cadastros separados de **Clientes** e
+**Consumidores**. O nome é o único campo obrigatório; a criação de um Cliente
+cria seu Consumidor correspondente dentro da mesma transação, enquanto
+Consumidores avulsos continuam disponíveis para mesas e comandas. A forma de
+pagamento **Vale** exige um cliente ativo, valida o limite disponível e grava o
+débito atomicamente com a venda em `customer_vouchers`.
+
+Foi criado o comando `npm.cmd run release:client -- --api-url=...` para gerar
+distribuições do projeto **PDV Zanzibar**. O build usa diretamente os ícones
+atuais de `src-tauri/icons`, sem depender do cadastro de ícone na API, embute
+o endereço da API no frontend e produz MSI e NSIS com a identidade visual
+versionada no projeto.
+
 ## 1. Direção inicial
 
 O projeto começou com o objetivo de criar um PDV comercial semelhante ao

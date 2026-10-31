@@ -1007,6 +1007,15 @@ h2 {
   padding: 18px;
 }
 
+.catalog-import-screen .classic-content {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.catalog-import-screen .backoffice-home-heading,
+.catalog-import-screen .classic-form-panel {
+  width: 100%;
+}
+
 .navigation-builder {
   display: block;
   max-width: 1680px;

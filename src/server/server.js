@@ -48,6 +48,7 @@ const formatCertificateDate = (value) => {
   if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
     throw new Error("A validade do certificado não foi encontrada.");
   }
+
   const year = value.getFullYear();
   const month = String(value.getMonth() + 1).padStart(2, "0");
   const day = String(value.getDate()).padStart(2, "0");
@@ -178,6 +179,16 @@ const parseMoney = (value, fieldName) => {
   }
   return String(value);
 };
+
+const capitalizeText = (value) => String(value ?? "")
+  .trim()
+  .replace(/\s+/g, " ")
+  .toLocaleLowerCase("pt-BR")
+  .replace(/(^|[\s/-])([a-zà-ÿ])/giu, (_, separator, character) =>
+    `${separator}${character.toLocaleUpperCase("pt-BR")}`);
+
+const isNonSaleProductType = (description) =>
+  ["Matéria-Prima", "Embalagem", "Material de Uso e Consumo"].includes(description);
 
 const parseNonNegativeQuantity = (value) => {
   if (!/^(?:0|[1-9]\d*)(?:\.\d{1,3})?$/.test(String(value))) {
@@ -349,6 +360,61 @@ const ensureGeneralSettingsSchema = async () => {
     updatedAtGeneralSetting TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (idGeneralSetting),
     UNIQUE KEY uqGeneralSettingsKey (keyGeneralSetting)
+  ) ENGINE=InnoDB`);
+};
+
+const ensureCustomerConsumerSchema = async () => {
+  await pool.query(`CREATE TABLE IF NOT EXISTS customers (
+    idCustomer BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    nameCustomer VARCHAR(180) NOT NULL,
+    documentCustomer VARCHAR(20) NULL,
+    phoneCustomer VARCHAR(25) NOT NULL DEFAULT '',
+    emailCustomer VARCHAR(180) NOT NULL DEFAULT '',
+    addressCustomer VARCHAR(180) NOT NULL DEFAULT '',
+    creditLimitCustomer DECIMAL(12,2) NOT NULL DEFAULT 0,
+    paymentTermCustomer SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    notesCustomer VARCHAR(400) NULL,
+    isActiveCustomer TINYINT(1) NOT NULL DEFAULT 1,
+    createdAtCustomer TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updatedAtCustomer TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (idCustomer),
+    UNIQUE KEY uqCustomersDocument (documentCustomer)
+  ) ENGINE=InnoDB`);
+  const [customerDocumentColumns] = await pool.query(
+    `SELECT IS_NULLABLE FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'customers'
+       AND COLUMN_NAME = 'documentCustomer'`
+  );
+  if (customerDocumentColumns[0]?.IS_NULLABLE !== "YES") {
+    await pool.query("UPDATE customers SET documentCustomer = NULL WHERE documentCustomer = ''");
+    await pool.query("ALTER TABLE customers MODIFY COLUMN documentCustomer VARCHAR(20) NULL");
+  }
+  await pool.query(`CREATE TABLE IF NOT EXISTS consumers (
+    idConsumer BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    idCustomer BIGINT UNSIGNED NULL,
+    nameConsumer VARCHAR(180) NOT NULL,
+    nicknameConsumer VARCHAR(120) NOT NULL DEFAULT '',
+    phoneConsumer VARCHAR(25) NOT NULL DEFAULT '',
+    notesConsumer VARCHAR(400) NULL,
+    isActiveConsumer TINYINT(1) NOT NULL DEFAULT 1,
+    createdAtConsumer TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updatedAtConsumer TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (idConsumer),
+    UNIQUE KEY uqConsumersCustomer (idCustomer),
+    KEY idxConsumersStatus (isActiveConsumer),
+    CONSTRAINT fkConsumersCustomer FOREIGN KEY (idCustomer) REFERENCES customers (idCustomer) ON DELETE SET NULL
+  ) ENGINE=InnoDB`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS customer_vouchers (
+    idCustomerVoucher BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    idCustomer BIGINT UNSIGNED NOT NULL,
+    idSale BIGINT UNSIGNED NULL,
+    amountCustomerVoucher DECIMAL(12,2) NOT NULL,
+    dueDateCustomerVoucher DATE NULL,
+    statusCustomerVoucher ENUM('open', 'paid', 'cancelled') NOT NULL DEFAULT 'open',
+    createdAtCustomerVoucher TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (idCustomerVoucher),
+    KEY idxCustomerVouchersCustomer (idCustomer, statusCustomerVoucher),
+    CONSTRAINT fkCustomerVouchersCustomer FOREIGN KEY (idCustomer) REFERENCES customers (idCustomer) ON DELETE RESTRICT
   ) ENGINE=InnoDB`);
 };
 
@@ -634,7 +700,8 @@ const ensureProductCatalogSchema = async () => {
     ["controlsStockProduct", "ALTER TABLE products ADD COLUMN controlsStockProduct TINYINT(1) NOT NULL DEFAULT 1 AFTER stockQuantityProduct"],
     ["isFractionalProduct", "ALTER TABLE products ADD COLUMN isFractionalProduct TINYINT(1) NOT NULL DEFAULT 0 AFTER controlsStockProduct"],
     ["printsKitchenProduct", "ALTER TABLE products ADD COLUMN printsKitchenProduct TINYINT(1) NOT NULL DEFAULT 0 AFTER isFractionalProduct"],
-    ["showsInPdvProduct", "ALTER TABLE products ADD COLUMN showsInPdvProduct TINYINT(1) NOT NULL DEFAULT 1 AFTER printsKitchenProduct"]
+    ["showsInPdvProduct", "ALTER TABLE products ADD COLUMN showsInPdvProduct TINYINT(1) NOT NULL DEFAULT 1 AFTER printsKitchenProduct"],
+    ["costPriceProduct", "ALTER TABLE products ADD COLUMN costPriceProduct DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER priceProduct"]
   ];
   for (const [name, statement] of additions) {
     if (!existing.has(name)) await pool.query(statement);
@@ -1005,6 +1072,37 @@ const prepareNavigationSchema = async () => {
     );
   }
 
+  for (const [key, label, description, order] of [
+    ["customers", "Clientes", "Cadastre clientes e acompanhe seus vales.", 20],
+    ["consumers", "Consumidores", "Identifique consumidores e consulte seu histórico de consumo.", 21]
+  ]) {
+    const [existingItems] = await pool.query(
+      `SELECT idNavigationItem FROM navigation_items
+       WHERE idNavigationMenu = ? AND idParentNavigationItem IS NULL
+         AND (keyNavigationItem = ? OR routeNavigationItem = ? OR labelNavigationItem = ?)
+       LIMIT 1`,
+      [catalogMenuId, key, key, label]
+    );
+    if (existingItems[0]) {
+      await pool.query(
+        `UPDATE navigation_items SET idNavigationMenu = ?, idParentNavigationItem = NULL,
+          typeNavigationItem = 'item', keyNavigationItem = ?, labelNavigationItem = ?,
+          routeNavigationItem = ?, descriptionNavigationItem = ?, isActiveNavigationItem = 1,
+          orderNavigationItem = ? WHERE idNavigationItem = ?`,
+        [catalogMenuId, key, label, key, description, order, existingItems[0].idNavigationItem]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO navigation_items
+          (idNavigationMenu, idParentNavigationItem, typeNavigationItem, keyNavigationItem,
+           labelNavigationItem, routeNavigationItem, descriptionNavigationItem,
+           orderNavigationItem, isActiveNavigationItem, showsInBackofficeHomeNavigationItem)
+         VALUES (?, NULL, 'item', ?, ?, ?, ?, ?, 1, 0)`,
+        [catalogMenuId, key, label, key, description, order]
+      );
+    }
+  }
+
   const [menuIdColumns] = await pool.query(
     `SELECT DATA_TYPE
      FROM information_schema.COLUMNS
@@ -1070,6 +1168,12 @@ const ensurePaymentMethodSchema = async () => {
   for (const [column, statement] of additions) {
     if (!existing.has(column)) await pool.query(statement);
   }
+  await pool.query(
+    `INSERT INTO payment_methods
+      (namePaymentMethod, cashFlowAccountPaymentMethod, termDaysPaymentMethod, isActivePaymentMethod)
+     VALUES ('Vale', 'Caixa', 30, 1)
+     ON DUPLICATE KEY UPDATE isActivePaymentMethod = 1`
+  );
 };
 
 const ensureSupplierSchema = async () => {
@@ -1128,6 +1232,170 @@ const server = createServer(async (request, response) => {
       "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS"
     });
     response.end();
+    return;
+  }
+
+  if (request.method === "GET" && request.url.startsWith("/api/customers")) {
+    try {
+      await ensureCustomerConsumerSchema();
+      const includeInactive = new URL(request.url, "http://localhost").searchParams.get("includeInactive") === "1";
+      const [customers] = await pool.query(
+        `SELECT c.idCustomer, c.nameCustomer, c.documentCustomer, c.phoneCustomer,
+                c.emailCustomer, c.addressCustomer, c.creditLimitCustomer,
+                c.paymentTermCustomer, c.notesCustomer, c.isActiveCustomer,
+                co.idConsumer, co.nameConsumer
+         FROM customers c LEFT JOIN consumers co ON co.idCustomer = c.idCustomer
+         WHERE (? OR c.isActiveCustomer = 1)
+         ORDER BY c.nameCustomer, c.idCustomer`,
+        [includeInactive]
+      );
+      json(response, 200, { customers });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao listar clientes:", message: "Não foi possível consultar os clientes.", duplicate: "" });
+    }
+    return;
+  }
+
+  if ((request.method === "POST" || request.method === "PUT") && request.url === "/api/customers") {
+    try {
+      const payload = await readJsonBody(request);
+      const idCustomer = request.method === "PUT" ? parsePositiveId(payload.idCustomer) : null;
+      const text = (field, max) => typeof payload[field] === "string" ? payload[field].trim().slice(0, max) : "";
+      const nameCustomer = text("nameCustomer", 180);
+      const documentDigits = text("documentCustomer", 20).replace(/\D/g, "");
+      const documentCustomer = documentDigits || null;
+      const phoneCustomer = text("phoneCustomer", 25);
+      const emailCustomer = text("emailCustomer", 180).toLocaleLowerCase("pt-BR");
+      const addressCustomer = text("addressCustomer", 180);
+      const creditLimitCustomer = Number(payload.creditLimitCustomer || 0);
+      const paymentTermCustomer = Number(payload.paymentTermCustomer || 0);
+      const notesCustomer = text("notesCustomer", 400);
+      if ((request.method === "PUT" && !idCustomer) || !nameCustomer
+        || !Number.isFinite(creditLimitCustomer) || creditLimitCustomer < 0
+        || !Number.isInteger(paymentTermCustomer) || paymentTermCustomer < 0
+        || (emailCustomer && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailCustomer))) {
+        throw new SaleValidationError("Informe o nome e valores válidos para o cliente.");
+      }
+      await ensureCustomerConsumerSchema();
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        if (request.method === "POST") {
+          const [result] = await connection.query(
+            `INSERT INTO customers
+              (nameCustomer, documentCustomer, phoneCustomer, emailCustomer, addressCustomer,
+               creditLimitCustomer, paymentTermCustomer, notesCustomer)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [nameCustomer, documentCustomer, phoneCustomer, emailCustomer, addressCustomer, creditLimitCustomer, paymentTermCustomer, notesCustomer || null]
+          );
+          await connection.query(
+            "INSERT INTO consumers (idCustomer, nameConsumer, phoneConsumer) VALUES (?, ?, ?)",
+            [result.insertId, nameCustomer, phoneCustomer]
+          );
+          await connection.commit();
+          json(response, 201, { idCustomer: result.insertId });
+        } else {
+          const [result] = await connection.query(
+            `UPDATE customers SET nameCustomer = ?, documentCustomer = ?, phoneCustomer = ?,
+              emailCustomer = ?, addressCustomer = ?, creditLimitCustomer = ?,
+              paymentTermCustomer = ?, notesCustomer = ? WHERE idCustomer = ?`,
+            [nameCustomer, documentCustomer, phoneCustomer, emailCustomer, addressCustomer, creditLimitCustomer, paymentTermCustomer, notesCustomer || null, idCustomer]
+          );
+          if (!result.affectedRows) throw new SaleValidationError("Cliente não encontrado.", 404);
+          await connection.query(
+            "UPDATE consumers SET nameConsumer = ?, phoneConsumer = ? WHERE idCustomer = ?",
+            [nameCustomer, phoneCustomer, idCustomer]
+          );
+          await connection.commit();
+          json(response, 200, { idCustomer });
+        }
+      } catch (error) {
+        await connection.rollback();
+        throw error;
+      } finally { connection.release(); }
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao salvar cliente:", message: "Não foi possível salvar o cliente.", duplicate: "Já existe um cliente com esse documento." });
+    }
+    return;
+  }
+
+  if (request.method === "DELETE" && request.url === "/api/customers") {
+    try {
+      const payload = await readJsonBody(request);
+      const idCustomer = parsePositiveId(payload.idCustomer);
+      if (!idCustomer) throw new SaleValidationError("Cliente inválido.");
+      await ensureCustomerConsumerSchema();
+      const [result] = await pool.query("UPDATE customers SET isActiveCustomer = 0 WHERE idCustomer = ?", [idCustomer]);
+      if (!result.affectedRows) throw new SaleValidationError("Cliente não encontrado.", 404);
+      json(response, 200, { ok: true, idCustomer });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao excluir cliente:", message: "Não foi possível excluir o cliente.", duplicate: "" });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && request.url.startsWith("/api/consumers")) {
+    try {
+      await ensureCustomerConsumerSchema();
+      const includeInactive = new URL(request.url, "http://localhost").searchParams.get("includeInactive") === "1";
+      const [consumers] = await pool.query(
+        `SELECT co.idConsumer, co.idCustomer, co.nameConsumer, co.nicknameConsumer,
+                co.phoneConsumer, co.notesConsumer, co.isActiveConsumer,
+                c.nameCustomer FROM consumers co
+         LEFT JOIN customers c ON c.idCustomer = co.idCustomer
+         WHERE (? OR co.isActiveConsumer = 1)
+         ORDER BY co.nameConsumer, co.idConsumer`,
+        [includeInactive]
+      );
+      json(response, 200, { consumers });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao listar consumidores:", message: "Não foi possível consultar os consumidores.", duplicate: "" });
+    }
+    return;
+  }
+
+  if ((request.method === "POST" || request.method === "PUT") && request.url === "/api/consumers") {
+    try {
+      const payload = await readJsonBody(request);
+      const idConsumer = request.method === "PUT" ? parsePositiveId(payload.idConsumer) : null;
+      const text = (field, max) => typeof payload[field] === "string" ? payload[field].trim().slice(0, max) : "";
+      const nameConsumer = text("nameConsumer", 180);
+      if ((request.method === "PUT" && !idConsumer) || !nameConsumer) throw new SaleValidationError("Informe o nome do consumidor.");
+      await ensureCustomerConsumerSchema();
+      const values = [nameConsumer, text("nicknameConsumer", 120), text("phoneConsumer", 25), text("notesConsumer", 400) || null];
+      if (request.method === "POST") {
+        const [result] = await pool.query(
+          "INSERT INTO consumers (nameConsumer, nicknameConsumer, phoneConsumer, notesConsumer) VALUES (?, ?, ?, ?)",
+          values
+        );
+        json(response, 201, { idConsumer: result.insertId });
+      } else {
+        const [result] = await pool.query(
+          `UPDATE consumers SET nameConsumer = ?, nicknameConsumer = ?, phoneConsumer = ?, notesConsumer = ?
+           WHERE idConsumer = ? AND idCustomer IS NULL`,
+          [...values, idConsumer]
+        );
+        if (!result.affectedRows) throw new SaleValidationError("Consumidor vinculado a cliente não encontrado ou não pode ser alterado aqui.", 409);
+        json(response, 200, { idConsumer });
+      }
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao salvar consumidor:", message: "Não foi possível salvar o consumidor.", duplicate: "" });
+    }
+    return;
+  }
+
+  if (request.method === "DELETE" && request.url === "/api/consumers") {
+    try {
+      const payload = await readJsonBody(request);
+      const idConsumer = parsePositiveId(payload.idConsumer);
+      if (!idConsumer) throw new SaleValidationError("Consumidor inválido.");
+      await ensureCustomerConsumerSchema();
+      const [result] = await pool.query("UPDATE consumers SET isActiveConsumer = 0 WHERE idConsumer = ? AND idCustomer IS NULL", [idConsumer]);
+      if (!result.affectedRows) throw new SaleValidationError("Consumidor vinculado a cliente não pode ser excluído aqui.", 409);
+      json(response, 200, { ok: true, idConsumer });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao excluir consumidor:", message: "Não foi possível excluir o consumidor.", duplicate: "" });
+    }
     return;
   }
 
@@ -2041,7 +2309,7 @@ const server = createServer(async (request, response) => {
                 products.pdvCodeProduct, products.nameProduct,
                 products.idFiscalOperationSaleProduct, products.idProductTypeProduct,
                 products.idUnitProduct, products.ncmProduct,
-                products.cestProduct, products.priceProduct,
+                products.cestProduct, products.priceProduct, products.costPriceProduct,
                 products.stockQuantityProduct, products.controlsStockProduct,
                 products.isFractionalProduct, products.printsKitchenProduct,
                 products.showsInPdvProduct,
@@ -2723,7 +2991,7 @@ const server = createServer(async (request, response) => {
       if (!nameProduct || nameProduct.length > 180 || !skuProduct || skuProduct.length > 64 || !idGroup || (ncmProduct && !/^\d{8}$/.test(ncmProduct)) || (cestProduct && !/^\d{7}$/.test(cestProduct))) throw new SaleValidationError("Nome, SKU, grupo, NCM ou CEST inválidos.");
       await ensureProductCatalogSchema();
       const allowNegativeStock = await getGeneralSettingBoolean("allowNegativeStock");
-      const priceProduct = parseMoney(payload.priceProduct, "Preço");
+      const costPriceProduct = parseMoney(payload.costPriceProduct ?? "0", "Preço de custo");
       const controlsStockProduct = parseBooleanFlag(payload.controlsStockProduct, "Controla estoque", true);
       const isFractionalProduct = parseBooleanFlag(payload.isFractionalProduct, "Produto fracionado");
       const printsKitchenProduct = parseBooleanFlag(payload.printsKitchenProduct, "Imprime cozinha");
@@ -2733,6 +3001,10 @@ const server = createServer(async (request, response) => {
       if (!groups.length) throw new SaleValidationError("Grupo não encontrado.", 409);
       const [productTypeRows] = await pool.query("SELECT idProductType, descriptionProductType FROM product_types WHERE idProductType = ? AND isActiveProductType = 1", [idProductTypeProduct]);
       if (idProductTypeProduct && !productTypeRows.length) throw new SaleValidationError("Tipo de produto não encontrado.", 409);
+      const nonSaleProduct = isNonSaleProductType(productTypeRows[0]?.descriptionProductType);
+      const priceProduct = nonSaleProduct
+        ? costPriceProduct
+        : parseMoney(payload.priceProduct, "Preço");
       if (productTypeRows[0]?.descriptionProductType === "Matéria-Prima" && !/^MP-/i.test(skuProduct)) {
         throw new SaleValidationError("O SKU de matéria-prima deve começar com MP-.");
       }
@@ -2762,16 +3034,16 @@ const server = createServer(async (request, response) => {
       const [result] = await pool.query(
         `INSERT INTO products
           (idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct,
-           idProductTypeProduct, idUnitProduct, ncmProduct, cestProduct, priceProduct,
+           idProductTypeProduct, idUnitProduct, ncmProduct, cestProduct, priceProduct, costPriceProduct,
            stockQuantityProduct, controlsStockProduct, isFractionalProduct, printsKitchenProduct,
            showsInPdvProduct)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
         [idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct,
           idProductTypeProduct, idUnitProduct, ncmProduct || null, cestProduct || null,
-          priceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct,
+          priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct,
           printsKitchenProduct, showsInPdvProduct]
       );
-      json(response, 201, { product: { idProduct: result.insertId, idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct, idProductTypeProduct, idUnitProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct, printsKitchenProduct, showsInPdvProduct } });
+      json(response, 201, { product: { idProduct: result.insertId, idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct, idProductTypeProduct, idUnitProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct, printsKitchenProduct, showsInPdvProduct } });
     } catch (error) {
       handleError(response, error, { log: "Falha ao criar produto:", message: "Não foi possível criar o produto.", duplicate: "SKU ou código PDV já cadastrado." });
     }
@@ -2795,7 +3067,7 @@ const server = createServer(async (request, response) => {
         const line = index + 2;
         const skuProduct = typeof row.skuProduct === "string" ? row.skuProduct.trim().toUpperCase() : "";
         const pdvCodeProduct = typeof row.pdvCodeProduct === "string" ? row.pdvCodeProduct.trim() || null : null;
-        const nameProduct = typeof row.nameProduct === "string" ? row.nameProduct.trim() : "";
+        const nameProduct = typeof row.nameProduct === "string" ? capitalizeText(row.nameProduct) : "";
         const descriptionGroup = typeof row.descriptionGroup === "string" ? row.descriptionGroup.trim() : "";
         const descriptionFiscalOperation = typeof row.descriptionFiscalOperation === "string" ? row.descriptionFiscalOperation.trim() : "";
         const descriptionProductType = typeof row.descriptionProductType === "string" ? row.descriptionProductType.trim() : "";
@@ -2803,12 +3075,14 @@ const server = createServer(async (request, response) => {
         const ncmProduct = typeof row.ncmProduct === "string" ? row.ncmProduct.replace(/\D/g, "") : "";
         const cestProduct = typeof row.cestProduct === "string" ? row.cestProduct.replace(/\D/g, "") : "";
         const priceValue = String(row.priceProduct ?? "").trim().replace(",", ".");
+        const costPriceValue = String(row.costPriceProduct ?? "0").trim().replace(",", ".");
         const stockValue = String(row.stockQuantityProduct ?? "0").trim().replace(",", ".");
         const parseImportBoolean = (value, fallback) => {
           if (value === undefined || value === null || value === "") return fallback;
           return ["1", "true", "sim", "s", "yes", "y"].includes(String(value).trim().toLowerCase()) ? 1 : 0;
         };
-        if (!skuProduct || skuProduct.length > 64 || !nameProduct || nameProduct.length > 180 || !descriptionGroup || !priceValue) {
+        if (!skuProduct || skuProduct.length > 64 || !nameProduct || nameProduct.length > 180 || !descriptionGroup
+          || (!priceValue && !costPriceValue)) {
           throw new SaleValidationError(`Linha ${line}: SKU, nome, grupo e preço são obrigatórios ou inválidos.`);
         }
         const [groupRows] = await connection.query(
@@ -2834,6 +3108,7 @@ const server = createServer(async (request, response) => {
         if (descriptionProductType && !typeRows.length) {
           throw new SaleValidationError(`Linha ${line}: tipo de produto "${descriptionProductType}" não encontrado.`);
         }
+        const nonSaleProduct = isNonSaleProductType(typeRows[0]?.descriptionProductType);
         if (typeRows[0]?.descriptionProductType === "Matéria-Prima" && !/^MP-/i.test(skuProduct)) {
           throw new SaleValidationError(`Linha ${line}: o SKU de matéria-prima deve começar com MP-.`);
         }
@@ -2872,7 +3147,10 @@ const server = createServer(async (request, response) => {
         } else if (cestProduct) {
           throw new SaleValidationError(`Linha ${line}: informe o NCM antes de selecionar o CEST.`);
         }
-        const priceProduct = parseMoney(priceValue, `Preço da linha ${line}`);
+        const costPriceProduct = parseMoney(costPriceValue || "0", `Preço de custo da linha ${line}`);
+        const priceProduct = nonSaleProduct
+          ? costPriceProduct
+          : parseMoney(priceValue, `Preço da linha ${line}`);
         const controlsStockProduct = parseImportBoolean(row.controlsStockProduct, 1);
         const isFractionalProduct = parseImportBoolean(row.isFractionalProduct, 0);
         const printsKitchenProduct = parseImportBoolean(row.printsKitchenProduct, 0);
@@ -2881,15 +3159,15 @@ const server = createServer(async (request, response) => {
         await connection.query(
           `INSERT INTO products
             (idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct,
-             idProductTypeProduct, idUnitProduct, ncmProduct, cestProduct, priceProduct,
+             idProductTypeProduct, idUnitProduct, ncmProduct, cestProduct, priceProduct, costPriceProduct,
              stockQuantityProduct, controlsStockProduct, isFractionalProduct, printsKitchenProduct,
              showsInPdvProduct)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
           [
             groupRows[0].idGroup, skuProduct, pdvCodeProduct, nameProduct,
             fiscalRows[0]?.idFiscalOperation || null, typeRows[0]?.idProductType || null,
             unitRows[0]?.idUnit || null, ncmProduct || null, cestProduct || null,
-            priceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct,
+            priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct,
             printsKitchenProduct, showsInPdvProduct
           ]
         );
@@ -2926,7 +3204,7 @@ const server = createServer(async (request, response) => {
       if (!idProduct || !nameProduct || nameProduct.length > 180 || !skuProduct || skuProduct.length > 64 || !idGroup || (ncmProduct && !/^\d{8}$/.test(ncmProduct)) || (cestProduct && !/^\d{7}$/.test(cestProduct))) throw new SaleValidationError("Produto, nome, SKU, grupo, NCM ou CEST inválidos.");
       await ensureProductCatalogSchema();
       const allowNegativeStock = await getGeneralSettingBoolean("allowNegativeStock");
-      const priceProduct = parseMoney(payload.priceProduct, "Preço");
+      const costPriceProduct = parseMoney(payload.costPriceProduct ?? "0", "Preço de custo");
       const controlsStockProduct = parseBooleanFlag(payload.controlsStockProduct, "Controla estoque", true);
       const isFractionalProduct = parseBooleanFlag(payload.isFractionalProduct, "Produto fracionado");
       const printsKitchenProduct = parseBooleanFlag(payload.printsKitchenProduct, "Imprime cozinha");
@@ -2936,6 +3214,10 @@ const server = createServer(async (request, response) => {
       if (!groups.length) throw new SaleValidationError("Grupo não encontrado.", 409);
       const [productTypeRows] = await pool.query("SELECT idProductType, descriptionProductType FROM product_types WHERE idProductType = ? AND isActiveProductType = 1", [idProductTypeProduct]);
       if (idProductTypeProduct && !productTypeRows.length) throw new SaleValidationError("Tipo de produto não encontrado.", 409);
+      const nonSaleProduct = isNonSaleProductType(productTypeRows[0]?.descriptionProductType);
+      const priceProduct = nonSaleProduct
+        ? costPriceProduct
+        : parseMoney(payload.priceProduct, "Preço");
       if (productTypeRows[0]?.descriptionProductType === "Matéria-Prima" && !/^MP-/i.test(skuProduct)) {
         throw new SaleValidationError("O SKU de matéria-prima deve começar com MP-.");
       }
@@ -2965,17 +3247,17 @@ const server = createServer(async (request, response) => {
       const [result] = await pool.query(
         `UPDATE products SET idGroup = ?, skuProduct = ?, pdvCodeProduct = ?, nameProduct = ?,
            idFiscalOperationSaleProduct = ?, idProductTypeProduct = ?, idUnitProduct = ?,
-           ncmProduct = ?, cestProduct = ?, priceProduct = ?, stockQuantityProduct = ?,
+           ncmProduct = ?, cestProduct = ?, priceProduct = ?, costPriceProduct = ?, stockQuantityProduct = ?,
            controlsStockProduct = ?, isFractionalProduct = ?, printsKitchenProduct = ?,
            showsInPdvProduct = ?
          WHERE idProduct = ?`,
         [idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct,
           idProductTypeProduct, idUnitProduct, ncmProduct || null, cestProduct || null,
-          priceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct,
+          priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct,
           printsKitchenProduct, showsInPdvProduct, idProduct]
       );
       if (!result.affectedRows) throw new SaleValidationError("Produto não encontrado.", 404);
-      json(response, 200, { product: { idProduct, idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct, idProductTypeProduct, idUnitProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct, printsKitchenProduct, showsInPdvProduct } });
+      json(response, 200, { product: { idProduct, idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct, idProductTypeProduct, idUnitProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct, printsKitchenProduct, showsInPdvProduct } });
     } catch (error) {
       handleError(response, error, { log: "Falha ao editar produto:", message: "Não foi possível editar o produto.", duplicate: "SKU ou código PDV já cadastrado." });
     }
@@ -3460,6 +3742,9 @@ server.listen(config.apiPort, config.apiHost, () => {
   });
   void ensureSupplierSchema().catch((error) => {
     console.error("Falha ao preparar o cadastro de fornecedores:", error);
+  });
+  void ensureCustomerConsumerSchema().catch((error) => {
+    console.error("Falha ao preparar clientes, consumidores e vales:", error);
   });
   void ensureNavigationSchema().catch((error) => {
     console.error("Falha ao preparar a estrutura de navegação:", error);

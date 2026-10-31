@@ -404,6 +404,7 @@ export function createSupplierScreen({
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Não foi possível salvar o fornecedor.");
       message = idSupplier ? "Fornecedor alterado com sucesso." : "Fornecedor cadastrado com sucesso.";
+      if (!idSupplier) searchTerm = "";
       await load();
       editingSupplier = null;
       scheduleMessageClear(() => { message = ""; render(); });

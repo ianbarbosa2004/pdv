@@ -91,6 +91,7 @@ export function createCatalogScreen({
     idProductTypeProduct: "",
     idUnitProduct: "",
     priceProduct: "0,00",
+    costPriceProduct: "0,00",
     stockQuantityProduct: "0",
     controlsStockProduct: defaultControlsStock,
     isFractionalProduct: defaultIsFractionalProduct,
@@ -111,7 +112,7 @@ export function createCatalogScreen({
           .some((value) => String(value ?? "").toLocaleLowerCase("pt-BR").includes(query));
       })
       .sort((left, right) => {
-      const numericKeys = new Set(["priceProduct", "stockQuantityProduct"]);
+      const numericKeys = new Set(["priceProduct", "costPriceProduct", "stockQuantityProduct"]);
       const comparison = numericKeys.has(sortState.key)
         ? Number(left[sortState.key] || 0) - Number(right[sortState.key] || 0)
         : String(left[sortState.key] ?? "").localeCompare(
@@ -157,6 +158,7 @@ export function createCatalogScreen({
       idProductTypeProduct: String(formData.get("idProductTypeProduct") ?? ""),
       idUnitProduct: String(formData.get("idUnitProduct") ?? ""),
       priceProduct: String(formData.get("priceProduct") ?? ""),
+      costPriceProduct: String(formData.get("costPriceProduct") ?? ""),
       stockQuantityProduct: String(
         formData.get("stockQuantityProduct") ?? newProductDraft.stockQuantityProduct ?? "0"
       ) || "0",
@@ -192,6 +194,21 @@ export function createCatalogScreen({
       descriptionProductType === productTypeDescription
     ) || getDefaultProductType();
 
+  const isNonSaleCatalog = ["Matéria-Prima", "Embalagem", "Material de Uso e Consumo"]
+    .includes(productTypeDescription);
+
+  const renderPriceFields = (product, isEdit = false) => {
+    const costValue = isEdit
+      ? formatMaskedNumber(product.costPriceProduct ?? product.priceProduct)
+      : product.costPriceProduct;
+    if (isNonSaleCatalog) {
+      return `<label class="form-field"><span>Preço de custo</span><input name="costPriceProduct" data-number-mask inputmode="decimal" required value="${escapeHtml(costValue)}" /></label>`;
+    }
+    const saleValue = isEdit ? formatMaskedNumber(product.priceProduct) : product.priceProduct;
+    return `<label class="form-field"><span>Preço de venda</span><input name="priceProduct" data-number-mask inputmode="decimal" required value="${escapeHtml(saleValue)}" /></label>
+      <label class="form-field"><span>Preço de custo</span><input name="costPriceProduct" data-number-mask inputmode="decimal" required value="${escapeHtml(costValue)}" /></label>`;
+  };
+
   const getDefaultUnit = () =>
     units.find(({ codeUnit }) => codeUnit === "UN") || units[0];
 
@@ -216,6 +233,7 @@ export function createCatalogScreen({
         : "",
       idUnitProduct: "",
       priceProduct: "0,00",
+      costPriceProduct: "0,00",
       stockQuantityProduct: "0",
       controlsStockProduct: defaultControlsStock,
       isFractionalProduct: defaultIsFractionalProduct,
@@ -296,7 +314,7 @@ export function createCatalogScreen({
             <label class="form-field"><span>CEST</span><select name="cestProduct" ${cestOptions.length ? "" : "disabled"}>${renderCestOptions(newCestProduct)}</select></label>
           </div>
           <div class="classic-form-grid">
-            <label class="form-field"><span>Preço</span><input name="priceProduct" data-number-mask inputmode="decimal" required value="${escapeHtml(newProductDraft.priceProduct)}" /></label>
+            ${renderPriceFields(newProductDraft)}
             ${renderStockInput(newProductDraft, "Estoque inicial")}
           </div>
           ${renderProductFlags()}
@@ -325,7 +343,9 @@ export function createCatalogScreen({
                           ["pdvCodeProduct", "# PDV"],
                           ["nameProduct", "Produto"],
                           ["descriptionGroup", "Grupo"],
-                          ["priceProduct", "Preço"],
+                          ...(isNonSaleCatalog
+                            ? [["costPriceProduct", "Preço de custo"]]
+                            : [["priceProduct", "Preço de venda"], ["costPriceProduct", "Preço de custo"]]),
                           ["stockQuantityProduct", "Estoque"]
                         ].map(([key, label]) => `
                           <th aria-sort="${sortState.key === key ? (sortState.direction === "asc" ? "ascending" : "descending") : "none"}">
@@ -339,7 +359,9 @@ export function createCatalogScreen({
                           <td>${escapeHtml(product.pdvCodeProduct || "—")}</td>
                           <td>${escapeHtml(product.nameProduct)}</td>
                           <td>${escapeHtml(product.descriptionGroup || "Sem grupo")}</td>
-                          <td>R$ ${Number(product.priceProduct).toFixed(2).replace(".", ",")}</td>
+                          ${isNonSaleCatalog
+                            ? `<td>R$ ${Number(product.costPriceProduct ?? product.priceProduct ?? 0).toFixed(2).replace(".", ",")}</td>`
+                            : `<td>R$ ${Number(product.priceProduct).toFixed(2).replace(".", ",")}</td><td>R$ ${Number(product.costPriceProduct || 0).toFixed(2).replace(".", ",")}</td>`}
                           <td>${escapeHtml(product.stockQuantityProduct)}</td>
                           <td>
                             <button class="status-toggle ${Number(product.showsInPdvProduct) ? "is-active" : "is-inactive"}" type="button" role="switch" aria-checked="${Number(product.showsInPdvProduct) ? "true" : "false"}" data-pdv-status-id="${product.idProduct}" aria-label="Alternar exibição de ${escapeHtml(product.nameProduct)} no PDV">
@@ -396,7 +418,7 @@ export function createCatalogScreen({
                   <label class="form-field"><span>CEST</span><select name="cestProduct" ${cestOptions.length ? "" : "disabled"}>${renderCestOptions(editingProduct.cestProduct)}</select></label>
                 </div>
                 <div class="classic-form-grid">
-                  <label class="form-field"><span>Preço</span><input name="priceProduct" data-number-mask inputmode="decimal" required value="${escapeHtml(formatMaskedNumber(editingProduct.priceProduct))}" /></label>
+                  ${renderPriceFields(editingProduct, true)}
                   ${renderStockInput(editingProduct, "Estoque")}
                 </div>
                 ${renderProductFlags(editingProduct)}
@@ -760,7 +782,10 @@ export function createCatalogScreen({
           idUnitProduct: formData.get("idUnitProduct") ? Number(formData.get("idUnitProduct")) : null,
           ncmProduct: formData.get("ncmProduct") || null,
           cestProduct: formData.get("cestProduct") || null,
-          priceProduct: normalizeMaskedNumber(formData.get("priceProduct")),
+          priceProduct: isNonSaleCatalog
+            ? normalizeMaskedNumber(formData.get("costPriceProduct"))
+            : normalizeMaskedNumber(formData.get("priceProduct")),
+          costPriceProduct: normalizeMaskedNumber(formData.get("costPriceProduct")),
           stockQuantityProduct: formData.get("stockQuantityProduct")
             ?? (productId ? editingProduct?.stockQuantityProduct : newProductDraft.stockQuantityProduct)
             ?? "0",

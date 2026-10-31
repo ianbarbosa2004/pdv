@@ -36,7 +36,7 @@ export const loadProjectIcon = async (apiUrl) => {
     if (response.ok && payload.company) {
       setProjectIcon(payload.company.projectIconDataCompany, payload.company.projectIconMimeCompany);
     }
-  } catch {
-    setProjectIcon();
+  } catch (error) {
+    console.warn("Não foi possível carregar o ícone cadastrado; mantendo o ícone nativo do aplicativo.", error);
   }
 };

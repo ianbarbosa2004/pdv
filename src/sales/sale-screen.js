@@ -42,6 +42,7 @@ export function createSaleScreen({ onBackoffice, initialApiError = false, onApiC
   const root = document.createElement("main");
   let products = [];
   let paymentMethods = [];
+  let customers = [];
   const cart = [];
   let activeGroup = "Todos";
   let searchTerm = "";
@@ -51,6 +52,7 @@ export function createSaleScreen({ onBackoffice, initialApiError = false, onApiC
   let paymentError = "";
   let paymentOpen = false;
   let idPaymentMethod = "";
+  let idCustomerSale = "";
   let paymentAmount = "";
   let submittingPayment = false;
   let apiConfigOpen = initialApiError;
@@ -102,6 +104,14 @@ export function createSaleScreen({ onBackoffice, initialApiError = false, onApiC
                 aria-label="Buscar produto"
               />
             </label>
+            ${paymentMethods.find((method) => String(method.idPaymentMethod) === String(idPaymentMethod))?.namePaymentMethod === "Vale" ? `
+              <label class="form-field">
+                <span>Cliente do Vale</span>
+                <select data-customer-sale required>
+                  <option value="">Selecione o cliente</option>
+                  ${customers.map((customer) => `<option value="${customer.idCustomer}" ${String(customer.idCustomer) === String(idCustomerSale) ? "selected" : ""}>${escapeHtml(customer.nameCustomer)}</option>`).join("")}
+                </select>
+              </label>` : ""}
           </div>
 
           <nav class="categories" aria-label="Grupos">
@@ -364,6 +374,11 @@ export function createSaleScreen({ onBackoffice, initialApiError = false, onApiC
     });
     root.querySelector("[data-payment-method]")?.addEventListener("change", (event) => {
       idPaymentMethod = event.target.value;
+      idCustomerSale = "";
+      render();
+    });
+    root.querySelector("[data-customer-sale]")?.addEventListener("change", (event) => {
+      idCustomerSale = event.target.value;
     });
     root.querySelector("[data-payment-amount]")?.addEventListener("input", (event) => {
       paymentAmount = event.target.value;
@@ -447,6 +462,9 @@ export function createSaleScreen({ onBackoffice, initialApiError = false, onApiC
         throw new Error("A API retornou formas de pagamento inválidas.");
       }
       paymentMethods = payload.paymentMethods;
+      const customerResponse = await fetch(`${getApiUrl()}/api/customers`);
+      const customerPayload = await customerResponse.json();
+      customers = customerResponse.ok && Array.isArray(customerPayload.customers) ? customerPayload.customers : [];
     } catch (error) {
       paymentError =
         error instanceof Error
@@ -488,6 +506,7 @@ export function createSaleScreen({ onBackoffice, initialApiError = false, onApiC
             quantitySaleItem: quantity
           })),
           payments: [{ idPaymentMethod: Number(idPaymentMethod), amountSalePayment: amount.toFixed(2) }],
+          idCustomerSale: idCustomerSale ? Number(idCustomerSale) : null,
           discountSale: "0.00"
         })
       });

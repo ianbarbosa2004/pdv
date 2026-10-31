@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS products (
   ncmProduct CHAR(8) NULL,
   cestProduct CHAR(7) NULL,
   priceProduct DECIMAL(12,2) NOT NULL,
+  costPriceProduct DECIMAL(12,2) NOT NULL DEFAULT 0,
   stockQuantityProduct DECIMAL(12,3) NOT NULL DEFAULT 0,
   controlsStockProduct TINYINT(1) NOT NULL DEFAULT 1,
   isFractionalProduct TINYINT(1) NOT NULL DEFAULT 0,
@@ -147,6 +148,11 @@ CREATE TABLE IF NOT EXISTS payment_methods (
   UNIQUE KEY uqPaymentMethodsNamePaymentMethod (namePaymentMethod)
 ) ENGINE=InnoDB;
 
+INSERT INTO payment_methods
+  (namePaymentMethod, cashFlowAccountPaymentMethod, termDaysPaymentMethod, isActivePaymentMethod)
+VALUES ('Vale', 'Caixa', 30, 1)
+ON DUPLICATE KEY UPDATE isActivePaymentMethod = 1;
+
 CREATE TABLE IF NOT EXISTS suppliers (
   idSupplier BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   typeSupplier ENUM('juridica', 'fisica') NOT NULL DEFAULT 'juridica',
@@ -171,6 +177,51 @@ CREATE TABLE IF NOT EXISTS suppliers (
   PRIMARY KEY (idSupplier),
   UNIQUE KEY uqSuppliersDocumentType (documentSupplier, typeSupplier),
   KEY idxSuppliersTypeStatus (typeSupplier, isActiveSupplier)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS customers (
+  idCustomer BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  nameCustomer VARCHAR(180) NOT NULL,
+  documentCustomer VARCHAR(20) NULL,
+  phoneCustomer VARCHAR(25) NOT NULL DEFAULT '',
+  emailCustomer VARCHAR(180) NOT NULL DEFAULT '',
+  addressCustomer VARCHAR(180) NOT NULL DEFAULT '',
+  creditLimitCustomer DECIMAL(12,2) NOT NULL DEFAULT 0,
+  paymentTermCustomer SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  notesCustomer VARCHAR(400) NULL,
+  isActiveCustomer TINYINT(1) NOT NULL DEFAULT 1,
+  createdAtCustomer TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAtCustomer TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (idCustomer),
+  UNIQUE KEY uqCustomersDocument (documentCustomer)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS consumers (
+  idConsumer BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  idCustomer BIGINT UNSIGNED NULL,
+  nameConsumer VARCHAR(180) NOT NULL,
+  nicknameConsumer VARCHAR(120) NOT NULL DEFAULT '',
+  phoneConsumer VARCHAR(25) NOT NULL DEFAULT '',
+  notesConsumer VARCHAR(400) NULL,
+  isActiveConsumer TINYINT(1) NOT NULL DEFAULT 1,
+  createdAtConsumer TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAtConsumer TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (idConsumer),
+  UNIQUE KEY uqConsumersCustomer (idCustomer),
+  CONSTRAINT fkConsumersCustomer FOREIGN KEY (idCustomer) REFERENCES customers (idCustomer) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS customer_vouchers (
+  idCustomerVoucher BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  idCustomer BIGINT UNSIGNED NOT NULL,
+  idSale BIGINT UNSIGNED NULL,
+  amountCustomerVoucher DECIMAL(12,2) NOT NULL,
+  dueDateCustomerVoucher DATE NULL,
+  statusCustomerVoucher ENUM('open', 'paid', 'cancelled') NOT NULL DEFAULT 'open',
+  createdAtCustomerVoucher TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (idCustomerVoucher),
+  KEY idxCustomerVouchersCustomer (idCustomer, statusCustomerVoucher),
+  CONSTRAINT fkCustomerVouchersCustomer FOREIGN KEY (idCustomer) REFERENCES customers (idCustomer) ON DELETE RESTRICT
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS printer_settings (
