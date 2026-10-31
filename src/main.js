@@ -18,10 +18,10 @@ import { createProductReferenceScreen } from "./catalog/product-reference-screen
 import { createNavigationBuilderScreen } from "./settings/navigation-builder-screen.js";
 import { createGeneralSettingsScreen } from "./settings/general-settings-screen.js";
 import { createCatalogImportScreen } from "./tools/catalog-import-screen.js";
+import { createSupplierScreen } from "./catalog/supplier-screen.js";
 import { loadProjectIcon } from "./ui/project-icon.js";
 import { installTablePagination } from "./ui/table-pagination.js";
 import { getApiUrl, loadConfiguredApiUrl } from "./shared/api.js";
-import { getFallbackNavigation } from "./shared/navigation-defaults.js";
 
 const app = document.querySelector("#app");
 
@@ -61,7 +61,9 @@ const common = () => ({
   onFinancial: showPaymentMethods,
   onPaymentMethods: showPaymentMethods,
   onCatalogImport: showCatalogImport,
-  "import-catalogs": showCatalogImport
+  "import-catalogs": showCatalogImport,
+  onSuppliers: showSuppliers,
+  suppliers: showSuppliers
 });
 
 const showSales = (options = {}) => mount(createSaleScreen({ onBackoffice: showBackoffice, ...options }));
@@ -88,6 +90,8 @@ const showApiStatus = () =>
   mount(createApiStatusScreen({ onBack: showBackoffice, onTools: showApiStatus, ...common() }));
 const showCatalogImport = () =>
   mount(createCatalogImportScreen({ onBack: showBackoffice, onTools: showCatalogImport, ...common() }));
+const showSuppliers = () =>
+  mount(createSupplierScreen({ onBack: showBackoffice, ...common() }));
 const showFiscalOperations = () =>
   mount(createFiscalOperationScreen({
     onBack: showBackoffice,
@@ -192,28 +196,14 @@ window.__PDV_NAVIGATION_HANDLERS__ = common();
 
 
 const loadNavigation = async () => {
-
-  try {
-
-    const apiUrl = getApiUrl();
-
-    const response = await fetch(`${apiUrl}/api/navigation`);
-
-    const payload = await response.json();
-
-    if (response.ok && Array.isArray(payload.menus) && Array.isArray(payload.items)) {
-
-      window.__PDV_NAVIGATION__ = payload;
-      window.__PDV_NAVIGATION_SOURCE__ = "api";
-      return;
-
-    }
-
-  } catch {
+  const apiUrl = getApiUrl();
+  const response = await fetch(`${apiUrl}/api/navigation`);
+  const payload = await response.json();
+  if (!response.ok || !Array.isArray(payload.menus) || !Array.isArray(payload.items)) {
+    throw new Error("A API retornou uma navegação inválida.");
   }
-  window.__PDV_NAVIGATION__ = getFallbackNavigation();
-  window.__PDV_NAVIGATION_SOURCE__ = "fallback";
-
+  window.__PDV_NAVIGATION__ = payload;
+  window.__PDV_NAVIGATION_SOURCE__ = "api";
 };
 
 const checkApiHealth = async () => {
@@ -231,10 +221,17 @@ const checkApiHealth = async () => {
 
 const startApplication = async () => {
   const apiHealthy = await checkApiHealth();
-  await loadNavigation();
+  let navigationError = false;
+  try {
+    await loadNavigation();
+  } catch {
+    navigationError = true;
+    window.__PDV_NAVIGATION__ = { menus: [], items: [] };
+    window.__PDV_NAVIGATION_SOURCE__ = "unavailable";
+  }
   await loadProjectIcon(getApiUrl()).catch(() => {});
   showSales({
-    initialApiError: !apiHealthy,
+    initialApiError: !apiHealthy || navigationError,
     onApiConfigured: async () => {
       const connected = await checkApiHealth();
       if (connected) await loadNavigation();

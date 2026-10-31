@@ -5,6 +5,21 @@ inicial do produto até o estado atual do workspace. Ele complementa o
 `README.md`, que continua sendo a visão geral, e o
 [`DEVELOPMENT.md`](DEVELOPMENT.md), que contém as convenções operacionais.
 
+## 0. Estado mais recente
+
+O cadastro de Fornecedores foi consolidado como tela própria de **Cadastros**,
+com persistência na API, pesquisa, visualização lateral, edição em modal,
+ativação/inativação e exclusão. O formulário usa select de UF, remove o campo
+País da interface e mantém `Brasil` como padrão no servidor. CNPJ/CPF, telefone
+e CEP recebem máscaras na interface, enquanto o e-mail é normalizado sem
+espaços e em minúsculas.
+
+As consultas auxiliares de CNPJ (BrasilAPI) e CEP (ViaCEP) funcionam tanto no
+novo cadastro quanto na edição. Os dados retornados são apresentados com
+capitalização de palavras para revisão, mas o salvamento preserva exatamente o
+texto informado pelo operador. A tabela `suppliers` é preparada de forma
+idempotente pela API, sem expor credenciais do MariaDB aos terminais.
+
 ## 1. Direção inicial
 
 O projeto começou com o objetivo de criar um PDV comercial semelhante ao

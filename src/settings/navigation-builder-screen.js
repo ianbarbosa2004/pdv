@@ -37,7 +37,8 @@ export function createNavigationBuilderScreen({
   onCompany,
   onNfce,
   onFinancial,
-  onPaymentMethods
+  onPaymentMethods,
+  onSuppliers
 }) {
   const root = document.createElement("main");
   let navigation = { menus: [], items: [] };
@@ -446,7 +447,8 @@ export function createNavigationBuilderScreen({
       company: onCompany,
       nfce: onNfce,
       financial: onFinancial,
-      "payment-methods": onPaymentMethods
+      "payment-methods": onPaymentMethods,
+      suppliers: onSuppliers
     });
     renderLucideIcons(root);
     bind();

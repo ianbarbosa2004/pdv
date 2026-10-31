@@ -237,6 +237,30 @@ normaliza o valor para maiúsculas, limita-o a 30 caracteres e preserva `NULL`
 quando o tipo ainda não possui código informado. A coluna é criada em bases
 novas pelo `schema.sql` e adicionada de forma idempotente em bases existentes.
 
+### Cadastro de Fornecedores
+
+Fornecedores são mantidos em uma tela própria no menu **Cadastros**. O
+cadastro cobre pessoa jurídica e pessoa física, documento, razão social/nome,
+nome fantasia, contato, telefone, e-mail, endereço completo, UF e observações.
+O país não é solicitado na tela e a API mantém `Brasil` como padrão. CNPJ/CPF,
+telefone e CEP recebem máscara durante a digitação; e-mails são normalizados
+sem espaços e em minúsculas. O documento é armazenado sem máscara e possui
+unicidade por tipo de pessoa; a interface apresenta o valor formatado.
+Os dados retornados pelas consultas usam capitalização de palavras para
+facilitar a revisão no formulário. No salvamento, a API preserva o texto
+informado pelo operador, sem alterar maiúsculas e minúsculas.
+
+No formulário de novo fornecedor, o botão ao lado do CNPJ consulta a BrasilAPI
+e preenche razão social, nome fantasia, contato, telefone, e-mail e endereço
+quando os dados estiverem disponíveis. O botão ao lado do CEP consulta o
+ViaCEP e preenche logradouro, bairro, cidade e UF. As consultas são apenas
+auxiliares: os dados retornados devem ser revisados antes do salvamento e uma
+falha de consulta não impede o preenchimento manual.
+
+A tabela `suppliers` é criada de forma idempotente pela API e já está definida
+no `schema.sql`. A tela segue o padrão de listagem com pesquisa, edição em
+modal, exclusão, ativação/inativação e feedback após cada operação.
+
 ### Consulta de NFC-e para testes
 
 A Retaguarda possui a tela **Consulta de NFC-e** para validar o fluxo antes

@@ -2146,6 +2146,29 @@ h2 {
   gap: 12px;
 }
 
+.supplier-notes-field {
+  grid-column: 1 / -1;
+}
+
+.supplier-notes-field textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.supplier-lookup-control {
+  display: flex;
+  gap: 4px;
+}
+
+.supplier-lookup-control input {
+  min-width: 0;
+  flex: 1;
+}
+
+.supplier-lookup-control .catalog-lookup-button {
+  flex: 0 0 32px;
+}
+
 .nfce-primary-grid {
   grid-template-columns: minmax(0, 1.35fr) minmax(72px, 0.55fr) minmax(0, 1.35fr) minmax(72px, 0.55fr) minmax(0, 1.1fr);
 }
