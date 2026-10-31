@@ -61,6 +61,15 @@ const releaseMetadata = {
 };
 
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+await run(npmCommand, [
+  "exec",
+  "--",
+  "tauri",
+  "icon",
+  join(root, "src-tauri", "icons", "icon.png"),
+  "--output",
+  join(root, "src-tauri", "icons")
+]);
 await run(npmCommand, ["run", "tauri", "--", "build"], {
   VITE_PDV_API_URL: apiUrl,
   VITE_PDV_BUILD_SOURCE: "fixed-icon-release"
