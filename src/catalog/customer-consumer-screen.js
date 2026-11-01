@@ -1,7 +1,7 @@
 import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { bindFormRowPreview } from "../ui/form-row-preview.js";
-import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { getApiUrl } from "../shared/api.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
 import {
@@ -42,8 +42,6 @@ const formatDocument = (value) => {
 const formatEmail = (value) =>
   String(value ?? "").replace(/\s/g, "").toLocaleLowerCase("pt-BR").slice(0, 180);
 
-const formatInteger = (value) => String(value ?? "").replace(/\D/g, "").slice(0, 4);
-
 const fields = {
   customer: [
     ["nameCustomer", "Nome", "text", true],
@@ -52,7 +50,6 @@ const fields = {
     ["emailCustomer", "E-mail", "email", false],
     ["addressCustomer", "Endereço", "text", false],
     ["creditLimitCustomer", "Limite de Vale", "number", false],
-    ["paymentTermCustomer", "Prazo (dias)", "number", false],
     ["notesCustomer", "Observações", "textarea", false]
   ],
   consumer: [
@@ -85,6 +82,11 @@ export function createCustomerConsumerScreen({
   const endpoint = isCustomer ? "customers" : "consumers";
   const formSelector = `[data-${entity}-form]`;
   const root = document.createElement("main");
+  const getEntityId = (item) => isCustomer ? item.idCustomer : item.idConsumer;
+  const clearFeedback = () => {
+    message = "";
+    clearRenderedFeedback(root);
+  };
   let items = [];
   let loading = true;
   let submitting = false;
@@ -95,8 +97,8 @@ export function createCustomerConsumerScreen({
   let newDraft = {};
   const scheduleMessageClear = createFeedbackTimer();
 
-  const load = async () => {
-    loading = true; render();
+  const load = async ({ captureDraft = true } = {}) => {
+    loading = true; render({ captureDraft });
     try {
       const response = await fetch(`${getApiUrl()}/api/${endpoint}?includeInactive=1`);
       const payload = await response.json();
@@ -104,7 +106,7 @@ export function createCustomerConsumerScreen({
       items = payload[endpoint]; error = "";
     } catch (loadError) {
       error = loadError instanceof Error ? loadError.message : `Falha ao carregar ${title.toLocaleLowerCase("pt-BR")}.`;
-    } finally { loading = false; render(); }
+    } finally { loading = false; render({ captureDraft }); }
   };
 
   const renderFields = (item = {}) => fields[entity].map(([name, label, type, required]) => {
@@ -118,14 +120,10 @@ export function createCustomerConsumerScreen({
           ? formatEmail(value)
           : name === "creditLimitCustomer"
             ? formatMaskedNumber(value)
-            : name === "paymentTermCustomer"
-              ? formatInteger(value)
-              : value;
+            : value;
     const mask = name === "creditLimitCustomer"
       ? ' data-number-mask inputmode="decimal"'
-      : name === "paymentTermCustomer"
-        ? ' inputmode="numeric"'
-        : "";
+      : "";
     return `<label class="form-field"><span>${label}</span><input name="${name}" type="${type}" maxlength="${name.includes("document") ? 18 : name.includes("email") ? 180 : name.includes("phone") ? 15 : 180}"${mask} value="${escapeHtml(formatted)}"${required ? " required" : ""} /></label>`;
   }).join("");
 
@@ -135,9 +133,9 @@ export function createCustomerConsumerScreen({
       .some((value) => String(value ?? "").toLocaleLowerCase("pt-BR").includes(query)));
   };
 
-  function render() {
+  function render({ captureDraft = true } = {}) {
     const currentForm = root.querySelector(formSelector);
-    if (currentForm && !currentForm.classList.contains("form-preview-mode")) {
+    if (captureDraft && currentForm && !currentForm.classList.contains("form-preview-mode")) {
       newDraft = { ...newDraft, ...Object.fromEntries(new FormData(currentForm)) };
     }
     const visible = visibleItems();
@@ -154,7 +152,11 @@ export function createCustomerConsumerScreen({
         </form>
         <section class="classic-grid-panel">
           <div class="classic-panel-header classic-list-header"><span>${title}</span><input class="classic-list-search" data-search type="search" placeholder="Pesquisar..." aria-label="Pesquisar ${title.toLocaleLowerCase("pt-BR")}" value="${escapeHtml(searchTerm)}" /></div>
-          <div class="classic-grid-wrapper">${loading ? `<p class="classic-empty">Carregando...</p>` : visible.length ? `<table class="classic-table"><thead><tr><th>Nome</th>${isCustomer ? "<th>Documento</th><th>Telefone</th><th>Limite de Vale</th>" : "<th>Apelido / Identificação</th><th>Telefone</th><th>Cliente</th>"}<th>Status</th><th class="actions-column">Ações</th></tr></thead><tbody>${visible.map((item) => `<tr data-view-record="${escapeHtml(JSON.stringify(item))}"><td>${escapeHtml(item.nameCustomer || item.nameConsumer)}</td>${isCustomer ? `<td>${escapeHtml(item.documentCustomer || "")}</td><td>${escapeHtml(formatPhone(item.phoneCustomer))}</td><td>R$ ${Number(item.creditLimitCustomer || 0).toFixed(2).replace(".", ",")}</td>` : `<td>${escapeHtml(item.nicknameConsumer || "")}</td><td>${escapeHtml(formatPhone(item.phoneConsumer))}</td><td>${escapeHtml(item.nameCustomer || "Avulso")}</td>`}<td>${item.isActiveCustomer ?? item.isActiveConsumer ? "Ativo" : "Inativo"}</td><td class="actions-column"><button class="icon-button edit" type="button" data-edit="${item.idCustomer || item.idConsumer}" aria-label="Editar ${singular}"><i data-lucide="pencil"></i></button><button class="icon-button delete" type="button" data-delete="${item.idCustomer || item.idConsumer}" aria-label="Excluir ${singular}"><i data-lucide="trash-2"></i></button></td></tr>`).join("")}</tbody></table>` : `<p class="classic-empty">${items.length ? "Nenhum registro encontrado." : `Nenhum ${singular} cadastrado.`}</p>`}</div>
+          <div class="classic-grid-wrapper">${loading ? `<p class="classic-empty">Carregando...</p>` : visible.length ? `<table class="classic-table"><thead><tr><th>Nome</th>${isCustomer ? "<th>CPF/CNPJ</th><th>Telefone</th>" : "<th>Apelido / Identificação</th><th>Telefone</th>"}<th>Status</th><th class="actions-column">Ações</th></tr></thead><tbody>${visible.map((item) => {
+            const active = Boolean(isCustomer ? item.isActiveCustomer : item.isActiveConsumer);
+            const linkedConsumer = !isCustomer && Boolean(item.idCustomer);
+            return `<tr class="${active ? "" : "is-inactive"}" data-view-record="${escapeHtml(JSON.stringify(item))}"><td>${escapeHtml(isCustomer ? item.nameCustomer : item.nameConsumer)}</td>${isCustomer ? `<td>${escapeHtml(formatDocument(item.documentCustomer))}</td><td>${escapeHtml(formatPhone(item.phoneCustomer))}</td>` : `<td>${escapeHtml(item.nicknameConsumer || "")}</td><td>${escapeHtml(formatPhone(item.phoneConsumer))}</td>`}<td><button class="status-toggle ${active ? "is-active" : "is-inactive"}" type="button" role="switch" aria-checked="${active ? "true" : "false"}" data-status-id="${getEntityId(item)}" ${linkedConsumer ? "disabled title=\"Consumidor vinculado ao cliente; altere o status pelo cadastro do cliente.\"" : ""} aria-label="${linkedConsumer ? "Status controlado pelo cliente vinculado" : `Alternar status de ${escapeHtml(isCustomer ? item.nameCustomer : item.nameConsumer)}`}"><span class="status-toggle-track"><span class="status-toggle-thumb"></span></span><span class="status-toggle-label">${active ? "Ativo" : "Inativo"}</span></button></td><td class="actions-column"><button class="icon-button edit" type="button" data-edit="${getEntityId(item)}" aria-label="Editar ${singular}"><i data-lucide="pencil"></i></button><button class="icon-button delete" type="button" data-delete="${getEntityId(item)}" aria-label="Excluir ${singular}"><i data-lucide="trash-2"></i></button></td></tr>`;
+          }).join("")}</tbody></table>` : `<p class="classic-empty">${items.length ? "Nenhum registro encontrado." : `Nenhum ${singular} cadastrado.`}</p>`}</div>
         </section>
       </section>
       ${editing ? `<div class="classic-modal-backdrop" data-modal-backdrop><section class="classic-modal" role="dialog" aria-modal="true"><div class="classic-panel-header modal-panel-header"><span>Editar ${singular}</span><button class="modal-close-button" data-cancel type="button" aria-label="Fechar"><i data-lucide="x"></i></button></div><form data-edit-form><div class="classic-form-body"><div class="classic-form-grid">${renderFields(editing)}</div>${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}</div><div class="classic-form-actions"><button class="classic-button primary" type="submit">Salvar alterações</button><button class="classic-button" data-cancel type="button">Cancelar</button></div></form></section></div>` : ""}
@@ -168,7 +170,6 @@ export function createCustomerConsumerScreen({
         if (fieldName === "phoneCustomer" || fieldName === "phoneConsumer") return formatPhone(value);
         if (fieldName === "emailCustomer") return formatEmail(value);
         if (fieldName === "creditLimitCustomer") return formatMaskedNumber(value);
-        if (fieldName === "paymentTermCustomer") return formatInteger(value);
         return value;
       }
     });
@@ -180,18 +181,18 @@ export function createCustomerConsumerScreen({
       form.querySelector("[name='emailCustomer']")?.addEventListener("input", (event) => {
         event.currentTarget.value = formatEmail(event.currentTarget.value);
       });
-      form.querySelector("[name='paymentTermCustomer']")?.addEventListener("input", (event) => {
-        event.currentTarget.value = formatInteger(event.currentTarget.value);
-      });
     });
     bindNumberMasks(root);
     root.querySelector("[data-search]")?.addEventListener("input", (event) => { searchTerm = event.currentTarget.value; render(); root.querySelector("[data-search]")?.focus(); });
     root.querySelector(formSelector)?.addEventListener("submit", (event) => { event.preventDefault(); void submit(Object.fromEntries(new FormData(event.currentTarget)), null); });
-    root.querySelector("[data-edit-form]")?.addEventListener("submit", (event) => { event.preventDefault(); void submit(Object.fromEntries(new FormData(event.currentTarget)), editing?.idCustomer || editing?.idConsumer); });
-    root.querySelector("[data-clear]")?.addEventListener("click", () => { newDraft = {}; error = ""; message = ""; render(); });
+    root.querySelector("[data-edit-form]")?.addEventListener("submit", (event) => { event.preventDefault(); void submit(Object.fromEntries(new FormData(event.currentTarget)), getEntityId(editing)); });
+    root.querySelector("[data-clear]")?.addEventListener("click", () => { newDraft = {}; error = ""; message = ""; render({ captureDraft: false }); });
     root.querySelectorAll("[data-cancel]").forEach((button) => button.addEventListener("click", () => { editing = null; error = ""; render(); }));
-    root.querySelectorAll("[data-edit]").forEach((button) => button.addEventListener("click", () => { editing = items.find((item) => String(item.idCustomer || item.idConsumer) === button.dataset.edit) || null; render(); }));
+    root.querySelectorAll("[data-edit]").forEach((button) => button.addEventListener("click", () => { editing = items.find((item) => String(getEntityId(item)) === button.dataset.edit) || null; render(); }));
     root.querySelectorAll("[data-delete]").forEach((button) => button.addEventListener("click", () => void remove(Number(button.dataset.delete))));
+    root.querySelectorAll("[data-status-id]").forEach((button) => button.addEventListener("click", () =>
+      void updateStatus(Number(button.dataset.statusId), button.getAttribute("aria-checked") !== "true")
+    ));
   }
 
   const submit = async (body, id) => {
@@ -204,10 +205,28 @@ export function createCustomerConsumerScreen({
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || `Não foi possível salvar ${singular}.`);
       message = id ? `${singular[0].toUpperCase()}${singular.slice(1)} alterado com sucesso.` : `${singular[0].toUpperCase()}${singular.slice(1)} cadastrado com sucesso.`;
-      newDraft = {};
-      await load(); editing = null; scheduleMessageClear(() => { message = ""; render(); });
+      if (!id) newDraft = {};
+      await load({ captureDraft: false }); editing = null; scheduleMessageClear(clearFeedback);
     } catch (submitError) { error = submitError instanceof Error ? submitError.message : "Falha ao salvar."; }
     finally { submitting = false; render(); }
+  };
+
+  const updateStatus = async (id, isActive) => {
+    try {
+      const statusField = isCustomer ? "isActiveCustomer" : "isActiveConsumer";
+      const response = await fetch(`${getApiUrl()}/api/${endpoint}/status`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [isCustomer ? "idCustomer" : "idConsumer"]: id, [statusField]: isActive })
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || `Não foi possível alterar o status do ${singular}.`);
+      items = items.map((item) => getEntityId(item) === id ? { ...item, [statusField]: isActive ? 1 : 0 } : item);
+      render();
+    } catch (statusError) {
+      error = statusError instanceof Error ? statusError.message : `Falha ao alterar o status do ${singular}.`;
+      render();
+    }
   };
 
   const remove = async (id) => {

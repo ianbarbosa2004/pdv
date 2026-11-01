@@ -7,7 +7,7 @@ import {
   formatMaskedNumber,
   normalizeMaskedNumber
 } from "../ui/number-mask.js";
-import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { getApiUrl } from "../shared/api.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
 
@@ -674,7 +674,7 @@ export function createCatalogScreen({
       await load();
       scheduleMessageClear(() => {
         message = "";
-        render();
+        clearRenderedFeedback(root);
       });
     } catch (deleteError) {
       error = deleteError instanceof Error ? deleteError.message : "Falha ao excluir o produto.";
@@ -815,7 +815,7 @@ export function createCatalogScreen({
       await load();
       scheduleMessageClear(() => {
         message = "";
-        render();
+        clearRenderedFeedback(root);
       });
     } catch (createError) {
       error = createError instanceof Error ? createError.message : "Falha ao cadastrar produto.";
@@ -838,7 +838,7 @@ export function createCatalogScreen({
       await load();
       scheduleMessageClear(() => {
         message = "";
-        render();
+        clearRenderedFeedback(root);
       });
     } catch (statusError) {
       error = statusError instanceof Error ? statusError.message : "Falha ao alterar o status do produto.";
@@ -859,7 +859,7 @@ export function createCatalogScreen({
       await load();
       scheduleMessageClear(() => {
         message = "";
-        render();
+        clearRenderedFeedback(root);
       });
     } catch (visibilityError) {
       error = visibilityError instanceof Error ? visibilityError.message : "Falha ao alterar a exibição do produto no PDV.";

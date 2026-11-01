@@ -5,7 +5,7 @@ import {
 } from "../shared/api.js";
 import { invoke } from "@tauri-apps/api/core";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
-import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
 
 const escapeHtml = (value) => String(value ?? "")
@@ -104,7 +104,7 @@ export function createBackupScreen({
       });
       message = `Backup criado: ${backup.fileName} (${formatSize(backup.size)}).`;
       await load();
-      scheduleMessageClear(() => { message = ""; render(); });
+      scheduleMessageClear(() => { message = ""; clearRenderedFeedback(root); });
     } catch (createError) {
       error = createError instanceof Error ? createError.message : String(createError);
     } finally {
@@ -136,7 +136,7 @@ export function createBackupScreen({
         })
       });
       message = `Backup restaurado: ${result.result.rowCount} registro(s) em ${result.result.tableCount} tabela(s).`;
-      scheduleMessageClear(() => { message = ""; render(); });
+      scheduleMessageClear(() => { message = ""; clearRenderedFeedback(root); });
     } catch (restoreError) {
       error = restoreError instanceof Error ? restoreError.message : String(restoreError);
     } finally {
@@ -172,7 +172,7 @@ export function createBackupScreen({
     message = `Download iniciado: ${fileName}.`;
     error = "";
     render();
-    scheduleMessageClear(() => { message = ""; render(); });
+    scheduleMessageClear(() => { message = ""; clearRenderedFeedback(root); });
   };
 
   const render = () => {
@@ -242,7 +242,7 @@ export function createBackupScreen({
         );
         message = "Destino de backup salvo neste terminal.";
         await load();
-        scheduleMessageClear(() => { message = ""; render(); });
+        scheduleMessageClear(() => { message = ""; clearRenderedFeedback(root); });
       } catch (saveError) {
         error = saveError instanceof Error ? saveError.message : String(saveError);
         render();

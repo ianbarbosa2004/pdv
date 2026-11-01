@@ -3,7 +3,7 @@ import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { bindFormRowPreview } from "../ui/form-row-preview.js";
 import { renderPreservingFormDraft } from "../ui/form-draft.js";
 import { bindProductNavigation, renderProductNavigation } from "./product-navigation.js";
-import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { getApiUrl } from "../shared/api.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
 
@@ -117,7 +117,7 @@ export function createProductReferenceScreen({
       editingItem = null;
       scheduleMessageClear(() => {
         message = "";
-        render();
+        clearRenderedFeedback(root);
       });
     } catch (submitError) {
       error = submitError instanceof Error ? submitError.message : `Falha ao salvar ${definition.singular}.`;
@@ -164,7 +164,7 @@ export function createProductReferenceScreen({
       await load();
       scheduleMessageClear(() => {
         message = "";
-        render();
+        clearRenderedFeedback(root);
       });
     } catch (removeError) {
       error = removeError instanceof Error ? removeError.message : `Falha ao excluir ${definition.singular}.`;

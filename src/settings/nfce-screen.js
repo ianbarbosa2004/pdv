@@ -1,6 +1,6 @@
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { renderLucideIcons } from "../ui/icons.js";
-import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { renderPreservingFormDraft } from "../ui/form-draft.js";
 import { getApiUrl } from "../shared/api.js";
 
@@ -266,7 +266,7 @@ export function createNfceScreen({
       message = "Configuração NFC-e salva com sucesso.";
       scheduleMessageClear(() => {
         message = "";
-        render();
+        clearRenderedFeedback(root);
       });
     } catch (saveError) {
       error = saveError instanceof Error ? saveError.message : "Falha ao salvar a configuração NFC-e.";
@@ -292,7 +292,7 @@ export function createNfceScreen({
         : "A SEF/MG respondeu com rejeição ao teste.";
       scheduleMessageClear(() => {
         message = "";
-        render();
+        clearRenderedFeedback(root);
       });
     } catch (testError) {
       error = testError instanceof Error ? testError.message : "Falha ao testar a emissão NFC-e.";
@@ -318,7 +318,7 @@ export function createNfceScreen({
       message = "XML de diagnóstico gerado localmente. Nenhum documento foi enviado.";
       scheduleMessageClear(() => {
         message = "";
-        render();
+        clearRenderedFeedback(root);
       });
     } catch (diagnosticError) {
       error = diagnosticError instanceof Error

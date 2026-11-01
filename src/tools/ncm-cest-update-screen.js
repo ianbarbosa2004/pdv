@@ -1,6 +1,6 @@
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { renderLucideIcons } from "../ui/icons.js";
-import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { getApiUrl } from "../shared/api.js";
 
 const escapeHtml = (value) =>
@@ -55,7 +55,7 @@ export function createNcmCestUpdateScreen({ onBack, onTools, onProducts, onTherm
       await loadStatus();
       scheduleMessageClear(() => {
         message = "";
-        render();
+        clearRenderedFeedback(root);
       });
     } catch (requestError) {
       error = requestError.message || "Não foi possível atualizar os catálogos.";

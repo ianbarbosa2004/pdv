@@ -118,12 +118,15 @@ Gere o build web:
 npm.cmd run build
 ```
 
-Cada execução de `npm.cmd run build` incrementa automaticamente o número de
-patch da versão (`0.1.0` para `0.1.1`, por exemplo). A versão é sincronizada
-em `package.json`, `package-lock.json` e `src-tauri\tauri.conf.json`, e passa a
-ser usada no próximo artefato Tauri. Para incrementar a versão manualmente,
-sem compilar, use `npm.cmd run version:patch`, `npm.cmd run version:minor` ou
-`npm.cmd run version:major`, conforme a natureza da mudança.
+O comando `npm.cmd run build` não altera a versão. Quando uma alteração
+funcional exigir nova versão, incremente-a explicitamente com
+`npm.cmd run version:patch`, `npm.cmd run version:minor` ou
+`npm.cmd run version:major`; a versão é sincronizada em `package.json`,
+`package-lock.json` e `src-tauri\tauri.conf.json`, e passa a ser usada no
+próximo artefato Tauri. Correções pontuais normalmente usam `patch`; `minor`
+fica reservado para nova capacidade compatível e `major` para quebra
+incompatível. `version:auto` e `version:increment` permanecem como aliases de
+`version:patch`, sem analisar novamente o diff pendente.
 
 Compile o aplicativo desktop sem gerar instalador:
 

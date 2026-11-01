@@ -1,8 +1,11 @@
+import { execFile } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
+import { promisify } from "node:util";
 import { join, resolve } from "node:path";
-import { bumpVersion } from "./versioning.mjs";
+import { bumpVersion, classifyVersionLevel } from "./versioning.mjs";
 
 const root = resolve(import.meta.dirname, "..");
+const execFileAsync = promisify(execFile);
 const packagePath = join(root, "package.json");
 const lockPath = join(root, "package-lock.json");
 const tauriConfigPath = join(root, "src-tauri", "tauri.conf.json");
@@ -29,6 +32,27 @@ const syncCargoVersion = async (version) => {
   await writeFile(cargoLockPath, updatedLock, "utf8");
 };
 
+const readGitChanges = async () => {
+  try {
+    const [{ stdout: diff }, { stdout: tracked }, { stdout: status }, { stdout: untracked }] = await Promise.all([
+      execFileAsync("git", ["diff", "--no-ext-diff", "--unified=0", "HEAD", "--"], { cwd: root }),
+      execFileAsync("git", ["diff", "--name-only", "HEAD", "--"], { cwd: root }),
+      execFileAsync("git", ["diff", "--name-status", "HEAD", "--"], { cwd: root }),
+      execFileAsync("git", ["ls-files", "--others", "--exclude-standard"], { cwd: root })
+    ]);
+    const addedPaths = status.split(/\r?\n/)
+      .filter((line) => line.startsWith("A\t"))
+      .map((line) => line.slice(2));
+    return {
+      diff,
+      paths: [...new Set(`${tracked}\n${untracked}`.split(/\r?\n/).filter(Boolean))],
+      addedPaths: [...addedPaths, ...untracked.split(/\r?\n/).filter(Boolean)]
+    };
+  } catch (error) {
+    throw new Error(`Não foi possível identificar as alterações para o versionamento automático: ${error.message}`);
+  }
+};
+
 if (process.env.PDV_SKIP_VERSION_BUMP === "1") {
   const packageJson = await readJson(packagePath);
   await syncCargoVersion(packageJson.version);
@@ -37,7 +61,17 @@ if (process.env.PDV_SKIP_VERSION_BUMP === "1") {
 }
 
 const packageJson = await readJson(packagePath);
-const level = process.argv[2] || "patch";
+const requestedLevel = process.argv[2] || "patch";
+let level = requestedLevel;
+if (requestedLevel === "auto") {
+  const changes = await readGitChanges();
+  level = classifyVersionLevel(changes);
+  if (!level) {
+    console.log(`Nenhuma alteração funcional detectada; versão mantida em ${packageJson.version}.`);
+    process.exit(0);
+  }
+  console.log(`Versionamento automático: ${level}.`);
+}
 const nextVersion = bumpVersion(packageJson.version, level);
 packageJson.version = nextVersion;
 await writeJson(packagePath, packageJson);

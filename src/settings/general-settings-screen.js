@@ -5,7 +5,7 @@ import {
   getConfiguredApiUrl,
   saveConfiguredApiUrl
 } from "../shared/api.js";
-import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { renderPreservingFormDraft } from "../ui/form-draft.js";
 
 const escapeHtml = (value) =>
@@ -170,7 +170,7 @@ export function createGeneralSettingsScreen({
         apiUrlMessage = "Endereço da API salvo neste terminal.";
         scheduleMessageClear(() => {
           apiUrlMessage = "";
-          render();
+          clearRenderedFeedback(root);
         });
       } catch (saveError) {
         apiUrlError = saveError instanceof Error ? saveError.message : String(saveError);
@@ -190,7 +190,7 @@ export function createGeneralSettingsScreen({
         apiUrlMessage = "Endereço padrão restaurado neste terminal.";
         scheduleMessageClear(() => {
           apiUrlMessage = "";
-          render();
+          clearRenderedFeedback(root);
         });
       } catch (resetError) {
         apiUrlError = resetError instanceof Error ? resetError.message : String(resetError);
@@ -220,7 +220,7 @@ export function createGeneralSettingsScreen({
         message = "Configurações salvas no banco de dados.";
         scheduleMessageClear(() => {
           message = "";
-          render();
+          clearRenderedFeedback(root);
         });
         await load();
       } catch (saveError) {

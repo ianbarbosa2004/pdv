@@ -77,9 +77,9 @@ const clone = (value) => JSON.parse(JSON.stringify(value));
 
 const matches = (entry, definition) =>
   normalizeNavigationKey(entry.keyNavigationItem) === normalizeNavigationKey(definition.keyNavigationItem)
-  || (definition.routeNavigationItem
-    && normalizeNavigationKey(entry.routeNavigationItem) === normalizeNavigationKey(definition.routeNavigationItem))
-  || normalizeNavigationKey(entry.labelNavigationItem) === normalizeNavigationKey(definition.labelNavigationItem);
+  || normalizeNavigationKey(entry.labelNavigationItem) === normalizeNavigationKey(definition.labelNavigationItem)
+  || (!entry.keyNavigationItem && !entry.labelNavigationItem && definition.routeNavigationItem
+    && normalizeNavigationKey(entry.routeNavigationItem) === normalizeNavigationKey(definition.routeNavigationItem));
 
 export const mergeNavigationDefaults = (navigation) => {
   const persistedMenus = Array.isArray(navigation?.menus) ? navigation.menus : [];
@@ -88,6 +88,7 @@ export const mergeNavigationDefaults = (navigation) => {
   const items = [];
   const menuIds = new Map();
   const itemIds = new Map();
+  const consumedPersistedItems = new Set();
 
   for (const definition of DEFAULT_NAVIGATION.menus) {
     const persisted = persistedMenus.find((entry) =>
@@ -111,9 +112,18 @@ export const mergeNavigationDefaults = (navigation) => {
 
   for (const definition of DEFAULT_NAVIGATION.items) {
     const menuId = menuIds.get(definition.menuKey);
-    const persisted = persistedItems.find((entry) =>
-      String(entry.idNavigationMenu) === String(menuId) && matches(entry, definition)
-    ) || persistedItems.find((entry) => matches(entry, definition));
+    const persistedIndex = persistedItems.findIndex((entry, index) =>
+      !consumedPersistedItems.has(index)
+      && String(entry.idNavigationMenu) === String(menuId)
+      && matches(entry, definition)
+    );
+    const fallbackPersistedIndex = persistedIndex >= 0
+      ? persistedIndex
+      : persistedItems.findIndex((entry, index) =>
+        !consumedPersistedItems.has(index) && matches(entry, definition)
+      );
+    const persisted = fallbackPersistedIndex >= 0 ? persistedItems[fallbackPersistedIndex] : null;
+    if (fallbackPersistedIndex >= 0) consumedPersistedItems.add(fallbackPersistedIndex);
     const parentId = definition.parentKey ? itemIds.get(`${definition.menuKey}:${definition.parentKey}`) : null;
     const merged = {
       ...clone(definition),
@@ -129,9 +139,19 @@ export const mergeNavigationDefaults = (navigation) => {
     itemIds.set(`${definition.menuKey}:${definition.keyNavigationItem}`, merged.idNavigationItem);
   }
 
-  const knownPersistedIds = new Set(items.map((entry) => String(entry.idNavigationItem)));
-  for (const entry of persistedItems) {
-    if (!knownPersistedIds.has(String(entry.idNavigationItem))) items.push({ ...entry });
+  const defaultDefinitions = DEFAULT_NAVIGATION.items;
+  for (const [index, entry] of persistedItems.entries()) {
+    if (consumedPersistedItems.has(index)) continue;
+    if (defaultDefinitions.some((definition) => {
+      const menuMatches = !entry.idNavigationMenu
+        || String(entry.idNavigationMenu) === String(menuIds.get(definition.menuKey));
+      const parentId = definition.parentKey ? itemIds.get(`${definition.menuKey}:${definition.parentKey}`) : null;
+      const parentMatches = String(entry.idParentNavigationItem ?? "") === String(parentId ?? "");
+      return menuMatches
+        && parentMatches
+        && normalizeNavigationKey(entry.keyNavigationItem) === normalizeNavigationKey(definition.keyNavigationItem);
+    })) continue;
+    items.push({ ...entry });
   }
 
   return { menus, items };

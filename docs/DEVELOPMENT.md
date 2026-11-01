@@ -82,15 +82,21 @@ node --check src/server/server.js
 git diff --check
 ```
 
-### Versionamento automático dos builds
+### Versionamento dos builds
 
-Cada execução de `npm.cmd run build` incrementa o número de patch da versão
-antes de chamar o Vite. Por exemplo, `0.1.0` passa para `0.1.1`. O script
-`scripts/increment-version.mjs` mantém a mesma versão em:
+Os comandos `npm.cmd run build` e `npm.cmd run release:client` não alteram a
+versão. O script `scripts/increment-version.mjs` mantém a mesma versão em:
 
 - `package.json`;
 - `package-lock.json`;
 - `src-tauri/tauri.conf.json`.
+
+Quando uma alteração funcional exigir nova versão, faça um incremento explícito
+e único com `version:patch`, `version:minor` ou `version:major`. Alterações
+pontuais e correções compatíveis normalmente usam `patch`; `minor` fica
+reservado para uma nova capacidade compatível; `major` exige quebra
+incompatível. Alterações somente documentais ou testes isolados não exigem
+incremento.
 
 Os comandos manuais são:
 
@@ -100,16 +106,15 @@ Os comandos manuais são:
 | `npm.cmd run version:minor` | Nova funcionalidade compatível | `0.1.9` → `0.2.0` |
 | `npm.cmd run version:major` | Mudança incompatível ou primeira versão estável | `0.9.9` → `1.0.0` |
 
-`npm.cmd run version:increment` permanece como alias para `version:patch`.
-O fluxo `npm.cmd run release:client -- --api-url=...` também incrementa uma
-única vez; a chamada interna do Tauri recebe
-`PDV_SKIP_VERSION_BUMP=1` para não contar duas vezes.
+`npm.cmd run version:increment` e `npm.cmd run version:auto` permanecem como
+aliases compatíveis para `version:patch`. Eles não analisam novamente o diff
+pendente e não são chamados automaticamente pelos builds.
 
 A versão definida no `package.json` é injetada pelo Vite em
-`src/shared/build-info.js`. A tela **Ferramentas > Status da API** exibe esse
-valor em **Versão do aplicativo**, junto do identificador do frontend. Assim,
-o operador consegue diferenciar a versão SemVer do artefato e o fingerprint
-específico do código compilado.
+`src/shared/build-info.js` e também é retornada pela API em
+`GET /api/health`. A tela **Ferramentas > Status da API** exibe a mesma versão
+em **Versão do aplicativo** e **Versão da API**. O **Identificador do frontend**
+é somente o fingerprint do código compilado, sem repetir a versão SemVer.
 
 ### Backup e restauração
 
@@ -170,6 +175,10 @@ estado persistido.
 
 Clientes exigem somente o nome. Ao criar um Cliente, a API cria o Consumidor
 correspondente na mesma transação; consumidores avulsos continuam permitidos.
+Um Consumidor vinculado a Cliente pode ter nome, apelido, telefone e observações
+alterados na tela de Consumidores; o vínculo não é alterado por essa tela.
+O cadastro de Cliente não possui prazo próprio: o vencimento de um Vale é a
+data da venda, e a coluna legada `paymentTermCustomer` não deve ser recriada.
 O histórico financeiro de Vale fica vinculado ao Cliente e o histórico de
 consumo deve ser exibido somente na área de Consumidores. O fechamento de uma
 venda em Vale valida o cliente ativo, o limite disponível e grava o débito
@@ -251,6 +260,13 @@ O feedback deve usar o helper compartilhado em `src/ui/feedback.js`, possuir
 `role="status"`, esmaecer ao entrar e sair e desaparecer automaticamente após
 aproximadamente quatro segundos. Mensagens de erro permanecem visíveis até
 uma nova ação ou correção.
+Quando somente a mensagem temporária desaparecer, todas as telas devem remover
+o elemento de feedback sem reconstruir o formulário inteiro. Use
+`clearRenderedFeedback(root)` no callback de `createFeedbackTimer`; um `render()`
+nesse temporizador remove o foco do campo em que o operador pode já ter
+iniciado o próximo cadastro.
+Essa regra vale para cadastros, configurações, importações, backups,
+impressão, consultas e qualquer outra tela que exiba o feedback compartilhado.
 
 Depois de cadastrar um novo registro, o formulário de inclusão deve retornar
 ao estado vazio e pronto para o próximo cadastro. Após editar um registro, o
@@ -287,6 +303,35 @@ O teste mínimo deve comprovar a preservação de texto, seleção e estado
 booleano durante uma renderização. Também valide os caminhos de limpeza,
 cancelamento e salvamento quando eles existirem. A referência automatizada
 está em `tests/unit/form-draft.test.js`.
+
+#### Checklist obrigatório para novos formulários
+
+Antes de adicionar ou alterar um formulário que reconstrói o DOM, confirme:
+
+1. A função de carregamento preserva o rascunho somente durante renderizações
+   intermediárias e não o recaptura depois de uma ação concluída.
+2. O botão **Limpar** zera o estado explícito do rascunho antes de renderizar
+   novamente, usando uma opção equivalente a `captureDraft: false` quando a
+   tela possuir esse controle.
+3. Após um cadastro incluído com sucesso, o formulário de inclusão é
+   reconstruído vazio; após uma edição, o modal é fechado e não preenche o
+   formulário de inclusão.
+4. Falhas da API mantêm os valores digitados para permitir correção e nova
+   tentativa, sem apresentar sucesso falso.
+5. Visualização de linha, inclusão e edição modal não compartilham
+   inadvertidamente a mesma fonte de estado.
+6. O teste da tela ou do helper cobre, quando aplicável, renderização
+   assíncrona, **Limpar**, **Cancelar**, inclusão, edição e falha de
+   salvamento.
+7. Temporizadores de feedback usam `clearRenderedFeedback(root)` e nunca
+   chamam `render()` apenas para apagar uma mensagem temporária.
+
+Não use `renderPreservingFormDraft` como substituto de uma ação explícita de
+limpeza. O helper deve preservar somente uma digitação ainda ativa; depois de
+**Salvar** ou **Limpar**, a tela precisa informar ao renderizador que o
+rascunho foi descartado. Ao revisar uma tela existente, procure especialmente
+o ciclo `submit() -> load() -> renderPreservingFormDraft()`, pois ele pode
+recapturar os valores recém-salvos e fazer o formulário parecer não limpo.
 
 ### Navegação de Produtos
 
@@ -436,12 +481,66 @@ usa diretamente os ícones atuais de `src-tauri/icons`, sem consultar o ícone
 cadastrado na API, e compila o projeto nativo **PDV Zanzibar** em MSI/EXE.
 O endereço da API é embutido no frontend para a execução do terminal e pode
 ser substituído explicitamente com `--api-url`. O comando não faz push ou
-deploy.
+deploy. Os arquivos finais são renomeados para o padrão curto
+`pdv-zanzibar.msi` e `pdv-zanzibar.exe`; a versão continua registrada
+internamente no aplicativo, mas não aparece no nome publicado em
+`dist\releases`. O metadata fica em `pdv-zanzibar-metadata.json`.
 O instalador deve ser gerado novamente após trocar o ícone. Na máquina do
 cliente, instale o arquivo recém-gerado e crie um novo atalho; o Windows pode
 manter em cache o ícone de atalhos antigos. O arquivo `*-metadata.json` gerado
 junto aos instaladores registra o nome do projeto, a API usada e a origem dos
-ícones para conferência da distribuição.
+ícones para conferência da distribuição. Para regenerar os ícones durante o
+release, acrescente `--refresh-icons`; isso só deve ser usado depois de alterar
+`src-tauri/icons/icon.png`.
+
+### Fluxo de documentação, commit e publicação
+
+Uma alteração funcional deve atualizar os documentos diretamente relacionados
+na mesma mudança. Para esta base, o fluxo recomendado é:
+
+1. revisar `README.md` somente quando a visão geral mudar;
+2. registrar regras operacionais em `docs/DEVELOPMENT.md` ou
+   `docs/DEPLOYMENT.md`;
+3. registrar marcos funcionais e decisões consolidadas em
+   `docs/PROJECT-HISTORY.md`;
+4. executar os testes e verificações aplicáveis;
+5. conferir `git diff --check` e garantir que `.env`, credenciais, dumps,
+   backups, `node_modules`, `dist`, `src-tauri/target` e
+   `.playwright-mcp` não estejam no escopo;
+6. criar um commit com uma mensagem objetiva no padrão adotado pelo projeto;
+7. abrir o pull request contra `main`, descrevendo comportamento alterado,
+   validações e eventuais passos de reinício da API;
+8. fazer o merge somente após revisar o diff e o resultado das verificações;
+9. publicar a API e os bundles do cliente usando somente o procedimento
+   documentado em `docs/DEPLOYMENT.md`.
+
+Builds e releases não incrementam a versão automaticamente. Um commit apenas
+documental ou uma correção pontual não deve gerar uma nova versão sem uma
+decisão explícita de SemVer. Alterações em `src/server/` exigem reiniciar ou
+reinstalar o serviço `PDV-API` antes da validação; alterações somente em
+frontend, documentação ou scripts locais não exigem reinício da API.
+
+### Correções recentes de formulários e cadastros
+
+Ao alterar uma tela que reconstrói o formulário com `root.innerHTML`, capture o
+rascunho antes do render e restaure-o somente quando houver edição real do
+operador. Dados recebidos pela API devem substituir um snapshot inicial vazio.
+Seleções de logo e ícone também são rascunhos reais. Feedback temporário deve
+usar o seletor dedicado `[data-success-feedback]` e ser removido por
+`clearRenderedFeedback(root)`, sem apagar mensagens de consulta ou reconstruir
+o formulário.
+
+No cadastro de Clientes e Consumidores, status de Cliente e Consumidor
+vinculado deve ser sincronizado na mesma transação. O switch de um Consumidor
+vinculado permanece visível, mas desabilitado, e a API deve rejeitar uma
+alteração direta com erro explícito. Alterações independentes feitas no
+Consumidor não devem ser sobrescritas por um salvamento do Cliente que não
+mudou aquele campo.
+
+O cadastro da empresa é um singleton lógico: consultas e atualizações devem
+selecionar o menor `idCompanySetting` existente, criando uma linha apenas
+quando a tabela estiver vazia. Não reintroduza a dependência de
+`idCompanySetting = 1` nem execute migrações destrutivas durante leituras.
 
 ### Painéis introdutórios e rotas administrativas
 
@@ -450,8 +549,9 @@ As telas de Ferramentas e Configurações usam o componente visual
 função antes do formulário ou da listagem. O CSS compartilhado faz o painel
 ocupar a linha inteira quando necessário e mantém margem inferior de 20 px
 antes do conteúdo seguinte. A tela Atualizar NCM / CEST usa
-`.ncm-cest-update-panel` para ocupar 100% da largura; a tela Dados da Empresa
-usa o mesmo padrão de introdução.
+`.ncm-cest-update-panel` para ocupar 100% da largura. A tela Dados da
+Empresa mantém o formulário diretamente no conteúdo, sem painel introdutório
+adicional.
 
 Operações Fiscais e Consulta de NFC-e possuem aliases diretos no roteamento
 principal (`fiscal-operations` e `nfce-query`), além dos handlers usados pelos
@@ -624,8 +724,9 @@ cadastros financeiros são links da barra contextual. A barra é renderizada por
 nela e na navegação persistida, sem criar um menu principal paralelo.
 
 A tela **Configurações > Dados da Empresa** mantém um único registro em
-`company_settings`, identificado por `idCompanySetting = 1`, e reúne somente
-identificação, endereço, contatos, e-mail, site, logotipo e ícone do aplicativo.
+`company_settings`, e reúne somente identificação, endereço, contatos, e-mail,
+site, logotipo e ícone do aplicativo. A API sempre consulta e atualiza o único
+registro disponível, sem depender de um valor específico de ID.
 CNPJ ou CPF,
 inscrição estadual, CNAE, CEP e telefones usam máscaras brasileiras; o CEP pode
 consultar a base ViaCEP e preencher logradouro, bairro, cidade e UF. O campo de
@@ -700,8 +801,8 @@ migração compatível executada por `ensurePaymentMethodSchema`.
 
 ### Contratos de configuração
 
-`GET /api/company` e `PUT /api/company` trabalham no registro singleton
-`company_settings` com `idCompanySetting = 1`. O cadastro valida tipo de
+`GET /api/company` e `PUT /api/company` trabalham no único registro disponível
+em `company_settings`, sem depender de um ID fixo. O cadastro valida tipo de
 pessoa, documento, razão/nome, país, município, código IBGE e e-mail. O
 logotipo aceita imagem de até 2 MB e é mantido no servidor.
 

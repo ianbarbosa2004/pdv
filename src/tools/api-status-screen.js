@@ -102,6 +102,7 @@ export function createApiStatusScreen({
                   <div><dt>Endereço consultado</dt><dd>${escapeHtml(getApiUrl())}</dd></div>
                   <div><dt>Ambiente do terminal</dt><dd>${escapeHtml(buildInfo.isDevelopment ? "Desenvolvimento" : "Bundle instalado")}</dd></div>
                   <div><dt>Versão do aplicativo</dt><dd>${escapeHtml(buildInfo.version)}</dd></div>
+                  <div><dt>Versão da API</dt><dd>${escapeHtml(status?.apiVersion || "Não informada")}</dd></div>
                   <div><dt>Identificador do frontend</dt><dd>${escapeHtml(buildInfo.id)}</dd></div>
                   <div><dt>Origem do menu</dt><dd>${escapeHtml(window.__PDV_NAVIGATION_SOURCE__ === "api" ? "API" : "Contingência local")}</dd></div>
                 </dl>`}

@@ -86,10 +86,17 @@ npm.cmd run release:client -- --api-url=http://IP_DO_SERVIDOR:3000
 ```
 
 Esse comando gera os bundles MSI e NSIS/EXE em `dist\releases`, copia os
-instaladores atuais e grava um arquivo de metadados com o endereço da API e a
-origem dos ícones. A execução incrementa automaticamente o patch da versão
-uma única vez e aplica o mesmo número ao instalador. Para gerar somente um
-build Tauri sem instaladores, defina
+instaladores atuais com nomes curtos, como
+`pdv-zanzibar.msi` e `pdv-zanzibar.exe`, e grava
+`pdv-zanzibar-metadata.json` com o endereço da API e a origem dos ícones.
+A execução não altera a versão interna do aplicativo nem inclui esse número nos
+nomes dos arquivos publicados. Para regenerar os ícones após trocar
+`src-tauri/icons/icon.png`, acrescente `--refresh-icons`:
+
+```powershell
+npm.cmd run release:client -- --api-url=http://IP_DO_SERVIDOR:3000 --refresh-icons
+```
+Para gerar somente um build Tauri sem instaladores, defina
 `VITE_PDV_API_URL` e use `npm.cmd run tauri -- build --no-bundle`.
 
 Não use o endereço do frontend Vite como endereço da API. Se a aplicação
@@ -121,16 +128,18 @@ sem versioná-lo no Git. A restauração deve ser executada pela tela
 da loja e da data corretas.
 
 Em **Ferramentas > Status da API**, o campo **Identificador do frontend** mostra
-o fingerprint da versão compilada. Ele é calculado a partir do commit e das
-alterações locais presentes no código no momento da execução do Vite. Dev e
+somente o fingerprint da versão compilada. Ele é calculado a partir do commit e
+das alterações locais presentes no código no momento da execução do Vite. Dev e
 bundle gerados a partir da mesma árvore de código devem exibir o mesmo
 identificador; valores diferentes indicam que o `.exe` foi gerado de outra
 versão. A tela também informa se o menu veio da API ou da contingência local.
 
 O campo **Versão do aplicativo** mostra a versão SemVer embutida no build,
-como `0.1.4`. Use esse campo para confirmar se o terminal está executando o
-artefato esperado; use o **Identificador do frontend** para distinguir builds
-da mesma versão ou investigar diferenças no código compilado.
+como `0.1.4`. **Versão da API** mostra a versão do `package.json` do servidor.
+Os valores devem coincidir quando API e terminal forem publicados a partir da
+mesma versão, mas podem ser diferentes quando os componentes forem atualizados
+separadamente. Use o identificador do frontend para distinguir builds da mesma
+versão ou investigar diferenças no código compilado.
 
 Se a instalação usar NFC-e ou armazenar certificado A1, configure
 `PDV_CERTIFICATE_ENCRYPTION_KEY` antes de iniciar a API. A chave deve ser
@@ -285,7 +294,18 @@ Valide separadamente:
 
 ## Atualização publicada
 
-Publique somente uma versão validada de `main`. Antes de atualizar:
+Publique somente uma versão validada de `main`. O fluxo completo de entrega é:
+
+1. atualizar a documentação relacionada;
+2. executar testes e verificações;
+3. criar um commit local;
+4. abrir e revisar um pull request contra `main`;
+5. fazer o merge após a aprovação e as validações;
+6. atualizar o checkout do servidor sem sobrescrever `.env`, backups ou dados;
+7. reiniciar/reinstalar a API e gerar os bundles do cliente;
+8. validar a API e a instalação de um terminal.
+
+Antes de atualizar:
 
 1. crie e verifique um backup do MariaDB;
 2. atualize o checkout sem sobrescrever `.env`, backups ou dados locais;
@@ -298,6 +318,31 @@ Não use scripts de cPanel, Passenger ou outro projeto, não copie credenciais
 para repositórios e não considere a versão publicada sem validar API e
 MariaDB. O wrapper WinSW é mantido fora do Git em
 `C:\ProgramData\PDV\service`.
+
+Quando a atualização alterar `src/server/`, reiniciar a API é obrigatório antes
+de testar a interface. Quando alterar somente frontend, documentação ou scripts
+locais, o reinício não é necessário. O comando de release do cliente não
+incrementa a versão; use um comando `version:*` separado somente quando houver
+decisão explícita de SemVer.
+
+Para publicar os bundles do cliente no endereço da API da loja:
+
+```powershell
+npm.cmd run release:client -- --api-url=http://192.168.1.200:3000
+```
+
+O resultado esperado em `dist\releases` é:
+
+```text
+pdv-zanzibar.msi
+pdv-zanzibar.exe
+pdv-zanzibar-metadata.json
+```
+
+Os nomes não incluem a versão. Antes de copiar os instaladores, confirme que
+eles foram gerados a partir do checkout mesclado em `main` e que o metadata
+aponta para a API correta. Use `--refresh-icons` somente quando o ícone fonte
+for alterado.
 
 Após alterações no cadastro de Tipos de Produtos, confirme na API:
 

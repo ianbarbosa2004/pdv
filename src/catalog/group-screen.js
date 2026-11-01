@@ -3,7 +3,7 @@ import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { bindFormRowPreview } from "../ui/form-row-preview.js";
 import { renderPreservingFormDraft } from "../ui/form-draft.js";
 import { bindProductNavigation, renderProductNavigation } from "./product-navigation.js";
-import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { getApiUrl } from "../shared/api.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
 
@@ -303,7 +303,7 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onP
       await load();
       scheduleMessageClear(() => {
         message = "";
-        render();
+        clearRenderedFeedback(root);
       });
     } catch (submitError) {
       error = submitError instanceof Error ? submitError.message : "Falha ao salvar o grupo.";
@@ -335,7 +335,7 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onP
       await load();
       scheduleMessageClear(() => {
         message = "";
-        render();
+        clearRenderedFeedback(root);
       });
     } catch (deleteError) {
       error = deleteError instanceof Error ? deleteError.message : "Falha ao excluir o grupo.";
@@ -356,7 +356,7 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onP
       await load();
       scheduleMessageClear(() => {
         message = "";
-        render();
+        clearRenderedFeedback(root);
       });
     } catch (statusError) {
       error = statusError instanceof Error ? statusError.message : "Falha ao alterar o status do grupo.";
@@ -377,7 +377,7 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onP
       await load();
       scheduleMessageClear(() => {
         message = "";
-        render();
+        clearRenderedFeedback(root);
       });
     } catch (visibilityError) {
       error = visibilityError instanceof Error ? visibilityError.message : "Falha ao alterar a exibição do grupo no PDV.";

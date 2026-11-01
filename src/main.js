@@ -36,9 +36,22 @@ const app = document.querySelector("#app");
 
 if (!app) throw new Error("Elemento raiz da aplicação não encontrado.");
 
+const getAppWindow = () => {
+  if (!window.__TAURI_INTERNALS__) return null;
+  try {
+    return getCurrentWindow();
+  } catch (error) {
+    console.error("Não foi possível acessar a janela nativa do aplicativo:", error);
+    return null;
+  }
+};
+
 function requestExit() {
-  if (!window.__TAURI_INTERNALS__) return;
-  void getCurrentWindow().close();
+  const appWindow = getAppWindow();
+  if (!appWindow) return;
+  void appWindow.close().catch((error) => {
+    console.error("Não foi possível fechar o aplicativo:", error);
+  });
 }
 
 const mount = (screen) => {
@@ -350,10 +363,11 @@ const createCloseBackupPrompt = () => {
 };
 
 const installCloseBackupPrompt = () => {
-  if (!window.__TAURI_INTERNALS__) return;
+  const appWindow = getAppWindow();
+  if (!appWindow) return;
   let closing = false;
   let promptOpen = false;
-  void getCurrentWindow().onCloseRequested(async (event) => {
+  void appWindow.onCloseRequested(async (event) => {
     if (closing) return;
     if (promptOpen) {
       event.preventDefault();
@@ -366,15 +380,20 @@ const installCloseBackupPrompt = () => {
       if (decision === "without" || decision === "success") {
         closing = true;
         window.setTimeout(() => {
-          void getCurrentWindow().destroy().catch(() => {
-            void getCurrentWindow().close();
+          void appWindow.destroy().catch(() => {
+            void appWindow.close().catch((error) => {
+              console.error("Não foi possível concluir o fechamento do aplicativo:", error);
+            });
           });
         }, 0);
       }
     } finally {
       promptOpen = false;
     }
-  });
+  })
+    .catch((error) => {
+      console.error("Não foi possível registrar o fechamento seguro do aplicativo:", error);
+    });
 };
 
 

@@ -1,5 +1,5 @@
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
-import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { getApiUrl } from "../shared/api.js";
 
 const escapeHtml = (value) => String(value ?? "")
@@ -331,7 +331,7 @@ export function createCatalogImportScreen({
         window.setTimeout(() => URL.revokeObjectURL(url), 0);
         error = "";
         message = "Modelo CSV baixado com sucesso.";
-        scheduleMessageClear(() => { message = ""; render(); });
+        scheduleMessageClear(() => { message = ""; clearRenderedFeedback(root); });
         render();
       } catch (downloadError) {
         error = downloadError instanceof Error
@@ -349,7 +349,7 @@ export function createCatalogImportScreen({
           downloadReference(reference);
           error = "";
           message = `${reference.title} baixados com sucesso.`;
-          scheduleMessageClear(() => { message = ""; render(); });
+          scheduleMessageClear(() => { message = ""; clearRenderedFeedback(root); });
           render();
         } catch (downloadError) {
           error = downloadError instanceof Error
@@ -370,7 +370,7 @@ export function createCatalogImportScreen({
         await validateRowsWithApi();
         error = "";
         message = `Arquivo válido: ${rows.length} produto(s) pronto(s) para importação.`;
-        scheduleMessageClear(() => { message = ""; render(); });
+        scheduleMessageClear(() => { message = ""; clearRenderedFeedback(root); });
       } catch (testError) {
         error = testError instanceof Error ? testError.message : String(testError);
         message = "";
@@ -392,7 +392,7 @@ export function createCatalogImportScreen({
         if (!response.ok) throw new Error(payload.error || "Não foi possível importar os produtos.");
         message = `${payload.importedCount} produto(s) importado(s) com sucesso.`;
         rows = [];
-        scheduleMessageClear(() => { message = ""; render(); });
+        scheduleMessageClear(() => { message = ""; clearRenderedFeedback(root); });
       } catch (importError) {
         error = importError instanceof Error ? importError.message : String(importError);
       } finally {

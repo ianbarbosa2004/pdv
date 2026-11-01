@@ -1,7 +1,7 @@
 import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { invoke } from "@tauri-apps/api/core";
-import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { getApiUrl } from "../shared/api.js";
 
 const escapeHtml = (value) => String(value ?? "")
@@ -218,7 +218,7 @@ export function createThermalPrintScreen({
     root.querySelector("[data-port]")?.addEventListener("change", (event) => { port = event.currentTarget.value; });
     root.querySelector("[data-direct-print]")?.addEventListener("click", () => void sendDirect());
     root.querySelector("[data-browser-print]")?.addEventListener("click", () => window.print());
-    root.querySelector("[data-download]")?.addEventListener("click", () => { const url = URL.createObjectURL(new Blob([toBytes(buildEscPos())], { type: "application/octet-stream" })); const anchor = document.createElement("a"); anchor.href = url; anchor.download = "cupom-80mm.bin"; anchor.click(); URL.revokeObjectURL(url); message = "Arquivo ESC/POS gerado."; render(); scheduleMessageClear(() => { message = ""; render(); }); });
+    root.querySelector("[data-download]")?.addEventListener("click", () => { const url = URL.createObjectURL(new Blob([toBytes(buildEscPos())], { type: "application/octet-stream" })); const anchor = document.createElement("a"); anchor.href = url; anchor.download = "cupom-80mm.bin"; anchor.click(); URL.revokeObjectURL(url); message = "Arquivo ESC/POS gerado."; render(); scheduleMessageClear(() => { message = ""; clearRenderedFeedback(root); }); });
   };
   const addLine = (line) => { layout.push(normalizeLine(line)); selectedIndex = layout.length - 1; render(); };
   const moveLine = (index, direction) => { const target = index + direction; if (target < 0 || target >= layout.length) return; [layout[index], layout[target]] = [layout[target], layout[index]]; selectedIndex = target; render(); };
@@ -231,19 +231,19 @@ export function createThermalPrintScreen({
       message = "Montagem do cupom salva.";
       scheduleMessageClear(() => {
         message = "";
-        render();
+        clearRenderedFeedback(root);
       });
     } catch (saveError) { error = saveError instanceof Error ? saveError.message : String(saveError); } finally { saving = false; render(); }
   };
   const sendDirect = async () => {
-    if (!window.__TAURI_INTERNALS__) { message = "A impressão direta exige o aplicativo Tauri."; render(); scheduleMessageClear(() => { message = ""; render(); }); return; }
+    if (!window.__TAURI_INTERNALS__) { error = "A impressão direta exige o aplicativo Tauri."; message = ""; render(); return; }
     sending = true; message = ""; render();
     try {
       if (transport === "usb" && !receiptPrinterName) throw new Error("Configure a impressora padrão de Cupom antes de imprimir.");
       message = await invoke("send_raw_print", { request: { transport, printerName: transport === "usb" ? receiptPrinterName : null, host: transport === "network" ? host : null, port: transport === "network" ? Number(port) : null, dataBase64: toBase64(buildEscPos()), text: transport === "usb" ? buildPlainText() : null, lines: transport === "usb" ? buildPrintLines() : null } });
       scheduleMessageClear(() => {
         message = "";
-        render();
+        clearRenderedFeedback(root);
       });
     } catch (sendError) { error = sendError instanceof Error ? sendError.message : String(sendError); } finally { sending = false; render(); }
   };

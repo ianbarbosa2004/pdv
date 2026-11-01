@@ -1,11 +1,11 @@
 {
   "name": "pdv",
-  "version": "0.1.14",
+  "version": "0.5.7",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/increment-version.mjs && vite build",
+    "build": "vite build",
     "preview": "vite preview",
     "test": "node --test",
     "api": "node --env-file=.env src/server/server.js",
@@ -13,6 +13,7 @@
     "migrate:uppercase": "node --env-file=.env scripts/migrate-uppercase-data.mjs",
     "release:client": "node scripts/build-client-release.mjs",
     "version:increment": "node scripts/increment-version.mjs patch",
+    "version:auto": "node scripts/increment-version.mjs patch",
     "version:patch": "node scripts/increment-version.mjs patch",
     "version:minor": "node scripts/increment-version.mjs minor",
     "version:major": "node scripts/increment-version.mjs major"
