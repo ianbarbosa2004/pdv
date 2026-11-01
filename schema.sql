@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS product_types (
 ) ENGINE=InnoDB;
 
 INSERT INTO product_types (descriptionProductType, isActiveProductType)
-VALUES ('Produto Acabado', 1)
+VALUES ('PRODUTO ACABADO', 1)
 ON DUPLICATE KEY UPDATE isActiveProductType = 1;
 
 CREATE TABLE IF NOT EXISTS units (
@@ -150,7 +150,7 @@ CREATE TABLE IF NOT EXISTS payment_methods (
 
 INSERT INTO payment_methods
   (namePaymentMethod, cashFlowAccountPaymentMethod, termDaysPaymentMethod, isActivePaymentMethod)
-VALUES ('Vale', 'Caixa', 30, 1)
+VALUES ('VALE', 'Caixa', 30, 1)
 ON DUPLICATE KEY UPDATE isActivePaymentMethod = 1;
 
 CREATE TABLE IF NOT EXISTS suppliers (
@@ -169,7 +169,7 @@ CREATE TABLE IF NOT EXISTS suppliers (
   neighborhoodSupplier VARCHAR(100) NOT NULL DEFAULT '',
   citySupplier VARCHAR(100) NOT NULL DEFAULT '',
   stateSupplier CHAR(2) NOT NULL DEFAULT '',
-  countrySupplier VARCHAR(80) NOT NULL DEFAULT 'Brasil',
+  countrySupplier VARCHAR(80) NOT NULL DEFAULT 'BRASIL',
   notesSupplier VARCHAR(400) NULL,
   isActiveSupplier TINYINT(1) NOT NULL DEFAULT 1,
   createdAtSupplier TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -258,7 +258,7 @@ CREATE TABLE IF NOT EXISTS company_settings (
   addressNumberCompany VARCHAR(20) NOT NULL DEFAULT '',
   addressComplementCompany VARCHAR(80) NOT NULL DEFAULT '',
   neighborhoodCompany VARCHAR(100) NOT NULL DEFAULT '',
-  countryCompany VARCHAR(80) NOT NULL DEFAULT 'Brasil',
+  countryCompany VARCHAR(80) NOT NULL DEFAULT 'BRASIL',
   stateCompany CHAR(2) NOT NULL DEFAULT '',
   cityCompany VARCHAR(100) NOT NULL DEFAULT '',
   municipalityCodeCompany CHAR(7) NOT NULL DEFAULT '3148004',
@@ -371,7 +371,7 @@ CREATE TABLE IF NOT EXISTS fiscal_catalog_items (
 
 INSERT INTO fiscal_catalog_items
   (catalogFiscalCatalogItem, codeFiscalCatalogItem, descriptionFiscalCatalogItem, valueFiscalCatalogItem)
-VALUES ('cfops', '5.101', 'Venda de produção do estabelecimento', NULL)
+VALUES ('cfops', '5.101', 'VENDA DE PRODUÇÃO DO ESTABELECIMENTO', NULL)
 ON DUPLICATE KEY UPDATE
   descriptionFiscalCatalogItem = VALUES(descriptionFiscalCatalogItem),
   isActiveFiscalCatalogItem = 1;

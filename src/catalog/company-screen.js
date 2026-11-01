@@ -167,6 +167,11 @@ export function createCompanyScreen({
       </div>
       <section class="classic-content company-content">
         ${renderSuccessFeedback(message, escapeHtml)}
+        <div class="backoffice-home-heading">
+          <p class="eyebrow">Configurações</p>
+          <h1>Cadastro da empresa</h1>
+          <p>Informe os dados cadastrais e a identidade visual usados pelo PDV e pelos documentos fiscais.</p>
+        </div>
         <form class="classic-form-panel company-form" data-form>
           <div class="classic-panel-header">Dados da empresa</div>
           <div class="classic-form-body">

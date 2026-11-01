@@ -180,15 +180,15 @@ const parseMoney = (value, fieldName) => {
   return String(value);
 };
 
-const capitalizeText = (value) => String(value ?? "")
+const uppercaseText = (value) => String(value ?? "")
   .trim()
   .replace(/\s+/g, " ")
-  .toLocaleLowerCase("pt-BR")
-  .replace(/(^|[\s/-])([a-zà-ÿ])/giu, (_, separator, character) =>
-    `${separator}${character.toLocaleUpperCase("pt-BR")}`);
+  .toLocaleUpperCase("pt-BR");
 
 const isNonSaleProductType = (description) =>
-  ["Matéria-Prima", "Embalagem", "Material de Uso e Consumo"].includes(description);
+  ["MATÉRIA-PRIMA", "EMBALAGEM", "MATERIAL DE USO E CONSUMO"].includes(
+    uppercaseText(description)
+  );
 
 const parseNonNegativeQuantity = (value) => {
   if (!/^(?:0|[1-9]\d*)(?:\.\d{1,3})?$/.test(String(value))) {
@@ -325,7 +325,7 @@ const ensureFiscalCatalogSchema = async () => {
   await pool.query(
     `INSERT INTO fiscal_catalog_items
       (catalogFiscalCatalogItem, codeFiscalCatalogItem, descriptionFiscalCatalogItem, valueFiscalCatalogItem)
-     VALUES ('cfops', '5.101', 'Venda de produção do estabelecimento', NULL)
+     VALUES ('cfops', '5.101', 'VENDA DE PRODUÇÃO DO ESTABELECIMENTO', NULL)
      ON DUPLICATE KEY UPDATE
        descriptionFiscalCatalogItem = VALUES(descriptionFiscalCatalogItem),
        isActiveFiscalCatalogItem = 1`
@@ -652,15 +652,15 @@ const ensureProductCatalogSchema = async () => {
     `SELECT
        (SELECT idProductType
         FROM product_types
-        WHERE descriptionProductType = 'Mercadoria para Revenda'
+        WHERE descriptionProductType = 'MERCADORIA PARA REVENDA'
         LIMIT 1) AS sourceProductType,
        (SELECT idProductType
         FROM product_types
-        WHERE descriptionProductType = 'Produto Acabado'
+        WHERE descriptionProductType = 'PRODUTO ACABADO'
         LIMIT 1) AS targetProductType,
        (SELECT idFiscalOperation
         FROM fiscal_operations
-        WHERE descriptionFiscalOperation = 'Venda de produção'
+        WHERE descriptionFiscalOperation = 'VENDA DE PRODUÇÃO'
           AND typeFiscalOperation = 'exit'
           AND isActiveFiscalOperation = 1
         ORDER BY idFiscalOperation
@@ -1136,6 +1136,39 @@ const ensureNavigationSchema = (() => {
   };
 })();
 
+const ensureUppercaseTextData = async () => {
+  const updates = [
+    ["classes", ["descriptionClass"]],
+    ["groups", ["descriptionGroup"]],
+    ["products", ["nameProduct"]],
+    ["product_types", ["descriptionProductType"]],
+    ["units", ["descriptionUnit"]],
+    ["ncm_catalog", ["descriptionNcm"]],
+    ["cest_catalog", ["descriptionCest", "segmentCest"]],
+    ["payment_methods", ["namePaymentMethod"]],
+    ["suppliers", [
+      "companyNameSupplier", "tradeNameSupplier", "contactNameSupplier", "addressSupplier",
+      "addressComplementSupplier", "neighborhoodSupplier", "citySupplier", "countrySupplier",
+      "notesSupplier"
+    ]],
+    ["customers", ["nameCustomer", "addressCustomer", "notesCustomer"]],
+    ["consumers", ["nameConsumer", "nicknameConsumer", "notesConsumer"]],
+    ["company_settings", [
+      "corporateNameCompany", "tradeNameCompany", "addressCompany", "addressComplementCompany",
+      "neighborhoodCompany", "countryCompany", "cityCompany"
+    ]],
+    ["fiscal_operations", ["descriptionFiscalOperation", "operationNatureFiscalOperation", "legalBasisFiscalOperation"]],
+    ["fiscal_catalog_items", ["descriptionFiscalCatalogItem"]],
+    ["general_settings", ["labelGeneralSetting"]],
+    ["sale_items", ["productNameSaleItem"]]
+  ];
+  for (const [table, columns] of updates) {
+    for (const column of columns) {
+      await pool.query(`UPDATE \`${table}\` SET \`${column}\` = UPPER(\`${column}\`) WHERE \`${column}\` IS NOT NULL`);
+    }
+  }
+};
+
 const ensurePaymentMethodSchema = async () => {
   await pool.query(`CREATE TABLE IF NOT EXISTS payment_methods (
     idPaymentMethod BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -1261,15 +1294,16 @@ const server = createServer(async (request, response) => {
       const payload = await readJsonBody(request);
       const idCustomer = request.method === "PUT" ? parsePositiveId(payload.idCustomer) : null;
       const text = (field, max) => typeof payload[field] === "string" ? payload[field].trim().slice(0, max) : "";
-      const nameCustomer = text("nameCustomer", 180);
+      const humanText = (field, max) => uppercaseText(text(field, max));
+      const nameCustomer = humanText("nameCustomer", 180);
       const documentDigits = text("documentCustomer", 20).replace(/\D/g, "");
       const documentCustomer = documentDigits || null;
       const phoneCustomer = text("phoneCustomer", 25);
       const emailCustomer = text("emailCustomer", 180).toLocaleLowerCase("pt-BR");
-      const addressCustomer = text("addressCustomer", 180);
+      const addressCustomer = humanText("addressCustomer", 180);
       const creditLimitCustomer = Number(payload.creditLimitCustomer || 0);
       const paymentTermCustomer = Number(payload.paymentTermCustomer || 0);
-      const notesCustomer = text("notesCustomer", 400);
+      const notesCustomer = humanText("notesCustomer", 400);
       if ((request.method === "PUT" && !idCustomer) || !nameCustomer
         || !Number.isFinite(creditLimitCustomer) || creditLimitCustomer < 0
         || !Number.isInteger(paymentTermCustomer) || paymentTermCustomer < 0
@@ -1359,10 +1393,11 @@ const server = createServer(async (request, response) => {
       const payload = await readJsonBody(request);
       const idConsumer = request.method === "PUT" ? parsePositiveId(payload.idConsumer) : null;
       const text = (field, max) => typeof payload[field] === "string" ? payload[field].trim().slice(0, max) : "";
-      const nameConsumer = text("nameConsumer", 180);
+      const humanText = (field, max) => uppercaseText(text(field, max));
+      const nameConsumer = humanText("nameConsumer", 180);
       if ((request.method === "PUT" && !idConsumer) || !nameConsumer) throw new SaleValidationError("Informe o nome do consumidor.");
       await ensureCustomerConsumerSchema();
-      const values = [nameConsumer, text("nicknameConsumer", 120), text("phoneConsumer", 25), text("notesConsumer", 400) || null];
+      const values = [nameConsumer, humanText("nicknameConsumer", 120), text("phoneConsumer", 25), humanText("notesConsumer", 400) || null];
       if (request.method === "POST") {
         const [result] = await pool.query(
           "INSERT INTO consumers (nameConsumer, nicknameConsumer, phoneConsumer, notesConsumer) VALUES (?, ?, ?, ?)",
@@ -2022,24 +2057,26 @@ const server = createServer(async (request, response) => {
         if (required && !result) throw new SaleValidationError(`${fieldName} é obrigatório.`);
         return result;
       };
+      const humanText = (value, fieldName, maxLength, required = false) =>
+        uppercaseText(text(value, fieldName, maxLength, required));
       const companyTypeCompany = text(payload.companyTypeCompany, "Tipo de pessoa", 10, true);
       if (!["juridica", "fisica"].includes(companyTypeCompany)) {
         throw new SaleValidationError("Tipo de pessoa inválido.");
       }
       const documentCompany = text(payload.documentCompany, "CNPJ / CPF", 20, true);
-      const corporateNameCompany = text(payload.corporateNameCompany, "Razão social / Nome", 180, true);
-      const tradeNameCompany = text(payload.tradeNameCompany, "Nome fantasia", 120);
+      const corporateNameCompany = humanText(payload.corporateNameCompany, "Razão social / Nome", 180, true);
+      const tradeNameCompany = humanText(payload.tradeNameCompany, "Nome fantasia", 120);
       const stateRegistrationCompany = text(payload.stateRegistrationCompany, "Inscrição Estadual", 30);
       const municipalRegistrationCompany = text(payload.municipalRegistrationCompany, "Inscrição Municipal", 30);
       const cnaeCompany = text(payload.cnaeCompany, "CNAE", 20);
       const zipCodeCompany = text(payload.zipCodeCompany, "CEP", 9);
-      const addressCompany = text(payload.addressCompany, "Endereço", 180);
+      const addressCompany = humanText(payload.addressCompany, "Endereço", 180);
       const addressNumberCompany = text(payload.addressNumberCompany, "Número", 20);
-      const addressComplementCompany = text(payload.addressComplementCompany, "Complemento", 80);
-      const neighborhoodCompany = text(payload.neighborhoodCompany, "Bairro", 100);
-      const countryCompany = text(payload.countryCompany, "País", 80, true);
+      const addressComplementCompany = humanText(payload.addressComplementCompany, "Complemento", 80);
+      const neighborhoodCompany = humanText(payload.neighborhoodCompany, "Bairro", 100);
+      const countryCompany = humanText(payload.countryCompany, "País", 80, true);
       const stateCompany = text(payload.stateCompany, "UF", 2);
-      const cityCompany = text(payload.cityCompany, "Cidade", 100);
+      const cityCompany = humanText(payload.cityCompany, "Cidade", 100);
       const municipalityCodeCompany = text(
         payload.municipalityCodeCompany ?? currentCompany.municipalityCodeCompany ?? "3148004",
         "Código IBGE do município",
@@ -2303,7 +2340,7 @@ const server = createServer(async (request, response) => {
       await ensureProductCatalogSchema();
       const requestUrl = new URL(request.url, "http://localhost");
       const includeInactive = requestUrl.searchParams.get("includeInactive") === "1";
-      const productTypeDescription = requestUrl.searchParams.get("productType")?.trim() || "";
+      const productTypeDescription = uppercaseText(requestUrl.searchParams.get("productType") || "");
       const [products] = await pool.query(
         `SELECT products.idProduct, products.idGroup, products.skuProduct,
                 products.pdvCodeProduct, products.nameProduct,
@@ -2383,7 +2420,7 @@ const server = createServer(async (request, response) => {
       const payload = await readJsonBody(request);
       const isUnit = request.url === "/api/units";
       const description = typeof payload[isUnit ? "descriptionUnit" : "descriptionProductType"] === "string"
-        ? payload[isUnit ? "descriptionUnit" : "descriptionProductType"].trim()
+        ? uppercaseText(payload[isUnit ? "descriptionUnit" : "descriptionProductType"])
         : "";
       const spedCode = !isUnit && typeof payload.codeSpedProductType === "string"
         ? payload.codeSpedProductType.trim().toUpperCase()
@@ -2416,7 +2453,7 @@ const server = createServer(async (request, response) => {
       const isUnit = request.url === "/api/units";
       const id = parsePositiveId(payload[isUnit ? "idUnit" : "idProductType"]);
       const description = typeof payload[isUnit ? "descriptionUnit" : "descriptionProductType"] === "string"
-        ? payload[isUnit ? "descriptionUnit" : "descriptionProductType"].trim()
+        ? uppercaseText(payload[isUnit ? "descriptionUnit" : "descriptionProductType"])
         : "";
       const spedCode = !isUnit && typeof payload.codeSpedProductType === "string"
         ? payload.codeSpedProductType.trim().toUpperCase()
@@ -2515,21 +2552,22 @@ const server = createServer(async (request, response) => {
       const idSupplier = request.method === "PUT" ? parsePositiveId(payload.idSupplier) : null;
       const typeSupplier = ["juridica", "fisica"].includes(payload.typeSupplier) ? payload.typeSupplier : "";
       const value = (field, max) => typeof payload[field] === "string" ? payload[field].trim().slice(0, max) : "";
+      const humanValue = (field, max) => uppercaseText(value(field, max));
       const documentSupplier = value("documentSupplier", 20).replace(/\D/g, "");
-      const companyNameSupplier = value("companyNameSupplier", 180);
-      const tradeNameSupplier = value("tradeNameSupplier", 120);
-      const contactNameSupplier = value("contactNameSupplier", 120);
+      const companyNameSupplier = humanValue("companyNameSupplier", 180);
+      const tradeNameSupplier = humanValue("tradeNameSupplier", 120);
+      const contactNameSupplier = humanValue("contactNameSupplier", 120);
       const phoneSupplier = value("phoneSupplier", 25);
       const emailSupplier = value("emailSupplier", 180);
       const zipCodeSupplier = value("zipCodeSupplier", 9);
-      const addressSupplier = value("addressSupplier", 180);
+      const addressSupplier = humanValue("addressSupplier", 180);
       const addressNumberSupplier = value("addressNumberSupplier", 20);
-      const addressComplementSupplier = value("addressComplementSupplier", 80);
-      const neighborhoodSupplier = value("neighborhoodSupplier", 100);
-      const citySupplier = value("citySupplier", 100);
+      const addressComplementSupplier = humanValue("addressComplementSupplier", 80);
+      const neighborhoodSupplier = humanValue("neighborhoodSupplier", 100);
+      const citySupplier = humanValue("citySupplier", 100);
       const stateSupplier = value("stateSupplier", 2).toUpperCase();
-      const countrySupplier = value("countrySupplier", 80) || "Brasil";
-      const notesSupplier = value("notesSupplier", 400);
+      const countrySupplier = humanValue("countrySupplier", 80) || "BRASIL";
+      const notesSupplier = humanValue("notesSupplier", 400);
       const documentLength = typeSupplier === "fisica" ? 11 : 14;
       if ((request.method === "PUT" && !idSupplier) || !typeSupplier || documentSupplier.length !== documentLength
         || !companyNameSupplier || !countrySupplier || (emailSupplier && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailSupplier))
@@ -2632,7 +2670,7 @@ const server = createServer(async (request, response) => {
     try {
       const payload = await readJsonBody(request);
       const idClass = parsePositiveId(payload.idClass);
-      const descriptionClass = typeof payload.descriptionClass === "string" ? payload.descriptionClass.trim() : "";
+      const descriptionClass = typeof payload.descriptionClass === "string" ? uppercaseText(payload.descriptionClass) : "";
       const idFiscalOperationClass = parsePositiveId(payload.idFiscalOperationClass);
       if (!idClass || !descriptionClass || descriptionClass.length > 120 || !idFiscalOperationClass) {
         throw new SaleValidationError("Classe, descrição e operação fiscal são obrigatórias.");
@@ -2753,9 +2791,9 @@ const server = createServer(async (request, response) => {
       const idNcmCestRelation = request.method === "PUT" ? parsePositiveId(payload.idNcmCestRelation) : null;
       const ncmCode = typeof payload.ncmCode === "string" ? payload.ncmCode.replace(/\D/g, "") : "";
       const cestCode = typeof payload.cestCode === "string" ? payload.cestCode.replace(/\D/g, "") : "";
-      const ncmDescription = typeof payload.ncmDescription === "string" ? payload.ncmDescription.trim() : "";
-      const cestDescription = typeof payload.cestDescription === "string" ? payload.cestDescription.trim() : "";
-      const segment = typeof payload.segment === "string" ? payload.segment.trim() : "";
+      const ncmDescription = typeof payload.ncmDescription === "string" ? uppercaseText(payload.ncmDescription) : "";
+      const cestDescription = typeof payload.cestDescription === "string" ? uppercaseText(payload.cestDescription) : "";
+      const segment = typeof payload.segment === "string" ? uppercaseText(payload.segment) : "";
       if (
         (request.method === "PUT" && !idNcmCestRelation) ||
         !/^\d{8}$/.test(ncmCode) ||
@@ -2850,7 +2888,7 @@ const server = createServer(async (request, response) => {
   if (request.method === "POST" && request.url === "/api/classes") {
     try {
       const payload = await readJsonBody(request);
-      const descriptionClass = typeof payload.descriptionClass === "string" ? payload.descriptionClass.trim() : "";
+      const descriptionClass = typeof payload.descriptionClass === "string" ? uppercaseText(payload.descriptionClass) : "";
       const idFiscalOperationClass = parsePositiveId(payload.idFiscalOperationClass);
       if (!descriptionClass || descriptionClass.length > 120 || !idFiscalOperationClass) {
         throw new SaleValidationError("Descrição da classe e operação fiscal são obrigatórias.");
@@ -2895,7 +2933,7 @@ const server = createServer(async (request, response) => {
   if (request.method === "POST" && request.url === "/api/groups") {
     try {
       const payload = await readJsonBody(request);
-      const descriptionGroup = typeof payload.descriptionGroup === "string" ? payload.descriptionGroup.trim() : "";
+      const descriptionGroup = typeof payload.descriptionGroup === "string" ? uppercaseText(payload.descriptionGroup) : "";
       const idClass = parsePositiveId(payload.idClass);
       const showsInPdvGroup = parseBooleanFlag(payload.showsInPdvGroup, "Exibe no PDV", false);
       if (!descriptionGroup || descriptionGroup.length > 120 || !idClass) throw new SaleValidationError("Descrição do grupo e classe são obrigatórios.");
@@ -2914,7 +2952,7 @@ const server = createServer(async (request, response) => {
       const payload = await readJsonBody(request);
       const idGroup = parsePositiveId(payload.idGroup);
       const idClass = parsePositiveId(payload.idClass);
-      const descriptionGroup = typeof payload.descriptionGroup === "string" ? payload.descriptionGroup.trim() : "";
+      const descriptionGroup = typeof payload.descriptionGroup === "string" ? uppercaseText(payload.descriptionGroup) : "";
       const showsInPdvGroup = parseBooleanFlag(payload.showsInPdvGroup, "Exibe no PDV", false);
       if (!idGroup || !idClass || !descriptionGroup || descriptionGroup.length > 120) throw new SaleValidationError("Grupo, classe ou descrição inválida.");
       const [classes] = await pool.query("SELECT idClass FROM classes WHERE idClass = ?", [idClass]);
@@ -2979,7 +3017,7 @@ const server = createServer(async (request, response) => {
   if (request.method === "POST" && request.url === "/api/products") {
     try {
       const payload = await readJsonBody(request);
-      const nameProduct = typeof payload.nameProduct === "string" ? payload.nameProduct.trim() : "";
+      const nameProduct = typeof payload.nameProduct === "string" ? uppercaseText(payload.nameProduct) : "";
       const skuProduct = typeof payload.skuProduct === "string" ? payload.skuProduct.trim().toUpperCase() : "";
       const pdvCodeProduct = payload.pdvCodeProduct === null || payload.pdvCodeProduct === undefined ? null : String(payload.pdvCodeProduct).trim() || null;
       const ncmProduct = typeof payload.ncmProduct === "string" ? payload.ncmProduct.replace(/\D/g, "") : "";
@@ -3005,7 +3043,7 @@ const server = createServer(async (request, response) => {
       const priceProduct = nonSaleProduct
         ? costPriceProduct
         : parseMoney(payload.priceProduct, "Preço");
-      if (productTypeRows[0]?.descriptionProductType === "Matéria-Prima" && !/^MP-/i.test(skuProduct)) {
+      if (uppercaseText(productTypeRows[0]?.descriptionProductType) === "MATÉRIA-PRIMA" && !/^MP-/i.test(skuProduct)) {
         throw new SaleValidationError("O SKU de matéria-prima deve começar com MP-.");
       }
       const [unitRows] = await pool.query("SELECT idUnit FROM units WHERE idUnit = ? AND isActiveUnit = 1", [idUnitProduct]);
@@ -3055,6 +3093,7 @@ const server = createServer(async (request, response) => {
     try {
       const payload = await readJsonBody(request);
       const rows = Array.isArray(payload.rows) ? payload.rows : [];
+      const validateOnly = payload.validateOnly === true;
       if (!rows.length || rows.length > 1000) {
         throw new SaleValidationError("Informe entre 1 e 1000 produtos para importar.");
       }
@@ -3063,14 +3102,16 @@ const server = createServer(async (request, response) => {
       connection = await pool.getConnection();
       await connection.beginTransaction();
       let importedCount = 0;
+      const importedSkus = new Map();
+      const importedPdvCodes = new Map();
       for (const [index, row] of rows.entries()) {
         const line = index + 2;
         const skuProduct = typeof row.skuProduct === "string" ? row.skuProduct.trim().toUpperCase() : "";
         const pdvCodeProduct = typeof row.pdvCodeProduct === "string" ? row.pdvCodeProduct.trim() || null : null;
-        const nameProduct = typeof row.nameProduct === "string" ? capitalizeText(row.nameProduct) : "";
-        const descriptionGroup = typeof row.descriptionGroup === "string" ? row.descriptionGroup.trim() : "";
-        const descriptionFiscalOperation = typeof row.descriptionFiscalOperation === "string" ? row.descriptionFiscalOperation.trim() : "";
-        const descriptionProductType = typeof row.descriptionProductType === "string" ? row.descriptionProductType.trim() : "";
+        const nameProduct = typeof row.nameProduct === "string" ? uppercaseText(row.nameProduct) : "";
+        const descriptionGroup = typeof row.descriptionGroup === "string" ? uppercaseText(row.descriptionGroup) : "";
+        const descriptionFiscalOperation = typeof row.descriptionFiscalOperation === "string" ? uppercaseText(row.descriptionFiscalOperation) : "";
+        const descriptionProductType = typeof row.descriptionProductType === "string" ? uppercaseText(row.descriptionProductType) : "";
         const codeUnit = typeof row.codeUnit === "string" ? row.codeUnit.trim().toUpperCase() : "";
         const ncmProduct = typeof row.ncmProduct === "string" ? row.ncmProduct.replace(/\D/g, "") : "";
         const cestProduct = typeof row.cestProduct === "string" ? row.cestProduct.replace(/\D/g, "") : "";
@@ -3085,6 +3126,49 @@ const server = createServer(async (request, response) => {
           || (!priceValue && !costPriceValue)) {
           throw new SaleValidationError(`Linha ${line}: SKU, nome, grupo e preço são obrigatórios ou inválidos.`);
         }
+        const duplicateMessages = [];
+        const previousSkuLine = importedSkus.get(skuProduct);
+        if (previousSkuLine) {
+          duplicateMessages.push(`SKU "${skuProduct}" também aparece na linha ${previousSkuLine} do arquivo`);
+        }
+        if (pdvCodeProduct) {
+          const previousPdvLine = importedPdvCodes.get(pdvCodeProduct.toLocaleLowerCase("pt-BR"));
+          if (previousPdvLine) {
+            duplicateMessages.push(`código PDV "${pdvCodeProduct}" também aparece na linha ${previousPdvLine} do arquivo`);
+          }
+        }
+        const existingConditions = ["skuProduct = ?"];
+        const existingParameters = [skuProduct];
+        if (pdvCodeProduct) {
+          existingConditions.push("pdvCodeProduct = ?");
+          existingParameters.push(pdvCodeProduct);
+        }
+        const [existingProducts] = await connection.query(
+          `SELECT skuProduct, pdvCodeProduct, nameProduct
+           FROM products
+           WHERE ${existingConditions.join(" OR ")}
+           LIMIT 10`,
+          existingParameters
+        );
+        for (const existingProduct of existingProducts) {
+          if (existingProduct.skuProduct === skuProduct) {
+            duplicateMessages.push(
+              `SKU "${skuProduct}" já está cadastrado no produto "${existingProduct.nameProduct}"`
+            );
+          }
+          if (pdvCodeProduct
+            && String(existingProduct.pdvCodeProduct || "").toLocaleLowerCase("pt-BR")
+              === pdvCodeProduct.toLocaleLowerCase("pt-BR")) {
+            duplicateMessages.push(
+              `código PDV "${pdvCodeProduct}" já está cadastrado no produto "${existingProduct.nameProduct}"`
+            );
+          }
+        }
+        if (duplicateMessages.length) {
+          throw new SaleValidationError(`Linha ${line}: ${duplicateMessages.join("; ")}.`);
+        }
+        importedSkus.set(skuProduct, line);
+        if (pdvCodeProduct) importedPdvCodes.set(pdvCodeProduct.toLocaleLowerCase("pt-BR"), line);
         const [groupRows] = await connection.query(
           "SELECT idGroup FROM `groups` WHERE descriptionGroup = ? LIMIT 1",
           [descriptionGroup]
@@ -3109,7 +3193,7 @@ const server = createServer(async (request, response) => {
           throw new SaleValidationError(`Linha ${line}: tipo de produto "${descriptionProductType}" não encontrado.`);
         }
         const nonSaleProduct = isNonSaleProductType(typeRows[0]?.descriptionProductType);
-        if (typeRows[0]?.descriptionProductType === "Matéria-Prima" && !/^MP-/i.test(skuProduct)) {
+        if (uppercaseText(typeRows[0]?.descriptionProductType) === "MATÉRIA-PRIMA" && !/^MP-/i.test(skuProduct)) {
           throw new SaleValidationError(`Linha ${line}: o SKU de matéria-prima deve começar com MP-.`);
         }
         const [unitRows] = codeUnit
@@ -3173,8 +3257,13 @@ const server = createServer(async (request, response) => {
         );
         importedCount += 1;
       }
-      await connection.commit();
-      json(response, 201, { importedCount });
+      if (validateOnly) {
+        await connection.rollback();
+        json(response, 200, { valid: true, validatedCount: rows.length });
+      } else {
+        await connection.commit();
+        json(response, 201, { importedCount });
+      }
     } catch (error) {
       if (connection) await connection.rollback().catch(() => {});
       handleError(response, error, {
@@ -3192,7 +3281,7 @@ const server = createServer(async (request, response) => {
     try {
       const payload = await readJsonBody(request);
       const idProduct = parsePositiveId(payload.idProduct);
-      const nameProduct = typeof payload.nameProduct === "string" ? payload.nameProduct.trim() : "";
+      const nameProduct = typeof payload.nameProduct === "string" ? uppercaseText(payload.nameProduct) : "";
       const skuProduct = typeof payload.skuProduct === "string" ? payload.skuProduct.trim().toUpperCase() : "";
       const pdvCodeProduct = payload.pdvCodeProduct === null || payload.pdvCodeProduct === undefined ? null : String(payload.pdvCodeProduct).trim() || null;
       const ncmProduct = typeof payload.ncmProduct === "string" ? payload.ncmProduct.replace(/\D/g, "") : "";
@@ -3218,7 +3307,7 @@ const server = createServer(async (request, response) => {
       const priceProduct = nonSaleProduct
         ? costPriceProduct
         : parseMoney(payload.priceProduct, "Preço");
-      if (productTypeRows[0]?.descriptionProductType === "Matéria-Prima" && !/^MP-/i.test(skuProduct)) {
+      if (uppercaseText(productTypeRows[0]?.descriptionProductType) === "MATÉRIA-PRIMA" && !/^MP-/i.test(skuProduct)) {
         throw new SaleValidationError("O SKU de matéria-prima deve começar com MP-.");
       }
       const [unitRows] = await pool.query("SELECT idUnit FROM units WHERE idUnit = ? AND isActiveUnit = 1", [idUnitProduct]);
@@ -3339,7 +3428,7 @@ const server = createServer(async (request, response) => {
         await ensurePaymentMethodSchema();
         const payload = await readJsonBody(request);
         const idPaymentMethod = request.method === "PUT" ? parsePositiveId(payload.idPaymentMethod) : null;
-        const namePaymentMethod = typeof payload.namePaymentMethod === "string" ? payload.namePaymentMethod.trim() : "";
+        const namePaymentMethod = typeof payload.namePaymentMethod === "string" ? uppercaseText(payload.namePaymentMethod) : "";
         const cashFlowAccountPaymentMethod = payload.cashFlowAccountPaymentMethod;
         const termDaysPaymentMethod = Number(payload.termDaysPaymentMethod);
         const discountValuePaymentMethod = Number(payload.discountValuePaymentMethod);
@@ -3455,7 +3544,7 @@ const server = createServer(async (request, response) => {
       const payload = await readJsonBody(request);
       const catalog = typeof payload.catalogFiscalCatalogItem === "string" ? payload.catalogFiscalCatalogItem.trim() : "";
       const idFiscalCatalogItem = request.method === "PUT" ? parsePositiveId(payload.idFiscalCatalogItem) : null;
-      const descriptionFiscalCatalogItem = typeof payload.descriptionFiscalCatalogItem === "string" ? payload.descriptionFiscalCatalogItem.trim() : "";
+      const descriptionFiscalCatalogItem = typeof payload.descriptionFiscalCatalogItem === "string" ? uppercaseText(payload.descriptionFiscalCatalogItem) : "";
       let codeFiscalCatalogItem = typeof payload.codeFiscalCatalogItem === "string" ? payload.codeFiscalCatalogItem.trim() : "";
       if (catalog === "cfops") codeFiscalCatalogItem = normalizeCfopCode(codeFiscalCatalogItem);
       if (slugCodeCatalogs.has(catalog)) codeFiscalCatalogItem = slugifyCatalogDescription(descriptionFiscalCatalogItem);
@@ -3561,7 +3650,7 @@ const server = createServer(async (request, response) => {
     try {
       const payload = await readJsonBody(request);
       const idFiscalOperation = request.method === "PUT" ? parsePositiveId(payload.idFiscalOperation) : null;
-      const descriptionFiscalOperation = typeof payload.descriptionFiscalOperation === "string" ? payload.descriptionFiscalOperation.trim() : "";
+      const descriptionFiscalOperation = typeof payload.descriptionFiscalOperation === "string" ? uppercaseText(payload.descriptionFiscalOperation) : "";
       const taxRegimeFiscalOperation = typeof payload.taxRegimeFiscalOperation === "string" ? payload.taxRegimeFiscalOperation.trim() : "";
       const typeFiscalOperation = payload.typeFiscalOperation;
       const contextFiscalOperation = payload.contextFiscalOperation;
@@ -3716,37 +3805,19 @@ const server = createServer(async (request, response) => {
 });
 server.listen(config.apiPort, config.apiHost, () => {
   console.log(`API PDV ouvindo em http://${config.apiHost}:${config.apiPort}`);
-  void ensureFiscalCatalogSchema().catch((error) => {
-    console.error("Falha ao preparar os cadastros fiscais:", error);
-  });
-  void ensureFiscalOperationSchema().catch((error) => {
-    console.error("Falha ao preparar as operações fiscais:", error);
-  });
-  void ensureNcmCestSchema().catch((error) => {
-    console.error("Falha ao preparar o cadastro NCM / CEST:", error);
-  });
-  void ensureProductFiscalSchema().catch((error) => {
-    console.error("Falha ao preparar os campos fiscais dos produtos:", error);
-  });
-  void ensureProductCatalogSchema().catch((error) => {
-    console.error("Falha ao preparar os cadastros auxiliares de produtos:", error);
-  });
-  void ensurePrinterSettingsSchema().catch((error) => {
-    console.error("Falha ao preparar as configurações de impressora:", error);
-  });
-  void ensureGeneralSettingsSchema().catch((error) => {
-    console.error("Falha ao preparar as configurações gerais:", error);
-  });
-  void ensureCompanySchema().catch((error) => {
-    console.error("Falha ao preparar o cadastro da empresa:", error);
-  });
-  void ensureSupplierSchema().catch((error) => {
-    console.error("Falha ao preparar o cadastro de fornecedores:", error);
-  });
-  void ensureCustomerConsumerSchema().catch((error) => {
-    console.error("Falha ao preparar clientes, consumidores e vales:", error);
-  });
-  void ensureNavigationSchema().catch((error) => {
-    console.error("Falha ao preparar a estrutura de navegação:", error);
+  void Promise.all([
+    ensureFiscalCatalogSchema(),
+    ensureFiscalOperationSchema(),
+    ensureNcmCestSchema(),
+    ensureProductFiscalSchema(),
+    ensureProductCatalogSchema(),
+    ensurePrinterSettingsSchema(),
+    ensureGeneralSettingsSchema(),
+    ensureCompanySchema(),
+    ensureSupplierSchema(),
+    ensureCustomerConsumerSchema(),
+    ensureNavigationSchema()
+  ]).then(() => ensureUppercaseTextData()).catch((error) => {
+    console.error("Falha ao preparar ou normalizar o banco:", error);
   });
 });

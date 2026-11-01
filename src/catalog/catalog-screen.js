@@ -186,16 +186,18 @@ export function createCatalogScreen({
 
   const getDefaultProductType = () =>
     productTypes.find(({ descriptionProductType }) =>
-      ["Mercadoria para Revenda", "Revenda de Mercadorias"].includes(descriptionProductType)
+      ["MERCADORIA PARA REVENDA", "REVENDA DE MERCADORIAS"].includes(
+        descriptionProductType.toLocaleUpperCase("pt-BR")
+      )
     ) || productTypes[0];
 
   const getScreenProductType = () =>
     productTypes.find(({ descriptionProductType }) =>
-      descriptionProductType === productTypeDescription
+      descriptionProductType.toLocaleUpperCase("pt-BR") === productTypeDescription.toLocaleUpperCase("pt-BR")
     ) || getDefaultProductType();
 
-  const isNonSaleCatalog = ["Matéria-Prima", "Embalagem", "Material de Uso e Consumo"]
-    .includes(productTypeDescription);
+  const isNonSaleCatalog = ["MATÉRIA-PRIMA", "EMBALAGEM", "MATERIAL DE USO E CONSUMO"]
+    .includes(productTypeDescription.toLocaleUpperCase("pt-BR"));
 
   const renderPriceFields = (product, isEdit = false) => {
     const costValue = isEdit

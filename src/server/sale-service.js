@@ -136,7 +136,7 @@ export async function createSale(connection, payload) {
     if (paymentMethods.length !== new Set(input.payments.map(({ idPaymentMethod }) => idPaymentMethod)).size) {
       throw new SaleValidationError("Uma ou mais formas de pagamento não estão disponíveis.", 409);
     }
-    const usesVoucher = paymentMethods.some((method) => method.namePaymentMethod === "Vale");
+    const usesVoucher = paymentMethods.some((method) => method.namePaymentMethod?.toLocaleUpperCase("pt-BR") === "VALE");
     if (usesVoucher && !input.idCustomerSale) throw new SaleValidationError("Selecione o cliente para registrar a venda em Vale.");
     if (usesVoucher) {
       const [customers] = await connection.query(

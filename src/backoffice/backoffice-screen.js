@@ -177,6 +177,7 @@ export function createBackofficeScreen({
     settings: onSettings,
     company: onCompany,
     nfce: onNfce,
+    "nfce-query": onNfceQuery,
     "payment-methods": onPaymentMethods
   });
   root.querySelector("[data-back]")?.addEventListener("click", onBack);

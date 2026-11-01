@@ -25,7 +25,10 @@ CSC, tokens e dados sensíveis permanecem no servidor.
 Ao alterar uma área consolidada, consulte o histórico para preservar decisões
 já tomadas, especialmente a ausência de cargas padrão, a navegação persistida,
 a separação entre Dados da Empresa e NFC-e e a impressão posterior à
-confirmação da venda.
+confirmação da venda. Campos textuais humanos devem ser persistidos em
+maiúsculas com acentuação preservada; códigos, e-mails, URLs, rotas e chaves
+técnicas ficam fora dessa normalização. O Construtor de Menu também preserva
+sua formatação própria.
 
 Use SQL parametrizado, transações para operações compostas e erros explícitos.
 Não transforme falha de banco ou de impressão em sucesso na interface.

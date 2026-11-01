@@ -83,7 +83,12 @@ export function createNcmCestUpdateScreen({ onBack, onTools, onProducts, onTherm
       </div>
       <section class="classic-content">
         ${renderSuccessFeedback(message, escapeHtml)}
-        <div class="classic-form-panel">
+        <div class="backoffice-home-heading">
+          <p class="eyebrow">Ferramentas</p>
+          <h1>Atualizar NCM / CEST</h1>
+          <p>Atualize os catálogos fiscais oficiais usados nas consultas e validações do PDV.</p>
+        </div>
+        <div class="classic-form-panel ncm-cest-update-panel">
           <div class="classic-panel-header">Atualização dos catálogos oficiais</div>
           <div class="classic-form-body">
             <p>Baixe a NCM vigente da Receita Federal e a tabela CEST publicada pelo CONFAZ. A operação substitui apenas o catálogo ativo e mantém o histórico da execução.</p>

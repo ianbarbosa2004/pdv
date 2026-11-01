@@ -10,6 +10,7 @@
     "test": "node --test",
     "api": "node --env-file=.env src/server/server.js",
     "tauri": "tauri",
+    "migrate:uppercase": "node --env-file=.env scripts/migrate-uppercase-data.mjs",
     "release:client": "node scripts/build-client-release.mjs"
   },
   "dependencies": {

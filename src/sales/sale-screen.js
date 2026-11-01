@@ -104,7 +104,7 @@ export function createSaleScreen({ onBackoffice, initialApiError = false, onApiC
                 aria-label="Buscar produto"
               />
             </label>
-            ${paymentMethods.find((method) => String(method.idPaymentMethod) === String(idPaymentMethod))?.namePaymentMethod === "Vale" ? `
+            ${paymentMethods.find((method) => String(method.idPaymentMethod) === String(idPaymentMethod))?.namePaymentMethod?.toLocaleUpperCase("pt-BR") === "VALE" ? `
               <label class="form-field">
                 <span>Cliente do Vale</span>
                 <select data-customer-sale required>

@@ -250,13 +250,13 @@ novas pelo `schema.sql` e adicionada de forma idempotente em bases existentes.
 Fornecedores são mantidos em uma tela própria no menu **Cadastros**. O
 cadastro cobre pessoa jurídica e pessoa física, documento, razão social/nome,
 nome fantasia, contato, telefone, e-mail, endereço completo, UF e observações.
-O país não é solicitado na tela e a API mantém `Brasil` como padrão. CNPJ/CPF,
+O país não é solicitado na tela e a API mantém `BRASIL` como padrão. CNPJ/CPF,
 telefone e CEP recebem máscara durante a digitação; e-mails são normalizados
 sem espaços e em minúsculas. O documento é armazenado sem máscara e possui
 unicidade por tipo de pessoa; a interface apresenta o valor formatado.
-Os dados retornados pelas consultas usam capitalização de palavras para
-facilitar a revisão no formulário. No salvamento, a API preserva o texto
-informado pelo operador, sem alterar maiúsculas e minúsculas.
+Os dados retornados pelas consultas são apresentados em maiúsculas, preservando
+a acentuação. No salvamento, os campos textuais humanos são normalizados para
+maiúsculas pela API.
 
 No formulário de novo fornecedor, o botão ao lado do CNPJ consulta a BrasilAPI
 e preenche razão social, nome fantasia, contato, telefone, e-mail e endereço
@@ -296,9 +296,38 @@ linha falhar, nenhum produto do lote é persistido.
 A tela disponibiliza downloads em Markdown com as listas atuais de **Grupos**,
 **Operações Fiscais de Venda**, **Tipos de Produto** e **Unidades**, indicando a
 coluna do CSV e o valor exato que deve ser informado. O campo de nome/descrição
-do produto é salvo em formato Capitalize durante a importação. NCM e CEST podem
+do produto é salvo em maiúsculas, preservando a acentuação, durante a importação.
+Os campos textuais de cadastros existentes também são normalizados para maiúsculas
+na inicialização da API. NCM e CEST podem
 ser informados com pontuação, como `0201.30.00` e `0603.10.00`; a API remove a
 formatação antes de validar e persistir os códigos.
+
+### Migração de textos existentes
+
+Para converter os textos já armazenados no MariaDB para maiúsculas, execute no
+ambiente do servidor:
+
+```powershell
+npm.cmd run migrate:uppercase
+```
+
+O comando usa as credenciais do `.env`, verifica as tabelas existentes e executa
+a alteração em uma única transação. A migração é idempotente: executar novamente
+não altera valores que já estejam normalizados.
+
+São convertidos textos humanos de produtos, grupos, classes, clientes,
+consumidores, fornecedores, empresa, formas de pagamento, NCM/CEST, operações
+fiscais, catálogos fiscais e nomes persistidos nos itens de venda. O construtor
+de menus não participa da migração. Códigos, e-mails, URLs, chaves técnicas,
+rotas, enums e demais identificadores não são convertidos.
+
+Antes da escrita, o comando verifica colisões nos campos textuais com índice
+único, como classe, grupo, tipo de produto e forma de pagamento. Se dois valores
+distintos se tornarem iguais após a conversão, a migração é interrompida sem
+alterar o banco e informa a tabela e a coluna conflitantes. Não execute a
+migração com a API em processo de atualização concorrente; faça backup conforme
+o procedimento operacional do servidor antes de uma primeira execução em
+produção.
 
 ### Distribuição do PDV Zanzibar
 
@@ -310,8 +339,26 @@ ser substituído explicitamente com `--api-url`. O comando não faz push ou
 deploy.
 O instalador deve ser gerado novamente após trocar o ícone. Na máquina do
 cliente, instale o arquivo recém-gerado e crie um novo atalho; o Windows pode
-manter em cache o ícone de atalhos antigos. O arquivo `*-metadata.json` gerado junto aos instaladores registra o nome do
-projeto, a API usada e a origem dos ícones para conferência da distribuição.
+manter em cache o ícone de atalhos antigos. O arquivo `*-metadata.json` gerado
+junto aos instaladores registra o nome do projeto, a API usada e a origem dos
+ícones para conferência da distribuição.
+
+### Painéis introdutórios e rotas administrativas
+
+As telas de Ferramentas e Configurações usam o componente visual
+`.backoffice-home-heading` para apresentar categoria, título e descrição da
+função antes do formulário ou da listagem. O CSS compartilhado faz o painel
+ocupar a linha inteira quando necessário e mantém margem inferior de 20 px
+antes do conteúdo seguinte. A tela Atualizar NCM / CEST usa
+`.ncm-cest-update-panel` para ocupar 100% da largura; a tela Dados da Empresa
+usa o mesmo padrão de introdução.
+
+Operações Fiscais e Consulta de NFC-e possuem aliases diretos no roteamento
+principal (`fiscal-operations` e `nfce-query`), além dos handlers usados pelos
+menus e barras contextuais. Ao criar uma nova entrada persistida, o
+`keyNavigationItem` deve apontar para um handler registrado em `src/main.js`,
+ou a entrada deve informar uma `routeNavigationItem` que possa ser resolvida
+pelo roteamento compartilhado.
 
 Na tela **Matérias-primas**, um novo cadastro inicia com SKU `MP-`, sem operação
 fiscal de venda, **Controla estoque** desmarcado e **Exibe no PDV** desmarcado.

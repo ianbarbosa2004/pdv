@@ -77,7 +77,7 @@ const parseNcmPayload = (payload) => {
   const items = rows
     .map((row) => ({
       codeNcm: normalizeCode(row.Codigo ?? row.codigo ?? row.code, 8),
-      descriptionNcm: normalizeText(row.Descricao ?? row.descricao ?? row.description)
+      descriptionNcm: normalizeText(row.Descricao ?? row.descricao ?? row.description).toLocaleUpperCase("pt-BR")
     }))
     .filter((row) => row.codeNcm && row.descriptionNcm);
   if (!items.length) throw new Error("A fonte NCM não contém códigos fiscais de oito dígitos.");
@@ -98,10 +98,10 @@ const parseCestRows = (rows) => {
     );
     const descriptionCest = normalizeText(
       getField(row, ["descricao", "descricaocest", "description", "item"])
-    );
+    ).toLocaleUpperCase("pt-BR");
     const segmentCest = normalizeText(
       getField(row, ["segmento", "segment", "segmentocest"])
-    );
+    ).toLocaleUpperCase("pt-BR");
     if (!codeCest || !descriptionCest) continue;
     items.push({ codeCest, descriptionCest, segmentCest: segmentCest || null });
     if (codeNcm) relations.push({ codeNcm, codeCest });

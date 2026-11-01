@@ -8,6 +8,7 @@ import { createFiscalOperationScreen } from "./catalog/fiscal-operation-screen.j
 import { createFiscalCatalogScreen } from "./catalog/fiscal-catalog-screen.js";
 import { createThermalPrintScreen } from "./tools/thermal-print-screen.js";
 import { createNcmCestUpdateScreen } from "./tools/ncm-cest-update-screen.js";
+import { createNfceQueryScreen } from "./tools/nfce-query-screen.js";
 import { createApiStatusScreen } from "./tools/api-status-screen.js";
 import { createSettingsScreen } from "./settings/settings-screen.js";
 import { createNcmCestScreen } from "./catalog/ncm-cest-screen.js";
@@ -48,6 +49,7 @@ const common = () => ({
   onUnits: showUnits,
   onNcmCest: showNcmCest,
   onFiscalOperations: showFiscalOperations,
+  "fiscal-operations": showFiscalOperations,
   onThermalPrint: showThermalPrint,
   onNcmCestUpdate: showNcmCestUpdate,
   onApiStatus: showApiStatus,
@@ -57,6 +59,8 @@ const common = () => ({
   "general-settings": showGeneralSettings,
   onCompany: showCompany,
   onNfce: showNfce,
+  onNfceQuery: showNfceQuery,
+  "nfce-query": showNfceQuery,
   onNavigationBuilder: showNavigationBuilder,
   "navigation-builder": showNavigationBuilder,
   onFinancial: showPaymentMethods,
@@ -197,6 +201,8 @@ const showCompany = () =>
   mount(createCompanyScreen({ onBack: showBackoffice, ...common() }));
 const showNfce = () =>
   mount(createNfceScreen({ onBack: showBackoffice, ...common() }));
+const showNfceQuery = () =>
+  mount(createNfceQueryScreen({ onBack: showBackoffice, onNfce: showNfce, ...common() }));
 const showNavigationBuilder = () =>
   mount(createNavigationBuilderScreen({ onBack: showSettings, ...common() }));
 

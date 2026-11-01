@@ -238,6 +238,7 @@ export function createCatalogImportScreen({
       <section class="classic-content">
         ${renderSuccessFeedback(message, escapeHtml)}
         <div class="backoffice-home-heading">
+          <p class="eyebrow">Ferramentas</p>
           <h1>Importar cadastros</h1>
           <p>Use o modelo CSV para testar e importar produtos em lote sem cadastrar cada item manualmente.</p>
         </div>
@@ -245,7 +246,7 @@ export function createCatalogImportScreen({
           <div class="classic-panel-header">Importar Produtos</div>
           <div class="classic-form-body">
             <input data-file-input type="file" accept=".csv,text/csv" hidden />
-            <p class="form-help">Campos principais: SKU, # PDV, nome, grupo e preço. O nome/descrição do produto será salvo em Capitalize. NCM e CEST aceitam números formatados, como 0201.30.00 e 0603.10.00.</p>
+            <p class="form-help">Selecione um arquivo CSV para validá-lo antes da importação. Este painel verifica os dados, identifica erros e permite importar vários produtos em uma única operação.</p>
             <p data-file-name>${selectedFile ? escapeHtml(`${selectedFile.name} — ${rows.length} linha(s) válida(s)`) : "Nenhum arquivo selecionado."}</p>
             ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}
           </div>
@@ -287,6 +288,17 @@ export function createCatalogImportScreen({
   const readSelectedFile = async () => {
     if (!selectedFile) throw new Error("Selecione um arquivo CSV antes de testar.");
     rows = parseCsv(await selectedFile.text());
+  };
+
+  const validateRowsWithApi = async () => {
+    const response = await fetch(`${getApiUrl()}/api/products/import`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rows, validateOnly: true })
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Não foi possível validar o arquivo.");
+    return payload;
   };
 
   const bind = () => {
@@ -355,6 +367,7 @@ export function createCatalogImportScreen({
       }
       try {
         await readSelectedFile();
+        await validateRowsWithApi();
         error = "";
         message = `Arquivo válido: ${rows.length} produto(s) pronto(s) para importação.`;
         scheduleMessageClear(() => { message = ""; render(); });

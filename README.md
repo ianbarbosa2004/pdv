@@ -308,9 +308,9 @@ campos obrigatórios antes de persistir o cadastro.
 
 O formulário aplica máscaras de CNPJ/CPF, telefone e CEP, oferece consulta
 auxiliar de CNPJ pela BrasilAPI e de CEP pelo ViaCEP, inclusive na edição, e
-apresenta os dados retornados com capitalização de palavras. As consultas não
-substituem a revisão do operador; no salvamento, a API preserva o texto
-informado, sem alterar maiúsculas e minúsculas.
+apresenta os dados retornados em maiúsculas, preservando a acentuação. As
+consultas não substituem a revisão do operador; no salvamento, os campos
+textuais humanos são normalizados para maiúsculas pela API.
 
 As configurações de empresa e NFC-e são separadas: `/api/company` mantém os
 dados cadastrais e `/api/company/nfce` mantém os parâmetros fiscais. A API
@@ -418,6 +418,13 @@ também tenta `routeNavigationItem`. Dessa forma, novos itens e submenus podem
 reutilizar telas existentes sem alterações manuais na Retaguarda; apenas rotas
 que não possuem handler registrado precisam de uma nova implementação.
 
+As telas administrativas usam um painel introdutório comum com categoria,
+título e descrição funcional. O painel ocupa a linha inteira quando a tela
+combina introdução com formulário ou listagem e mantém espaçamento visual
+antes do conteúdo seguinte. Esse padrão também é aplicado a Dados da Empresa,
+Operações Fiscais, Atualizar NCM / CEST, Importar cadastros, Impressão térmica,
+Consulta de NFC-e e Configuração NFC-e.
+
 ## Impressão térmica
 
 A tela **Retaguarda > Ferramentas > Impressão térmica** permite montar e
@@ -456,6 +463,8 @@ de ser considerado pronto para produção.
 | `npm.cmd run api` | Inicia a API Node.js |
 | `npm.cmd run build` | Compila o frontend |
 | `npm.cmd test` | Executa os testes com `node:test` |
+| `npm.cmd run migrate:uppercase` | Normaliza textos humanos existentes no MariaDB |
+| `npm.cmd run release:client -- --api-url=...` | Gera instaladores MSI/EXE com a API informada |
 | `npm.cmd exec tauri info` | Verifica o ambiente nativo |
 | `npm.cmd run tauri -- build --no-bundle` | Compila o aplicativo Tauri |
 
@@ -513,8 +522,14 @@ Consulte:
 - [Instalação do serviço Windows da API](scripts/install-windows-service.ps1)
 
 O executável Tauri local consulta a API em `http://127.0.0.1:3000`. Para um
-terminal apontar para o servidor da loja durante a compilação, defina
-`VITE_PDV_API_URL` antes de executar o build.
+terminal apontar para o servidor da loja durante a compilação, prefira:
+
+```powershell
+npm.cmd run release:client -- --api-url=http://IP_DO_SERVIDOR:3000
+```
+
+Para um build Tauri sem o fluxo de distribuição, ainda é possível definir
+`VITE_PDV_API_URL` antes de executar `npm.cmd run tauri -- build`.
 
 O teste de emissão NFC-e no servidor também requer o OpenSSL instalado. A
 instalação do serviço Windows detecta o executável e configura
