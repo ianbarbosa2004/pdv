@@ -1,9 +1,11 @@
 import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { bindFormRowPreview } from "../ui/form-row-preview.js";
+import { renderPreservingFormDraft } from "../ui/form-draft.js";
 import { bindFiscalNavigation, renderFiscalNavigation } from "./fiscal-navigation.js";
 import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { getApiUrl } from "../shared/api.js";
+import { confirmAction } from "../ui/confirmation-modal.js";
 
 const escapeHtml = (value) =>
   String(value ?? "")
@@ -252,7 +254,7 @@ export function createFiscalOperationScreen({
       catalogs = Object.fromEntries(catalogPayloads.map((payload) => [payload.catalog, payload.items]));
       error = "";
     } catch (loadError) { error = loadError instanceof Error ? loadError.message : "Falha ao carregar operações fiscais."; }
-    finally { loading = false; render(); }
+    finally { loading = false; renderPreservingFormDraft(root, render); }
   };
 
   const submit = async (form) => {
@@ -281,7 +283,12 @@ export function createFiscalOperationScreen({
   };
 
   const remove = async (idFiscalOperation) => {
-    if (!window.confirm("Excluir esta operação fiscal definitivamente?")) return;
+    const confirmed = await confirmAction({
+      title: "Excluir operação fiscal",
+      message: "Excluir esta operação fiscal definitivamente?",
+      confirmLabel: "Excluir operação"
+    });
+    if (!confirmed) return;
     try {
       const response = await fetch(`${getApiUrl()}/api/fiscal-operations`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idFiscalOperation }) });
       const result = await response.json();

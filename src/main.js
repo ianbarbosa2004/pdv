@@ -21,13 +21,25 @@ import { createGeneralSettingsScreen } from "./settings/general-settings-screen.
 import { createCatalogImportScreen } from "./tools/catalog-import-screen.js";
 import { createSupplierScreen } from "./catalog/supplier-screen.js";
 import { createCustomerConsumerScreen } from "./catalog/customer-consumer-screen.js";
+import { createBackupScreen } from "./tools/backup-screen.js";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { loadProjectIcon } from "./ui/project-icon.js";
 import { installTablePagination } from "./ui/table-pagination.js";
-import { getApiUrl, loadConfiguredApiUrl } from "./shared/api.js";
+import {
+  getApiUrl,
+  getConfiguredBackupDirectory,
+  loadConfiguredApiUrl
+} from "./shared/api.js";
+import { ensureApiStatusNavigation } from "./shared/navigation-defaults.js";
 
 const app = document.querySelector("#app");
 
 if (!app) throw new Error("Elemento raiz da aplicação não encontrado.");
+
+function requestExit() {
+  if (!window.__TAURI_INTERNALS__) return;
+  void getCurrentWindow().close();
+}
 
 const mount = (screen) => {
   app.replaceChildren(screen);
@@ -54,6 +66,8 @@ const common = () => ({
   onNcmCestUpdate: showNcmCestUpdate,
   onApiStatus: showApiStatus,
   "api-status": showApiStatus,
+  onBackup: showBackup,
+  backup: showBackup,
   onSettings: showSettings,
   onGeneralSettings: showGeneralSettings,
   "general-settings": showGeneralSettings,
@@ -72,7 +86,9 @@ const common = () => ({
   onCustomers: showCustomers,
   customers: showCustomers,
   onConsumers: showConsumers,
-  consumers: showConsumers
+  consumers: showConsumers,
+  exit: requestExit,
+  sair: requestExit
 });
 
 const showSales = (options = {}) => mount(createSaleScreen({ onBackoffice: showBackoffice, ...options }));
@@ -97,6 +113,8 @@ const showNcmCestUpdate = () =>
   }));
 const showApiStatus = () =>
   mount(createApiStatusScreen({ onBack: showBackoffice, onTools: showApiStatus, ...common() }));
+const showBackup = () =>
+  mount(createBackupScreen({ onBack: showBackoffice, onTools: showBackup, ...common() }));
 const showCatalogImport = () =>
   mount(createCatalogImportScreen({ onBack: showBackoffice, onTools: showCatalogImport, ...common() }));
 const showSuppliers = () =>
@@ -208,16 +226,167 @@ const showNavigationBuilder = () =>
 
 window.__PDV_NAVIGATION_HANDLERS__ = common();
 
+const createCloseBackupPrompt = () => {
+  const backdrop = document.createElement("div");
+  backdrop.className = "classic-modal-backdrop close-backup-backdrop";
+  backdrop.setAttribute("data-close-backup-modal", "");
+  document.body.append(backdrop);
+
+  let state = "question";
+  let result = null;
+  let resolvePrompt;
+
+  const close = (value) => {
+    result = value;
+    backdrop.remove();
+    resolvePrompt?.(value);
+  };
+
+  const render = (details = {}) => {
+    const isBusy = state === "loading";
+    const isSuccess = state === "success";
+    const isError = state === "error";
+    const title = isBusy
+      ? "Criando backup"
+      : isSuccess
+        ? "Backup concluído"
+        : isError
+          ? "Não foi possível criar o backup"
+          : "Sair do sistema";
+    const message = isBusy
+      ? "Aguarde enquanto salvamos uma cópia dos dados no servidor da API."
+      : isSuccess
+        ? "O backup foi criado com sucesso. Você já pode sair do sistema."
+        : isError
+          ? "O sistema não conseguiu concluir o backup. Escolha como deseja continuar."
+          : "Deseja criar um backup antes de sair do sistema?";
+    const detail = isSuccess
+      ? `<p class="close-backup-success">Arquivo criado: <strong>${details.fileName || "backup compactado"}</strong></p>`
+      : isError
+        ? `<p class="close-backup-error">${details.message || "Verifique a conexão com a API e tente novamente."}</p>`
+        : "";
+
+    backdrop.innerHTML = `
+      <section class="classic-modal close-backup-modal" role="dialog" aria-modal="true" aria-labelledby="close-backup-title" aria-describedby="close-backup-message">
+        <div class="classic-panel-header modal-panel-header">
+          <span id="close-backup-title">${title}</span>
+          ${!isBusy && !isSuccess ? '<button class="modal-close-button" data-close-backup-cancel type="button" aria-label="Cancelar saída" title="Cancelar">×</button>' : ""}
+        </div>
+        <div class="close-backup-body">
+          <div class="close-backup-icon ${isSuccess ? "success" : isError ? "error" : ""}" aria-hidden="true">${isSuccess ? "✓" : isError ? "!" : "↓"}</div>
+          <p id="close-backup-message" class="modal-help-text">${message}</p>
+          ${detail}
+        </div>
+        <div class="classic-form-actions close-backup-actions">
+          ${isBusy ? '<span class="close-backup-status" role="status" aria-live="polite">Processando...</span>' : ""}
+          ${isSuccess
+            ? '<button class="classic-button primary" data-close-backup-finish type="button">Sair do sistema</button>'
+            : isError
+              ? '<button class="classic-button primary" data-close-backup-retry type="button">Tentar novamente</button><button class="classic-button" data-close-backup-without type="button">Sair sem backup</button><button class="classic-button" data-close-backup-cancel type="button">Cancelar</button>'
+              : !isBusy
+                ? '<button class="classic-button primary" data-close-backup-create type="button">Criar backup e sair</button><button class="classic-button" data-close-backup-without type="button">Sair sem backup</button><button class="classic-button" data-close-backup-cancel type="button">Cancelar</button>'
+                : ""}
+        </div>
+      </section>
+    `;
+
+    backdrop.querySelector("[data-close-backup-create]")?.focus();
+    backdrop.querySelector("[data-close-backup-finish]")?.focus();
+    backdrop.querySelector("[data-close-backup-retry]")?.focus();
+  };
+
+  backdrop.addEventListener("click", (event) => {
+    if (event.target === backdrop || event.target.closest("[data-close-backup-cancel]")) {
+      close("cancel");
+      return;
+    }
+    if (event.target.closest("[data-close-backup-without]")) {
+      close("without");
+      return;
+    }
+    if (event.target.closest("[data-close-backup-finish]")) {
+      close("success");
+      return;
+    }
+    if (event.target.closest("[data-close-backup-retry]")) {
+      state = "question";
+      render();
+      return;
+    }
+    if (event.target.closest("[data-close-backup-create]")) {
+      state = "loading";
+      render();
+      void fetch(`${getApiUrl()}/api/backups`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ backupDirectory: getConfiguredBackupDirectory() })
+      })
+        .then(async (response) => {
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(payload.error || "Não foi possível criar o backup.");
+          state = "success";
+          render(payload.backup || {});
+        })
+        .catch((error) => {
+          state = "error";
+          render({
+            message: error instanceof Error ? error.message : "Não foi possível criar o backup."
+          });
+        });
+    }
+  });
+
+  backdrop.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && state !== "loading" && state !== "success") {
+      event.preventDefault();
+      close("cancel");
+    }
+  });
+
+  render();
+  return new Promise((resolve) => {
+    resolvePrompt = resolve;
+  });
+};
+
+const installCloseBackupPrompt = () => {
+  if (!window.__TAURI_INTERNALS__) return;
+  let closing = false;
+  let promptOpen = false;
+  void getCurrentWindow().onCloseRequested(async (event) => {
+    if (closing) return;
+    if (promptOpen) {
+      event.preventDefault();
+      return;
+    }
+    event.preventDefault();
+    promptOpen = true;
+    try {
+      const decision = await createCloseBackupPrompt();
+      if (decision === "without" || decision === "success") {
+        closing = true;
+        window.setTimeout(() => {
+          void getCurrentWindow().destroy().catch(() => {
+            void getCurrentWindow().close();
+          });
+        }, 0);
+      }
+    } finally {
+      promptOpen = false;
+    }
+  });
+};
+
 
 
 const loadNavigation = async () => {
   const apiUrl = getApiUrl();
-  const response = await fetch(`${apiUrl}/api/navigation`);
+  const response = await fetch(`${apiUrl}/api/navigation?includeInactive=1`);
   const payload = await response.json();
   if (!response.ok || !Array.isArray(payload.menus) || !Array.isArray(payload.items)) {
     throw new Error("A API retornou uma navegação inválida.");
   }
-  window.__PDV_NAVIGATION__ = payload;
+  window.__PDV_NAVIGATION__ = ensureApiStatusNavigation(payload);
   window.__PDV_NAVIGATION_SOURCE__ = "api";
 };
 
@@ -235,13 +404,14 @@ const checkApiHealth = async () => {
 };
 
 const startApplication = async () => {
+  installCloseBackupPrompt();
   const apiHealthy = await checkApiHealth();
   let navigationError = false;
   try {
     await loadNavigation();
   } catch {
     navigationError = true;
-    window.__PDV_NAVIGATION__ = { menus: [], items: [] };
+    window.__PDV_NAVIGATION__ = ensureApiStatusNavigation({ menus: [], items: [] });
     window.__PDV_NAVIGATION_SOURCE__ = "unavailable";
   }
   await loadProjectIcon(getApiUrl()).catch(() => {});

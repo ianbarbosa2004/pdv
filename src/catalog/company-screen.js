@@ -1,6 +1,7 @@
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { setProjectIcon } from "../ui/project-icon.js";
 import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { renderPreservingFormDraft } from "../ui/form-draft.js";
 import { getApiUrl } from "../shared/api.js";
 
 const escapeHtml = (value) =>
@@ -405,7 +406,7 @@ export function createCompanyScreen({
       error = loadError instanceof Error ? loadError.message : "Falha ao carregar o cadastro da empresa.";
     } finally {
       loading = false;
-      render();
+      renderPreservingFormDraft(root, render);
     }
   };
 

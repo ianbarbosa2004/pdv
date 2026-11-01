@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  DEFAULT_NAVIGATION,
+  ensureApiStatusNavigation,
   isNavigationKey,
+  mergeNavigationDefaults,
   normalizeNavigationKey
 } from "../src/shared/navigation-defaults.js";
 import { selectContextualNavigationItems } from "../src/ui/contextual-navigation.js";
@@ -128,4 +131,76 @@ test("prioriza handler da chave quando a rota persistida é diferente", () => {
   };
 
   assert.equal(resolveNavigationHandler({}, "fiscal-operations"), keyHandler);
+});
+
+test("recria a rota essencial de Status da API quando a navegação persistida a perde", () => {
+  const navigation = ensureApiStatusNavigation({
+    menus: [{ idNavigationMenu: 1, keyNavigationMenu: "tools", labelNavigationMenu: "Ferramentas" }],
+    items: [{ idNavigationItem: 5, idNavigationMenu: 1, keyNavigationItem: "backup", routeNavigationItem: "backup" }]
+  });
+
+  assert.equal(navigation.items.some((item) =>
+    item.keyNavigationItem === "api-status"
+    && item.routeNavigationItem === "api-status"
+    && item.isActiveNavigationItem === 1
+    && item.idNavigationMenu === 1
+  ), true);
+});
+
+test("corrige uma entrada existente de Status da API com rota ou menu incorretos", () => {
+  const navigation = ensureApiStatusNavigation({
+    menus: [
+      { idNavigationMenu: 1, keyNavigationMenu: "tools", labelNavigationMenu: "Ferramentas" },
+      { idNavigationMenu: 2, keyNavigationMenu: "cadastros", labelNavigationMenu: "Cadastros" }
+    ],
+    items: [{
+      idNavigationItem: 5,
+      idNavigationMenu: 2,
+      keyNavigationItem: "status",
+      labelNavigationItem: "Status da API",
+      routeNavigationItem: null,
+      isActiveNavigationItem: 0
+    }]
+  });
+
+  const statusItem = navigation.items.find((item) => item.keyNavigationItem === "api-status");
+  assert.equal(statusItem.idNavigationMenu, 1);
+  assert.equal(statusItem.routeNavigationItem, "api-status");
+  assert.equal(statusItem.isActiveNavigationItem, 0);
+});
+
+test("mantém a estrutura essencial completa quando a API retorna navegação parcial", () => {
+  const navigation = mergeNavigationDefaults({
+    menus: [{ idNavigationMenu: 7, keyNavigationMenu: "tools", labelNavigationMenu: "Ferramentas" }],
+    items: [{ idNavigationItem: 8, idNavigationMenu: 7, keyNavigationItem: "backup", routeNavigationItem: "backup" }]
+  });
+
+  assert.equal(navigation.menus.length, DEFAULT_NAVIGATION.menus.length);
+  for (const definition of DEFAULT_NAVIGATION.items) {
+    const item = navigation.items.find((entry) =>
+      entry.menuKey === definition.menuKey || entry.keyNavigationItem === definition.keyNavigationItem
+    );
+    assert.ok(item, `item ausente: ${definition.keyNavigationItem}`);
+  }
+  const products = navigation.items.find((item) => item.keyNavigationItem === "products");
+  const finishedGoods = navigation.items.find((item) => item.keyNavigationItem === "finished-goods");
+  assert.equal(finishedGoods.idParentNavigationItem, products.idNavigationItem);
+});
+
+test("mantém Sair como último menu ativo e não permite que ele desapareça", () => {
+  const navigation = mergeNavigationDefaults({
+    menus: [
+      { idNavigationMenu: 7, keyNavigationMenu: "tools", labelNavigationMenu: "Ferramentas", orderNavigationMenu: 99 },
+      { idNavigationMenu: 8, keyNavigationMenu: "exit", labelNavigationMenu: "Outro nome", orderNavigationMenu: 1, isActiveNavigationMenu: 0 }
+    ],
+    items: []
+  });
+  const ordered = [...navigation.menus].sort((left, right) =>
+    Number(left.orderNavigationMenu) - Number(right.orderNavigationMenu)
+  );
+  const exit = navigation.menus.find((menu) => menu.keyNavigationMenu === "exit");
+  assert.equal(exit.labelNavigationMenu, "Sair");
+  assert.equal(exit.isActiveNavigationMenu, 1);
+  assert.equal(exit.orderNavigationMenu, 65535);
+  assert.equal(ordered.at(-1), exit);
 });

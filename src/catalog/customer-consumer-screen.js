@@ -3,6 +3,7 @@ import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { bindFormRowPreview } from "../ui/form-row-preview.js";
 import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { getApiUrl } from "../shared/api.js";
+import { confirmAction } from "../ui/confirmation-modal.js";
 import {
   bindNumberMasks,
   formatMaskedNumber,
@@ -91,6 +92,7 @@ export function createCustomerConsumerScreen({
   let error = "";
   let message = "";
   let searchTerm = "";
+  let newDraft = {};
   const scheduleMessageClear = createFeedbackTimer();
 
   const load = async () => {
@@ -134,6 +136,10 @@ export function createCustomerConsumerScreen({
   };
 
   function render() {
+    const currentForm = root.querySelector(formSelector);
+    if (currentForm && !currentForm.classList.contains("form-preview-mode")) {
+      newDraft = { ...newDraft, ...Object.fromEntries(new FormData(currentForm)) };
+    }
     const visible = visibleItems();
     root.className = "catalog-screen";
     root.innerHTML = `
@@ -143,7 +149,7 @@ export function createCustomerConsumerScreen({
         ${renderSuccessFeedback(message, escapeHtml)}
         <form class="classic-form-panel supplier-form" data-${entity}-form>
           <div class="classic-panel-header">Novo ${singular}</div>
-          <div class="classic-form-body"><div class="classic-form-grid">${renderFields()}</div>${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}</div>
+          <div class="classic-form-body"><div class="classic-form-grid">${renderFields(newDraft)}</div>${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}</div>
           <div class="classic-form-actions"><button class="classic-button primary" type="submit" ${submitting || loading ? "disabled" : ""}>${submitting ? "Salvando..." : `Salvar ${singular}`}</button><button class="classic-button" data-clear type="button">Limpar</button></div>
         </form>
         <section class="classic-grid-panel">
@@ -182,7 +188,7 @@ export function createCustomerConsumerScreen({
     root.querySelector("[data-search]")?.addEventListener("input", (event) => { searchTerm = event.currentTarget.value; render(); root.querySelector("[data-search]")?.focus(); });
     root.querySelector(formSelector)?.addEventListener("submit", (event) => { event.preventDefault(); void submit(Object.fromEntries(new FormData(event.currentTarget)), null); });
     root.querySelector("[data-edit-form]")?.addEventListener("submit", (event) => { event.preventDefault(); void submit(Object.fromEntries(new FormData(event.currentTarget)), editing?.idCustomer || editing?.idConsumer); });
-    root.querySelector("[data-clear]")?.addEventListener("click", () => { error = ""; message = ""; render(); });
+    root.querySelector("[data-clear]")?.addEventListener("click", () => { newDraft = {}; error = ""; message = ""; render(); });
     root.querySelectorAll("[data-cancel]").forEach((button) => button.addEventListener("click", () => { editing = null; error = ""; render(); }));
     root.querySelectorAll("[data-edit]").forEach((button) => button.addEventListener("click", () => { editing = items.find((item) => String(item.idCustomer || item.idConsumer) === button.dataset.edit) || null; render(); }));
     root.querySelectorAll("[data-delete]").forEach((button) => button.addEventListener("click", () => void remove(Number(button.dataset.delete))));
@@ -198,13 +204,19 @@ export function createCustomerConsumerScreen({
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || `Não foi possível salvar ${singular}.`);
       message = id ? `${singular[0].toUpperCase()}${singular.slice(1)} alterado com sucesso.` : `${singular[0].toUpperCase()}${singular.slice(1)} cadastrado com sucesso.`;
+      newDraft = {};
       await load(); editing = null; scheduleMessageClear(() => { message = ""; render(); });
     } catch (submitError) { error = submitError instanceof Error ? submitError.message : "Falha ao salvar."; }
     finally { submitting = false; render(); }
   };
 
   const remove = async (id) => {
-    if (!window.confirm(`Excluir este ${singular}?`)) return;
+    const confirmed = await confirmAction({
+      title: `Excluir ${singular}`,
+      message: `Excluir este ${singular}?`,
+      confirmLabel: `Excluir ${singular}`
+    });
+    if (!confirmed) return;
     try {
       const response = await fetch(`${getApiUrl()}/api/${endpoint}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ [isCustomer ? "idCustomer" : "idConsumer"]: id }) });
       const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "Não foi possível excluir.");

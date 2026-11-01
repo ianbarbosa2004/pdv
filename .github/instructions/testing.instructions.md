@@ -10,6 +10,9 @@ description: 'Padrões de testes com node:test para o PDV'
 - Testes de API, banco e contratos HTTP podem ser organizados em
   `tests/integration`.
 - Cubra sucesso, entrada inválida, falha de persistência e limites relevantes.
+- Ao alterar um formulário com renderização assíncrona, teste que valores
+  digitados sobrevivem à nova renderização e que Limpar, Cancelar e sucesso
+  de salvamento retornam ao estado esperado.
 - Para vendas, valide itens, totais, pagamentos, estoque e rollback transacional.
 - Não use dados reais nem credenciais de produção.
 - Execute primeiro o teste específico e depois:

@@ -2,6 +2,7 @@ import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { renderLucideIcons } from "../ui/icons.js";
 import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { getApiUrl } from "../shared/api.js";
+import { mergeNavigationDefaults } from "../shared/navigation-defaults.js";
 
 const escapeHtml = (value) => String(value ?? "")
   .replaceAll("&", "&amp;")
@@ -24,7 +25,7 @@ const itemTypes = [
   ["bar", "Barra contextual"]
 ];
 
-const protectedNavigationMenuKeys = new Set(["tools", "settings"]);
+const protectedNavigationMenuKeys = new Set(["tools", "settings", "exit"]);
 
 export function createNavigationBuilderScreen({
   onBack,
@@ -90,7 +91,7 @@ export function createNavigationBuilderScreen({
     loading = true;
     render();
     try {
-      navigation = await request("/api/navigation?includeInactive=1");
+      navigation = mergeNavigationDefaults(await request("/api/navigation?includeInactive=1"));
       syncPublishedNavigation();
       error = "";
     } catch (loadError) {
@@ -102,10 +103,10 @@ export function createNavigationBuilderScreen({
   };
 
   const syncPublishedNavigation = () => {
-    window.__PDV_NAVIGATION__ = {
+    window.__PDV_NAVIGATION__ = mergeNavigationDefaults({
       menus: navigation.menus.filter((menu) => Number(menu.isActiveNavigationMenu) === 1),
       items: navigation.items.filter((item) => Number(item.isActiveNavigationItem) === 1)
-    };
+    });
   };
 
   const save = async (path, method, data) => {
@@ -296,7 +297,12 @@ export function createNavigationBuilderScreen({
   };
 
   const render = () => {
-    const menus = [...navigation.menus].sort((a, b) => getOrder(a, "menu") - getOrder(b, "menu"));
+    const menus = [...navigation.menus].sort((a, b) => {
+      const aExit = a.keyNavigationMenu === "exit";
+      const bExit = b.keyNavigationMenu === "exit";
+      if (aExit !== bExit) return aExit ? 1 : -1;
+      return getOrder(a, "menu") - getOrder(b, "menu");
+    });
     const items = [...navigation.items].sort((a, b) => getOrder(a, "item") - getOrder(b, "item"));
     const activeMenus = menus.filter((menu) => menu.isActiveNavigationMenu);
     const parentOptions = items.filter((item) => item.isActiveNavigationItem && item.typeNavigationItem !== "bar");

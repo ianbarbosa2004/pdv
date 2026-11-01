@@ -60,6 +60,7 @@ A fundação inicial já está criada:
   descrições editáveis e proteção dos menus técnicos;
 - configuração geral para permitir ou bloquear estoque negativo;
 - tela de Status da API com reinício controlado e log visual;
+- backup e restauração compactados do banco em Ferramentas;
 - editor de ícone da empresa aplicado em runtime ao frontend e à janela Tauri.
 
 O catálogo da interface depende da API e pode aparecer vazio até que produtos
@@ -116,6 +117,13 @@ Gere o build web:
 ```powershell
 npm.cmd run build
 ```
+
+Cada execução de `npm.cmd run build` incrementa automaticamente o número de
+patch da versão (`0.1.0` para `0.1.1`, por exemplo). A versão é sincronizada
+em `package.json`, `package-lock.json` e `src-tauri\tauri.conf.json`, e passa a
+ser usada no próximo artefato Tauri. Para incrementar a versão manualmente,
+sem compilar, use `npm.cmd run version:patch`, `npm.cmd run version:minor` ou
+`npm.cmd run version:major`, conforme a natureza da mudança.
 
 Compile o aplicativo desktop sem gerar instalador:
 
@@ -313,8 +321,11 @@ consultas não substituem a revisão do operador; no salvamento, os campos
 textuais humanos são normalizados para maiúsculas pela API.
 
 As configurações de empresa e NFC-e são separadas: `/api/company` mantém os
-dados cadastrais e `/api/company/nfce` mantém os parâmetros fiscais. A API
-não devolve o conteúdo do certificado A1 nem sua senha. A configuração de
+dados cadastrais e `/api/company/nfce` mantém os parâmetros fiscais. Os campos
+textuais de Dados da Empresa preservam a capitalização digitada; a
+normalização automática para maiúsculas permanece restrita aos cadastros que
+exigem essa convenção. A API não devolve o conteúdo do certificado A1 nem sua
+senha. A configuração de
 impressoras em `/api/printer-settings` contém somente os nomes das filas e o
 modelo do cupom; o layout persistido não contém dados reais de venda.
 

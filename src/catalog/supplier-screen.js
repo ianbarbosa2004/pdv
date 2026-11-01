@@ -1,8 +1,10 @@
 import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { bindFormRowPreview } from "../ui/form-row-preview.js";
+import { renderPreservingFormDraft } from "../ui/form-draft.js";
 import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { getApiUrl } from "../shared/api.js";
+import { confirmAction } from "../ui/confirmation-modal.js";
 
 const escapeHtml = (value) => String(value ?? "")
   .replaceAll("&", "&amp;")
@@ -143,7 +145,7 @@ export function createSupplierScreen({
       error = loadError instanceof Error ? loadError.message : "Falha ao carregar os fornecedores.";
     } finally {
       loading = false;
-      render();
+      renderPreservingFormDraft(root, render);
     }
   };
 
@@ -427,7 +429,12 @@ export function createSupplierScreen({
   };
 
   const remove = async (idSupplier) => {
-    if (!window.confirm("Excluir este fornecedor definitivamente?")) return;
+    const confirmed = await confirmAction({
+      title: "Excluir fornecedor",
+      message: "Excluir este fornecedor definitivamente?",
+      confirmLabel: "Excluir fornecedor"
+    });
+    if (!confirmed) return;
     try {
       const response = await fetch(`${getApiUrl()}/api/suppliers`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idSupplier }) });
       const payload = await response.json();

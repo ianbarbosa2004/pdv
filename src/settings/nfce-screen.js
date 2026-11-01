@@ -1,6 +1,7 @@
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { renderLucideIcons } from "../ui/icons.js";
 import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { renderPreservingFormDraft } from "../ui/form-draft.js";
 import { getApiUrl } from "../shared/api.js";
 
 const escapeHtml = (value) =>
@@ -230,7 +231,7 @@ export function createNfceScreen({
       error = loadError instanceof Error ? loadError.message : "Falha ao carregar a configuração NFC-e.";
     } finally {
       loading = false;
-      render();
+      renderPreservingFormDraft(root, render);
     }
   };
 

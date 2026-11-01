@@ -82,6 +82,75 @@ node --check src/server/server.js
 git diff --check
 ```
 
+### Versionamento automático dos builds
+
+Cada execução de `npm.cmd run build` incrementa o número de patch da versão
+antes de chamar o Vite. Por exemplo, `0.1.0` passa para `0.1.1`. O script
+`scripts/increment-version.mjs` mantém a mesma versão em:
+
+- `package.json`;
+- `package-lock.json`;
+- `src-tauri/tauri.conf.json`.
+
+Os comandos manuais são:
+
+| Comando | Uso | Exemplo |
+| --- | --- | --- |
+| `npm.cmd run version:patch` | Correção ou ajuste compatível | `0.1.2` → `0.1.3` |
+| `npm.cmd run version:minor` | Nova funcionalidade compatível | `0.1.9` → `0.2.0` |
+| `npm.cmd run version:major` | Mudança incompatível ou primeira versão estável | `0.9.9` → `1.0.0` |
+
+`npm.cmd run version:increment` permanece como alias para `version:patch`.
+O fluxo `npm.cmd run release:client -- --api-url=...` também incrementa uma
+única vez; a chamada interna do Tauri recebe
+`PDV_SKIP_VERSION_BUMP=1` para não contar duas vezes.
+
+A versão definida no `package.json` é injetada pelo Vite em
+`src/shared/build-info.js`. A tela **Ferramentas > Status da API** exibe esse
+valor em **Versão do aplicativo**, junto do identificador do frontend. Assim,
+o operador consegue diferenciar a versão SemVer do artefato e o fingerprint
+específico do código compilado.
+
+### Backup e restauração
+
+O item **Ferramentas > Backup e restauração** cria arquivos
+`pdv-backup-AAAAMMDD-HHMMSS.json.gz` no diretório de backup do servidor da API.
+O conteúdo é um snapshot compactado das tabelas do banco; as credenciais do
+MariaDB nunca são enviadas ao terminal.
+
+O destino pode ser definido por `PDV_BACKUP_DIR`. Sem essa variável, o ambiente
+de produção tenta primeiro `backups` dentro da pasta da aplicação da API e,
+se essa pasta não for gravável (por exemplo, uma instalação protegida em
+`Program Files`), usa `%LOCALAPPDATA%\\PDV Zanzibar\\backups`. Em
+desenvolvimento, o padrão é `%LOCALAPPDATA%\\PDV Zanzibar\\backups`, evitando
+gravar no workspace. A tela exibe o destino efetivo utilizado.
+
+Quando o operador informa um destino na tela, a preferência é persistida no
+`offline-config.json` da aplicação Tauri, na chave `backupDirectory`. Esse
+caminho é interpretado no servidor da API; em uma instalação remota, ele deve
+ser um caminho válido no computador que hospeda a API e o MariaDB.
+
+Perguntas que interrompem ações, como exclusões e restaurações, usam o modal
+reutilizável `src/ui/confirmation-modal.js`. Ele substitui `window.confirm`
+por uma confirmação no padrão visual do projeto, com consequência descrita,
+botão principal nomeado, cancelamento explícito e suporte a teclado.
+
+A restauração exige confirmação explícita, valida a versão e as tabelas do
+arquivo, desativa temporariamente as verificações de chave estrangeira e
+substitui os dados em uma transação. Não restaure um arquivo sem confirmar a
+origem e a data do backup. O servidor deve possuir espaço suficiente para o
+arquivo compactado e para a operação transitória.
+
+Ao fechar o aplicativo Tauri, o terminal pergunta se deve criar um backup.
+Escolher **Não** fecha sem criar arquivo; escolher **Sim** cria o backup no
+servidor e só então conclui o encerramento. Se a API estiver indisponível, o
+operador decide explicitamente entre cancelar o fechamento ou fechar mesmo
+assim.
+
+Como o incremento ocorre antes da compilação, um build que falhar ainda
+consome o número da versão. Isso mantém cada tentativa de artefato identificada
+de forma única e evita reutilizar uma versão potencialmente distribuída.
+
 ### Instalação sem cargas padrão
 
 Uma instalação nova cria somente a estrutura das tabelas. Tipos de produto,
@@ -188,6 +257,36 @@ ao estado vazio e pronto para o próximo cadastro. Após editar um registro, o
 modal deve ser encerrado sem deixar a mensagem de sucesso no formulário de
 inclusão. Novas telas e alterações em formulários devem preservar esse
 comportamento, sem criar um fluxo visual diferente.
+
+### Preservação de rascunhos durante renderizações
+
+Formulários do frontend podem ser reconstruídos por `root.innerHTML` quando
+uma carga assíncrona termina, um filtro muda ou o estado de uma tela é
+atualizado. Essa reconstrução não pode apagar o que o usuário já digitou.
+
+Novos formulários e alterações em formulários existentes devem:
+
+- capturar os valores atuais antes de chamar `render()` novamente;
+- restaurar inputs, selects, textareas, checkboxes e radios após a
+  reconstrução;
+- preservar campos mascarados no valor que está visível no formulário;
+- não capturar o formulário em modo de visualização como rascunho de inclusão;
+- respeitar ações explícitas: **Limpar** deve zerar o rascunho, **Cancelar**
+  deve fechar ou abandonar a edição, e o sucesso do salvamento deve devolver o
+  formulário de inclusão ao estado vazio;
+- manter formulários de inclusão e edição modal com estados independentes.
+
+Use o helper compartilhado `src/ui/form-draft.js` sempre que a tela fizer
+reconstrução completa do formulário. O helper registra cada formulário e seus
+campos nomeados, incluindo o estado marcado de checkboxes e radios, chama a
+função de renderização e restaura os valores correspondentes. Quando a tela
+possuir regras específicas de estado, como um formulário parametrizado ou
+campos sem `name`, complemente o helper com um rascunho explícito da tela.
+
+O teste mínimo deve comprovar a preservação de texto, seleção e estado
+booleano durante uma renderização. Também valide os caminhos de limpeza,
+cancelamento e salvamento quando eles existirem. A referência automatizada
+está em `tests/unit/form-draft.test.js`.
 
 ### Navegação de Produtos
 
@@ -316,10 +415,11 @@ a alteração em uma única transação. A migração é idempotente: executar n
 não altera valores que já estejam normalizados.
 
 São convertidos textos humanos de produtos, grupos, classes, clientes,
-consumidores, fornecedores, empresa, formas de pagamento, NCM/CEST, operações
-fiscais, catálogos fiscais e nomes persistidos nos itens de venda. O construtor
-de menus não participa da migração. Códigos, e-mails, URLs, chaves técnicas,
-rotas, enums e demais identificadores não são convertidos.
+consumidores, fornecedores, formas de pagamento, NCM/CEST, operações fiscais,
+catálogos fiscais e nomes persistidos nos itens de venda. O cadastro da empresa
+e o construtor de menus não participam da normalização automática. Códigos,
+e-mails, URLs, chaves técnicas, rotas, enums e demais identificadores não são
+convertidos.
 
 Antes da escrita, o comando verifica colisões nos campos textuais com índice
 único, como classe, grupo, tipo de produto e forma de pagamento. Se dois valores
@@ -534,6 +634,12 @@ os mesmos formatos até 512 KB e é carregado em tempo de execução. Ambos são
 armazenados no servidor e retornados junto ao cadastro; o logotipo é destinado
 a relatórios e cupons, enquanto o ícone atualiza o favicon e a identidade
 visual das telas.
+
+Os campos textuais desse cadastro preservam a capitalização digitada pelo
+operador. A API aplica apenas `trim` e validação de tamanho/obrigatoriedade
+nesses campos; a normalização para maiúsculas continua restrita aos cadastros
+que possuem essa regra de domínio. Documentos, UF, códigos, telefones,
+credenciais e parâmetros fiscais mantêm suas validações próprias.
 
 A tela **Configurações > NFC-e** administra os parâmetros da NFC-e modelo 65
 para Minas Gerais: UF de emissão `MG`, ambiente de homologação ou produção,

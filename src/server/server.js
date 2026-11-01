@@ -6,16 +6,35 @@ import { createPool } from "./database.js";
 import { getConfig } from "./config.js";
 import { createSale, SaleValidationError } from "./sale-service.js";
 import { buildNfceDiagnostic, runNfceHomologationTest } from "./nfce-test-service.js";
-import { isNavigationKey, normalizeNavigationKey } from "../shared/navigation-defaults.js";
+import {
+  DEFAULT_NAVIGATION,
+  isNavigationKey,
+  mergeNavigationDefaults,
+  normalizeNavigationKey
+} from "../shared/navigation-defaults.js";
 import {
   DEFAULT_CEST_SOURCE_URL,
   DEFAULT_NCM_SOURCE_URL,
   ensureUpdateSchema,
   updateCatalog
 } from "./ncm-cest-update.js";
+import {
+  createBackup,
+  listBackups,
+  readBackup,
+  resolveBackupDirectory,
+  restoreBackup
+} from "./backup-service.js";
+import { join } from "node:path";
 
 const config = getConfig();
 const pool = createPool(config);
+const applicationRoot = join(import.meta.dirname, "../..");
+const backupOptions = (configuredDirectory = config.backupDirectory) => ({
+  applicationRoot,
+  configuredDirectory,
+  runtimeEnvironment: config.runtimeEnvironment
+});
 let ncmCestUpdateRunning = false;
 const apiStartedAt = new Date();
 
@@ -108,12 +127,12 @@ const json = (response, status, payload) => {
   response.end(JSON.stringify(payload));
 };
 
-const readJsonBody = async (request) => {
+const readJsonBody = async (request, maximumSize = 5 * 1024 * 1024) => {
   const chunks = [];
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
-  if (size > 5 * 1024 * 1024) throw new SaleValidationError("Corpo da requisição muito grande.", 413);
+    if (size > maximumSize) throw new SaleValidationError("Corpo da requisição muito grande.", 413);
     chunks.push(chunk);
   }
   try {
@@ -121,6 +140,17 @@ const readJsonBody = async (request) => {
   } catch {
     throw new SaleValidationError("JSON inválido.");
   }
+};
+
+const binary = (response, status, contentType, contentDisposition, content) => {
+  response.writeHead(status, {
+    "Content-Type": contentType,
+    "Content-Disposition": contentDisposition,
+    "Content-Length": content.length,
+    "Access-Control-Allow-Origin": "*",
+    "Cache-Control": "no-store"
+  });
+  response.end(content);
 };
 
 const parsePositiveId = (value) => {
@@ -158,7 +188,7 @@ const parseNavigationBoolean = (value, fieldName, fallback = 1) => {
   return parseBooleanFlag(value, fieldName, fallback === 1);
 };
 
-const protectedNavigationMenuKeys = new Set(["tools", "settings"]);
+const protectedNavigationMenuKeys = new Set(["tools", "settings", "exit"]);
 
 const assertNavigationActivationAllowed = (menuKey, active) => {
   if (!active && protectedNavigationMenuKeys.has(menuKey)) {
@@ -777,14 +807,71 @@ const prepareNavigationSchema = async () => {
   const defaultToolMenuKey = normalizeNavigationKey("tools");
   const defaultCatalogMenuKey = normalizeNavigationKey("cadastros");
 
-  const [toolsMenus] = await pool.query(
+  let [toolsMenus] = await pool.query(
     `SELECT idNavigationMenu
      FROM navigation_menus
      WHERE LOWER(keyNavigationMenu) = ?
+        OR LOWER(labelNavigationMenu) = 'ferramentas'
      LIMIT 1`,
     [defaultToolMenuKey]
   );
+  if (!toolsMenus[0]) {
+    const [lastMenuOrder] = await pool.query(
+      "SELECT COALESCE(MAX(orderNavigationMenu), 0) AS lastOrder FROM navigation_menus"
+    );
+    const [insertedToolsMenu] = await pool.query(
+      `INSERT INTO navigation_menus
+        (keyNavigationMenu, labelNavigationMenu, orderNavigationMenu, isActiveNavigationMenu)
+       VALUES (?, 'Ferramentas', ?, 1)`,
+      [defaultToolMenuKey, Number(lastMenuOrder[0]?.lastOrder || 0) + 1]
+    );
+    toolsMenus = [{ idNavigationMenu: insertedToolsMenu.insertId }];
+  }
   if (toolsMenus[0]) {
+    const [apiStatusItems] = await pool.query(
+      `SELECT idNavigationItem
+       FROM navigation_items
+       WHERE idNavigationMenu = ? AND idParentNavigationItem IS NULL
+         AND (keyNavigationItem = 'api-status'
+              OR routeNavigationItem = 'api-status'
+              OR labelNavigationItem = 'Status da API')
+       LIMIT 1`,
+      [toolsMenus[0].idNavigationMenu]
+    );
+    if (apiStatusItems[0]) {
+      await pool.query(
+        `UPDATE navigation_items
+         SET idParentNavigationItem = NULL,
+             typeNavigationItem = 'item',
+             keyNavigationItem = 'api-status',
+             labelNavigationItem = 'Status da API',
+             routeNavigationItem = 'api-status',
+             descriptionNavigationItem = 'Consulte a disponibilidade da API e do MariaDB.',
+             isActiveNavigationItem = 1,
+             showsInBackofficeHomeNavigationItem = 0
+         WHERE idNavigationItem = ?`,
+        [apiStatusItems[0].idNavigationItem]
+      );
+    } else {
+      const [lastOrder] = await pool.query(
+        `SELECT COALESCE(MAX(orderNavigationItem), 0) AS lastOrder
+         FROM navigation_items
+         WHERE idNavigationMenu = ? AND idParentNavigationItem IS NULL`,
+        [toolsMenus[0].idNavigationMenu]
+      );
+      await pool.query(
+        `INSERT INTO navigation_items
+          (idNavigationMenu, idParentNavigationItem, typeNavigationItem,
+           keyNavigationItem, labelNavigationItem, routeNavigationItem,
+           descriptionNavigationItem, orderNavigationItem, isActiveNavigationItem,
+           showsInBackofficeHomeNavigationItem)
+         VALUES (?, NULL, 'item', 'api-status', 'Status da API', 'api-status',
+                 'Consulte a disponibilidade da API e do MariaDB.',
+                 ?, 1, 0)`,
+        [toolsMenus[0].idNavigationMenu, Number(lastOrder[0]?.lastOrder || 0) + 1]
+      );
+    }
+
     const [nfceQueryItems] = await pool.query(
       `SELECT idNavigationItem
        FROM navigation_items
@@ -835,6 +922,33 @@ const prepareNavigationSchema = async () => {
            showsInBackofficeHomeNavigationItem)
          VALUES (?, NULL, 'item', 'import-catalogs', 'Importar cadastros', 'import-catalogs',
                  'Importe produtos em lote usando um arquivo CSV.',
+                 ?, 1, 0)`,
+        [toolsMenus[0].idNavigationMenu, Number(lastOrder[0]?.lastOrder || 0) + 1]
+      );
+    }
+    const [backupItems] = await pool.query(
+      `SELECT idNavigationItem
+       FROM navigation_items
+       WHERE idNavigationMenu = ? AND idParentNavigationItem IS NULL
+         AND keyNavigationItem = 'backup'
+       LIMIT 1`,
+      [toolsMenus[0].idNavigationMenu]
+    );
+    if (!backupItems[0]) {
+      const [lastOrder] = await pool.query(
+        `SELECT COALESCE(MAX(orderNavigationItem), 0) AS lastOrder
+         FROM navigation_items
+         WHERE idNavigationMenu = ? AND idParentNavigationItem IS NULL`,
+        [toolsMenus[0].idNavigationMenu]
+      );
+      await pool.query(
+        `INSERT INTO navigation_items
+          (idNavigationMenu, idParentNavigationItem, typeNavigationItem,
+           keyNavigationItem, labelNavigationItem, routeNavigationItem,
+           descriptionNavigationItem, orderNavigationItem, isActiveNavigationItem,
+           showsInBackofficeHomeNavigationItem)
+         VALUES (?, NULL, 'item', 'backup', 'Backup e restauração', 'backup',
+                 'Crie e restaure backups compactados do banco de dados.',
                  ?, 1, 0)`,
         [toolsMenus[0].idNavigationMenu, Number(lastOrder[0]?.lastOrder || 0) + 1]
       );
@@ -1123,11 +1237,106 @@ const prepareNavigationSchema = async () => {
   return;
 };
 
+const synchronizeNavigationDefaults = async () => {
+  const [storedMenus] = await pool.query(
+    `SELECT idNavigationMenu, keyNavigationMenu, labelNavigationMenu
+     FROM navigation_menus`
+  );
+  const menuIds = new Map();
+  for (const definition of DEFAULT_NAVIGATION.menus) {
+    const stored = storedMenus.find((entry) =>
+      normalizeNavigationKey(entry.keyNavigationMenu) === definition.keyNavigationMenu
+      || normalizeNavigationKey(entry.labelNavigationMenu) === normalizeNavigationKey(definition.labelNavigationMenu)
+    );
+    if (stored) {
+      if (definition.keyNavigationMenu === "exit") {
+        await pool.query(
+          `UPDATE navigation_menus
+           SET keyNavigationMenu = 'exit', labelNavigationMenu = 'Sair',
+               orderNavigationMenu = 65535, isActiveNavigationMenu = 1
+           WHERE idNavigationMenu = ?`,
+          [stored.idNavigationMenu]
+        );
+      }
+      menuIds.set(definition.keyNavigationMenu, stored.idNavigationMenu);
+      continue;
+    }
+    const [result] = await pool.query(
+      `INSERT INTO navigation_menus
+        (keyNavigationMenu, labelNavigationMenu, orderNavigationMenu, isActiveNavigationMenu)
+       VALUES (?, ?, ?, 1)`,
+      [definition.keyNavigationMenu, definition.labelNavigationMenu, definition.orderNavigationMenu]
+    );
+    menuIds.set(definition.keyNavigationMenu, result.insertId);
+  }
+
+  const [storedItems] = await pool.query(
+    `SELECT idNavigationItem, idNavigationMenu, keyNavigationItem,
+            labelNavigationItem, routeNavigationItem
+     FROM navigation_items`
+  );
+  const itemIds = new Map();
+  for (const definition of DEFAULT_NAVIGATION.items) {
+    const menuId = menuIds.get(definition.menuKey);
+    const parentId = definition.parentKey
+      ? itemIds.get(`${definition.menuKey}:${definition.parentKey}`)
+      : null;
+    const stored = storedItems.find((entry) =>
+      String(entry.idNavigationMenu) === String(menuId)
+      && (normalizeNavigationKey(entry.keyNavigationItem) === definition.keyNavigationItem
+        || (definition.routeNavigationItem
+          && normalizeNavigationKey(entry.routeNavigationItem) === definition.routeNavigationItem)
+        || normalizeNavigationKey(entry.labelNavigationItem) === normalizeNavigationKey(definition.labelNavigationItem))
+    );
+    if (stored) {
+      await pool.query(
+        `UPDATE navigation_items
+         SET idNavigationMenu = ?, idParentNavigationItem = ?, typeNavigationItem = ?,
+             keyNavigationItem = ?, routeNavigationItem = ?,
+             descriptionNavigationItem = COALESCE(descriptionNavigationItem, ?)
+         WHERE idNavigationItem = ?`,
+        [
+          menuId,
+          parentId || null,
+          definition.typeNavigationItem,
+          definition.keyNavigationItem,
+          definition.routeNavigationItem,
+          definition.descriptionNavigationItem,
+          stored.idNavigationItem
+        ]
+      );
+      itemIds.set(`${definition.menuKey}:${definition.keyNavigationItem}`, stored.idNavigationItem);
+      continue;
+    }
+    const [result] = await pool.query(
+      `INSERT INTO navigation_items
+        (idNavigationMenu, idParentNavigationItem, typeNavigationItem,
+         keyNavigationItem, labelNavigationItem, routeNavigationItem,
+         descriptionNavigationItem, orderNavigationItem, isActiveNavigationItem,
+         showsInBackofficeHomeNavigationItem)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0)`,
+      [
+        menuId,
+        parentId || null,
+        definition.typeNavigationItem,
+        definition.keyNavigationItem,
+        definition.labelNavigationItem,
+        definition.routeNavigationItem,
+        definition.descriptionNavigationItem,
+        definition.orderNavigationItem
+      ]
+    );
+    itemIds.set(`${definition.menuKey}:${definition.keyNavigationItem}`, result.insertId);
+  }
+};
+
 const ensureNavigationSchema = (() => {
   let preparation;
   return () => {
     if (!preparation) {
-      preparation = prepareNavigationSchema().catch((error) => {
+      preparation = prepareNavigationSchema()
+        .then(synchronizeNavigationDefaults)
+        .catch((error) => {
         preparation = null;
         throw error;
       });
@@ -1153,10 +1362,6 @@ const ensureUppercaseTextData = async () => {
     ]],
     ["customers", ["nameCustomer", "addressCustomer", "notesCustomer"]],
     ["consumers", ["nameConsumer", "nicknameConsumer", "notesConsumer"]],
-    ["company_settings", [
-      "corporateNameCompany", "tradeNameCompany", "addressCompany", "addressComplementCompany",
-      "neighborhoodCompany", "countryCompany", "cityCompany"
-    ]],
     ["fiscal_operations", ["descriptionFiscalOperation", "operationNatureFiscalOperation", "legalBasisFiscalOperation"]],
     ["fiscal_catalog_items", ["descriptionFiscalCatalogItem"]],
     ["general_settings", ["labelGeneralSetting"]],
@@ -1434,6 +1639,72 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "GET" && (request.url === "/api/backups" || request.url.startsWith("/api/backups?"))) {
+    try {
+      const url = new URL(request.url, "http://localhost");
+      const options = backupOptions(url.searchParams.get("directory") || undefined);
+      const directory = await resolveBackupDirectory(options);
+      json(response, 200, {
+        directory,
+        backups: await listBackups(options)
+      });
+    } catch (error) {
+      json(response, 500, { error: error instanceof Error ? error.message : "Não foi possível listar os backups." });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/api/backups") {
+    try {
+      const payload = await readJsonBody(request);
+      const backup = await createBackup({
+        pool,
+        ...backupOptions(payload?.backupDirectory),
+        databaseName: config.database.name
+      });
+      json(response, 201, { backup });
+    } catch (error) {
+      json(response, 500, { error: error instanceof Error ? error.message : "Não foi possível criar o backup." });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && request.url.startsWith("/api/backups/download/")) {
+    try {
+      const url = new URL(request.url, "http://localhost");
+      const fileName = decodeURIComponent(url.pathname.slice("/api/backups/download/".length));
+      const content = await readBackup({
+        ...backupOptions(url.searchParams.get("directory") || undefined),
+        fileName
+      });
+      binary(response, 200, "application/gzip", `attachment; filename="${fileName}"`, content);
+    } catch (error) {
+      json(response, 404, { error: error instanceof Error ? error.message : "Backup não encontrado." });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/api/backups/restore") {
+    try {
+      const payload = await readJsonBody(request, 70 * 1024 * 1024);
+      const encoded = String(payload?.backupBase64 || "");
+      if (!encoded) throw new SaleValidationError("Selecione um backup compactado.");
+      const result = await restoreBackup({
+        pool,
+        ...backupOptions(payload?.backupDirectory),
+        compressed: Buffer.from(encoded, "base64")
+      });
+      json(response, 200, { ok: true, result });
+    } catch (error) {
+      handleError(response, error, {
+        log: "Falha ao restaurar backup:",
+        message: "Não foi possível restaurar o backup.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
   if (request.method === "GET" && request.url === "/api/health") {
     try {
       await pool.query("SELECT 1");
@@ -1471,7 +1742,9 @@ const server = createServer(async (request, response) => {
          ${includeInactive ? "" : "WHERE isActiveNavigationItem = 1"}
          ORDER BY idNavigationMenu, COALESCE(idParentNavigationItem, 0), orderNavigationItem, idNavigationItem`
       );
-      json(response, 200, { menus, items });
+      json(response, 200, includeInactive
+        ? mergeNavigationDefaults({ menus, items })
+        : { menus, items });
     } catch (error) {
       handleError(response, error, {
         log: "Falha ao consultar a estrutura de navegação:",
@@ -2057,26 +2330,24 @@ const server = createServer(async (request, response) => {
         if (required && !result) throw new SaleValidationError(`${fieldName} é obrigatório.`);
         return result;
       };
-      const humanText = (value, fieldName, maxLength, required = false) =>
-        uppercaseText(text(value, fieldName, maxLength, required));
       const companyTypeCompany = text(payload.companyTypeCompany, "Tipo de pessoa", 10, true);
       if (!["juridica", "fisica"].includes(companyTypeCompany)) {
         throw new SaleValidationError("Tipo de pessoa inválido.");
       }
       const documentCompany = text(payload.documentCompany, "CNPJ / CPF", 20, true);
-      const corporateNameCompany = humanText(payload.corporateNameCompany, "Razão social / Nome", 180, true);
-      const tradeNameCompany = humanText(payload.tradeNameCompany, "Nome fantasia", 120);
+      const corporateNameCompany = text(payload.corporateNameCompany, "Razão social / Nome", 180, true);
+      const tradeNameCompany = text(payload.tradeNameCompany, "Nome fantasia", 120);
       const stateRegistrationCompany = text(payload.stateRegistrationCompany, "Inscrição Estadual", 30);
       const municipalRegistrationCompany = text(payload.municipalRegistrationCompany, "Inscrição Municipal", 30);
       const cnaeCompany = text(payload.cnaeCompany, "CNAE", 20);
       const zipCodeCompany = text(payload.zipCodeCompany, "CEP", 9);
-      const addressCompany = humanText(payload.addressCompany, "Endereço", 180);
+      const addressCompany = text(payload.addressCompany, "Endereço", 180);
       const addressNumberCompany = text(payload.addressNumberCompany, "Número", 20);
-      const addressComplementCompany = humanText(payload.addressComplementCompany, "Complemento", 80);
-      const neighborhoodCompany = humanText(payload.neighborhoodCompany, "Bairro", 100);
-      const countryCompany = humanText(payload.countryCompany, "País", 80, true);
+      const addressComplementCompany = text(payload.addressComplementCompany, "Complemento", 80);
+      const neighborhoodCompany = text(payload.neighborhoodCompany, "Bairro", 100);
+      const countryCompany = text(payload.countryCompany, "País", 80, true);
       const stateCompany = text(payload.stateCompany, "UF", 2);
-      const cityCompany = humanText(payload.cityCompany, "Cidade", 100);
+      const cityCompany = text(payload.cityCompany, "Cidade", 100);
       const municipalityCodeCompany = text(
         payload.municipalityCodeCompany ?? currentCompany.municipalityCodeCompany ?? "3148004",
         "Código IBGE do município",

@@ -115,6 +115,15 @@ fn list_installed_printers() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
+async fn pick_backup_directory() -> Option<String> {
+    rfd::AsyncFileDialog::new()
+        .set_title("Selecionar destino dos backups")
+        .pick_folder()
+        .await
+        .map(|handle| handle.path().to_string_lossy().into_owned())
+}
+
+#[tauri::command]
 fn update_window_icon(app: tauri::AppHandle, data: String) -> Result<(), String> {
     let encoded = data
         .split_once(",")
@@ -564,6 +573,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             send_raw_print,
             list_installed_printers,
+            pick_backup_directory,
             update_window_icon,
             get_selected_printer,
             save_selected_printer,

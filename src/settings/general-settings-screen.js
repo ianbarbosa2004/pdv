@@ -6,6 +6,7 @@ import {
   saveConfiguredApiUrl
 } from "../shared/api.js";
 import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { renderPreservingFormDraft } from "../ui/form-draft.js";
 
 const escapeHtml = (value) =>
   String(value ?? "")
@@ -151,7 +152,7 @@ export function createGeneralSettingsScreen({
       error = loadError instanceof Error ? loadError.message : String(loadError);
     } finally {
       loading = false;
-      render();
+      renderPreservingFormDraft(root, render);
     }
   };
 
