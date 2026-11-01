@@ -1,6 +1,6 @@
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { renderLucideIcons } from "../ui/icons.js";
-import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { getApiUrl } from "../shared/api.js";
 import { mergeNavigationDefaults } from "../shared/navigation-defaults.js";
 
@@ -120,7 +120,7 @@ export function createNavigationBuilderScreen({
     message = "Alterações salvas com sucesso.";
     scheduleMessageClear(() => {
       message = "";
-      render();
+      clearRenderedFeedback(root);
     });
     } catch (saveError) {
       error = saveError instanceof Error ? saveError.message : String(saveError);
@@ -285,7 +285,7 @@ export function createNavigationBuilderScreen({
       message = "Ordem salva com sucesso.";
       scheduleMessageClear(() => {
         message = "";
-        render();
+        clearRenderedFeedback(root);
       });
     } catch (orderError) {
       error = orderError instanceof Error ? orderError.message : String(orderError);

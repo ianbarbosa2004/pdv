@@ -189,16 +189,11 @@ export async function createSale(connection, payload) {
       );
     }
     if (usesVoucher) {
-      const [customerRows] = await connection.query(
-        "SELECT paymentTermCustomer FROM customers WHERE idCustomer = ? LIMIT 1",
-        [input.idCustomerSale]
-      );
-      const termDays = Number(customerRows[0]?.paymentTermCustomer || 0);
       await connection.query(
         `INSERT INTO customer_vouchers
           (idCustomer, idSale, amountCustomerVoucher, dueDateCustomerVoucher)
-         VALUES (?, ?, ?, DATE_ADD(CURDATE(), INTERVAL ? DAY))`,
-        [input.idCustomerSale, idSale, serializeMoney(totalSaleCents), termDays]
+         VALUES (?, ?, ?, CURDATE())`,
+        [input.idCustomerSale, idSale, serializeMoney(totalSaleCents)]
       );
     }
 

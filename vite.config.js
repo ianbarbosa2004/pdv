@@ -15,7 +15,7 @@ const sourceFingerprint = createHash("sha256")
   .update(`${runGit("rev-parse", "HEAD")}\n${runGit("diff", "HEAD", "--binary")}`)
   .digest("hex")
   .slice(0, 12);
-const buildId = `${packageJson.version}-${sourceFingerprint}`;
+const buildId = sourceFingerprint;
 
 export default defineConfig({
   define: {

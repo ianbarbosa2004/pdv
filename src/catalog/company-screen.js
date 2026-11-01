@@ -1,6 +1,6 @@
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { setProjectIcon } from "../ui/project-icon.js";
-import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { renderPreservingFormDraft } from "../ui/form-draft.js";
 import { getApiUrl } from "../shared/api.js";
 
@@ -152,6 +152,15 @@ export function createCompanyScreen({
         <input name="${name}" type="${type}" maxlength="${maxlength}" autocomplete="${autocomplete}" ${required ? "required" : ""} value="${escapeHtml(displayValue(company, name))}" />
       </label>
     `;
+  };
+
+  const hasCompanyDraft = () => {
+    if (selectedLogo || selectedProjectIcon) return true;
+    const form = root.querySelector("[data-form]");
+    if (!form) return false;
+    return [...form.elements]
+      .filter((field) => field.name && field.type !== "file")
+      .some((field) => String(field.value ?? "") !== String(displayValue(emptyCompany, field.name) ?? ""));
   };
 
   const render = () => {
@@ -406,7 +415,11 @@ export function createCompanyScreen({
       error = loadError instanceof Error ? loadError.message : "Falha ao carregar o cadastro da empresa.";
     } finally {
       loading = false;
-      renderPreservingFormDraft(root, render);
+      if (hasCompanyDraft()) {
+        renderPreservingFormDraft(root, render);
+      } else {
+        render();
+      }
     }
   };
 
@@ -451,7 +464,7 @@ export function createCompanyScreen({
       message = "Cadastro da empresa salvo com sucesso.";
       scheduleMessageClear(() => {
         message = "";
-        render();
+        clearRenderedFeedback(root);
       });
     } catch (saveError) {
       error = saveError instanceof Error ? saveError.message : "Falha ao salvar o cadastro da empresa.";

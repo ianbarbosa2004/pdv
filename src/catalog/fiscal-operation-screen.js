@@ -3,7 +3,7 @@ import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { bindFormRowPreview } from "../ui/form-row-preview.js";
 import { renderPreservingFormDraft } from "../ui/form-draft.js";
 import { bindFiscalNavigation, renderFiscalNavigation } from "./fiscal-navigation.js";
-import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { getApiUrl } from "../shared/api.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
 
@@ -85,11 +85,6 @@ export function createFiscalOperationScreen({
       ${renderFiscalNavigation("fiscal-operations")}
       <section class="classic-content fiscal-content">
         ${renderSuccessFeedback(message, escapeHtml)}
-        <div class="backoffice-home-heading">
-          <p class="eyebrow">Cadastros fiscais</p>
-          <h1>Operações Fiscais</h1>
-          <p>Cadastre as regras fiscais usadas pelo PDV nas operações de entrada e saída.</p>
-        </div>
         <form class="classic-form-panel fiscal-operation-form" data-form>
           <div class="classic-panel-header">${editing ? "Alterar operação fiscal" : "Nova operação fiscal"}</div>
           <div class="classic-form-body">
@@ -276,7 +271,7 @@ export function createFiscalOperationScreen({
       await load();
       scheduleMessageClear(() => {
         message = "";
-        render();
+        clearRenderedFeedback(root);
       });
     } catch (submitError) { error = submitError instanceof Error ? submitError.message : "Falha ao salvar operação fiscal."; }
     finally { submitting = false; render(); }
@@ -299,7 +294,7 @@ export function createFiscalOperationScreen({
       await load();
       scheduleMessageClear(() => {
         message = "";
-        render();
+        clearRenderedFeedback(root);
       });
     } catch (removeError) { error = removeError instanceof Error ? removeError.message : "Falha ao excluir operação fiscal."; render(); }
   };

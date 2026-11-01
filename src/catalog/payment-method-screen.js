@@ -11,7 +11,7 @@ import {
   formatMaskedNumber,
   normalizeMaskedNumber
 } from "../ui/number-mask.js";
-import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { getApiUrl } from "../shared/api.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
 
@@ -332,7 +332,7 @@ export function createPaymentMethodScreen({
       await load();
       scheduleMessageClear(() => {
         message = "";
-        render();
+        clearRenderedFeedback(root);
       });
     } catch (submitError) {
       error = submitError instanceof Error ? submitError.message : "Falha ao salvar a forma de pagamento.";
@@ -364,7 +364,7 @@ export function createPaymentMethodScreen({
       await load();
       scheduleMessageClear(() => {
         message = "";
-        render();
+        clearRenderedFeedback(root);
       });
     } catch (removeError) {
       error = removeError instanceof Error ? removeError.message : "Falha ao excluir a forma de pagamento.";
@@ -385,7 +385,7 @@ export function createPaymentMethodScreen({
       await load();
       scheduleMessageClear(() => {
         message = "";
-        render();
+        clearRenderedFeedback(root);
       });
     } catch (statusError) {
       error = statusError instanceof Error ? statusError.message : "Falha ao alterar o status da forma de pagamento.";

@@ -1,1 +1,1 @@
-npm.cmd run release:client -- --api-url=http://192.168.1.200:3000
+npm.cmd run release:client -- --api-url=http://192.168.1.200:3000 --refresh-icons

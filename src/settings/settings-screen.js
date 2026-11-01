@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
-import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { getApiUrl } from "../shared/api.js";
 
 const escapeHtml = (value) =>
@@ -167,7 +167,7 @@ export function createSettingsScreen({
         message = "Configurações salvas no banco de dados.";
         scheduleMessageClear(() => {
           message = "";
-          render();
+          clearRenderedFeedback(root);
         });
       } catch (saveError) {
         error = saveError instanceof Error ? saveError.message : String(saveError);

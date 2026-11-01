@@ -25,8 +25,11 @@ import {
   resolveBackupDirectory,
   restoreBackup
 } from "./backup-service.js";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+const packageJson = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
+const applicationVersion = String(packageJson.version);
 const config = getConfig();
 const pool = createPool(config);
 const applicationRoot = join(import.meta.dirname, "../..");
@@ -402,7 +405,6 @@ const ensureCustomerConsumerSchema = async () => {
     emailCustomer VARCHAR(180) NOT NULL DEFAULT '',
     addressCustomer VARCHAR(180) NOT NULL DEFAULT '',
     creditLimitCustomer DECIMAL(12,2) NOT NULL DEFAULT 0,
-    paymentTermCustomer SMALLINT UNSIGNED NOT NULL DEFAULT 0,
     notesCustomer VARCHAR(400) NULL,
     isActiveCustomer TINYINT(1) NOT NULL DEFAULT 1,
     createdAtCustomer TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -446,6 +448,17 @@ const ensureCustomerConsumerSchema = async () => {
     KEY idxCustomerVouchersCustomer (idCustomer, statusCustomerVoucher),
     CONSTRAINT fkCustomerVouchersCustomer FOREIGN KEY (idCustomer) REFERENCES customers (idCustomer) ON DELETE RESTRICT
   ) ENGINE=InnoDB`);
+};
+
+const migrateCustomerConsumerSchema = async () => {
+  const [paymentTermColumns] = await pool.query(
+    `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'customers'
+       AND COLUMN_NAME = 'paymentTermCustomer'`
+  );
+  if (paymentTermColumns.length) {
+    await pool.query("ALTER TABLE customers DROP COLUMN paymentTermCustomer");
+  }
 };
 
 const getGeneralSettingBoolean = async (key) => {
@@ -533,6 +546,11 @@ const ensureCompanySchema = async () => {
   for (const [name, statement] of missingColumns) {
     if (!existing.has(name)) await pool.query(statement);
   }
+  await pool.query(
+    `INSERT INTO company_settings (idCompanySetting)
+     SELECT 1
+     WHERE NOT EXISTS (SELECT 1 FROM company_settings LIMIT 1)`
+  );
   if (!existing.has("logoMimeCompany")) {
     await pool.query(
       "ALTER TABLE company_settings ADD COLUMN logoMimeCompany VARCHAR(50) NOT NULL DEFAULT '' AFTER nfceCertificateSerialCompany"
@@ -1480,7 +1498,7 @@ const server = createServer(async (request, response) => {
       const [customers] = await pool.query(
         `SELECT c.idCustomer, c.nameCustomer, c.documentCustomer, c.phoneCustomer,
                 c.emailCustomer, c.addressCustomer, c.creditLimitCustomer,
-                c.paymentTermCustomer, c.notesCustomer, c.isActiveCustomer,
+                c.notesCustomer, c.isActiveCustomer,
                 co.idConsumer, co.nameConsumer
          FROM customers c LEFT JOIN consumers co ON co.idCustomer = c.idCustomer
          WHERE (? OR c.isActiveCustomer = 1)
@@ -1507,11 +1525,9 @@ const server = createServer(async (request, response) => {
       const emailCustomer = text("emailCustomer", 180).toLocaleLowerCase("pt-BR");
       const addressCustomer = humanText("addressCustomer", 180);
       const creditLimitCustomer = Number(payload.creditLimitCustomer || 0);
-      const paymentTermCustomer = Number(payload.paymentTermCustomer || 0);
       const notesCustomer = humanText("notesCustomer", 400);
       if ((request.method === "PUT" && !idCustomer) || !nameCustomer
         || !Number.isFinite(creditLimitCustomer) || creditLimitCustomer < 0
-        || !Number.isInteger(paymentTermCustomer) || paymentTermCustomer < 0
         || (emailCustomer && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailCustomer))) {
         throw new SaleValidationError("Informe o nome e valores válidos para o cliente.");
       }
@@ -1523,9 +1539,9 @@ const server = createServer(async (request, response) => {
           const [result] = await connection.query(
             `INSERT INTO customers
               (nameCustomer, documentCustomer, phoneCustomer, emailCustomer, addressCustomer,
-               creditLimitCustomer, paymentTermCustomer, notesCustomer)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [nameCustomer, documentCustomer, phoneCustomer, emailCustomer, addressCustomer, creditLimitCustomer, paymentTermCustomer, notesCustomer || null]
+               creditLimitCustomer, notesCustomer)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [nameCustomer, documentCustomer, phoneCustomer, emailCustomer, addressCustomer, creditLimitCustomer, notesCustomer || null]
           );
           await connection.query(
             "INSERT INTO consumers (idCustomer, nameConsumer, phoneConsumer) VALUES (?, ?, ?)",
@@ -1534,17 +1550,42 @@ const server = createServer(async (request, response) => {
           await connection.commit();
           json(response, 201, { idCustomer: result.insertId });
         } else {
+          const [currentCustomers] = await connection.query(
+            "SELECT nameCustomer, phoneCustomer FROM customers WHERE idCustomer = ? FOR UPDATE",
+            [idCustomer]
+          );
+          const currentCustomer = currentCustomers[0];
+          if (!currentCustomer) throw new SaleValidationError("Cliente não encontrado.", 404);
+          const [linkedConsumers] = await connection.query(
+            "SELECT nameConsumer, phoneConsumer FROM consumers WHERE idCustomer = ? FOR UPDATE",
+            [idCustomer]
+          );
+          const linkedConsumer = linkedConsumers[0];
           const [result] = await connection.query(
             `UPDATE customers SET nameCustomer = ?, documentCustomer = ?, phoneCustomer = ?,
               emailCustomer = ?, addressCustomer = ?, creditLimitCustomer = ?,
-              paymentTermCustomer = ?, notesCustomer = ? WHERE idCustomer = ?`,
-            [nameCustomer, documentCustomer, phoneCustomer, emailCustomer, addressCustomer, creditLimitCustomer, paymentTermCustomer, notesCustomer || null, idCustomer]
+              notesCustomer = ? WHERE idCustomer = ?`,
+            [nameCustomer, documentCustomer, phoneCustomer, emailCustomer, addressCustomer, creditLimitCustomer, notesCustomer || null, idCustomer]
           );
           if (!result.affectedRows) throw new SaleValidationError("Cliente não encontrado.", 404);
-          await connection.query(
-            "UPDATE consumers SET nameConsumer = ?, phoneConsumer = ? WHERE idCustomer = ?",
-            [nameCustomer, phoneCustomer, idCustomer]
-          );
+          const consumerUpdates = [];
+          const consumerValues = [];
+          if (linkedConsumer && String(linkedConsumer.nameConsumer ?? "") === String(currentCustomer.nameCustomer ?? "")
+            && String(currentCustomer.nameCustomer ?? "") !== nameCustomer) {
+            consumerUpdates.push("nameConsumer = ?");
+            consumerValues.push(nameCustomer);
+          }
+          if (linkedConsumer && String(linkedConsumer.phoneConsumer ?? "") === String(currentCustomer.phoneCustomer ?? "")
+            && String(currentCustomer.phoneCustomer ?? "") !== phoneCustomer) {
+            consumerUpdates.push("phoneConsumer = ?");
+            consumerValues.push(phoneCustomer);
+          }
+          if (consumerUpdates.length) {
+            await connection.query(
+              `UPDATE consumers SET ${consumerUpdates.join(", ")} WHERE idCustomer = ?`,
+              [...consumerValues, idCustomer]
+            );
+          }
           await connection.commit();
           json(response, 200, { idCustomer });
         }
@@ -1564,11 +1605,57 @@ const server = createServer(async (request, response) => {
       const idCustomer = parsePositiveId(payload.idCustomer);
       if (!idCustomer) throw new SaleValidationError("Cliente inválido.");
       await ensureCustomerConsumerSchema();
-      const [result] = await pool.query("UPDATE customers SET isActiveCustomer = 0 WHERE idCustomer = ?", [idCustomer]);
-      if (!result.affectedRows) throw new SaleValidationError("Cliente não encontrado.", 404);
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        const [result] = await connection.query("UPDATE customers SET isActiveCustomer = 0 WHERE idCustomer = ?", [idCustomer]);
+        if (!result.affectedRows) throw new SaleValidationError("Cliente não encontrado.", 404);
+        await connection.query("UPDATE consumers SET isActiveConsumer = 0 WHERE idCustomer = ?", [idCustomer]);
+        await connection.commit();
+      } catch (error) {
+        await connection.rollback();
+        throw error;
+      } finally {
+        connection.release();
+      }
       json(response, 200, { ok: true, idCustomer });
     } catch (error) {
       handleError(response, error, { log: "Falha ao excluir cliente:", message: "Não foi possível excluir o cliente.", duplicate: "" });
+    }
+    return;
+  }
+
+  if (request.method === "PUT" && request.url === "/api/customers/status") {
+    try {
+      const payload = await readJsonBody(request);
+      const idCustomer = parsePositiveId(payload.idCustomer);
+      if (!idCustomer || ![true, false, 0, 1].includes(payload.isActiveCustomer)) {
+        throw new SaleValidationError("Cliente ou status inválido.");
+      }
+      await ensureCustomerConsumerSchema();
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        const active = payload.isActiveCustomer ? 1 : 0;
+        const [result] = await connection.query(
+          "UPDATE customers SET isActiveCustomer = ? WHERE idCustomer = ?",
+          [active, idCustomer]
+        );
+        if (!result.affectedRows) throw new SaleValidationError("Cliente não encontrado.", 404);
+        await connection.query(
+          "UPDATE consumers SET isActiveConsumer = ? WHERE idCustomer = ?",
+          [active, idCustomer]
+        );
+        await connection.commit();
+      } catch (error) {
+        await connection.rollback();
+        throw error;
+      } finally {
+        connection.release();
+      }
+      json(response, 200, { idCustomer, isActiveCustomer: payload.isActiveCustomer ? 1 : 0 });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao alterar status do cliente:", message: "Não foi possível alterar o status do cliente.", duplicate: "" });
     }
     return;
   }
@@ -1612,10 +1699,10 @@ const server = createServer(async (request, response) => {
       } else {
         const [result] = await pool.query(
           `UPDATE consumers SET nameConsumer = ?, nicknameConsumer = ?, phoneConsumer = ?, notesConsumer = ?
-           WHERE idConsumer = ? AND idCustomer IS NULL`,
+           WHERE idConsumer = ?`,
           [...values, idConsumer]
         );
-        if (!result.affectedRows) throw new SaleValidationError("Consumidor vinculado a cliente não encontrado ou não pode ser alterado aqui.", 409);
+        if (!result.affectedRows) throw new SaleValidationError("Consumidor não encontrado.", 404);
         json(response, 200, { idConsumer });
       }
     } catch (error) {
@@ -1635,6 +1722,33 @@ const server = createServer(async (request, response) => {
       json(response, 200, { ok: true, idConsumer });
     } catch (error) {
       handleError(response, error, { log: "Falha ao excluir consumidor:", message: "Não foi possível excluir o consumidor.", duplicate: "" });
+    }
+    return;
+  }
+
+  if (request.method === "PUT" && request.url === "/api/consumers/status") {
+    try {
+      const payload = await readJsonBody(request);
+      const idConsumer = parsePositiveId(payload.idConsumer);
+      if (!idConsumer || ![true, false, 0, 1].includes(payload.isActiveConsumer)) {
+        throw new SaleValidationError("Consumidor ou status inválido.");
+      }
+      await ensureCustomerConsumerSchema();
+      const [linkedConsumers] = await pool.query(
+        "SELECT idCustomer FROM consumers WHERE idConsumer = ? LIMIT 1",
+        [idConsumer]
+      );
+      if (linkedConsumers[0]?.idCustomer) {
+        throw new SaleValidationError("Consumidor vinculado a cliente deve ser alterado pelo cadastro do cliente.", 409);
+      }
+      const [result] = await pool.query(
+        "UPDATE consumers SET isActiveConsumer = ? WHERE idConsumer = ? AND idCustomer IS NULL",
+        [payload.isActiveConsumer ? 1 : 0, idConsumer]
+      );
+      if (!result.affectedRows) throw new SaleValidationError("Consumidor não encontrado.", 404);
+      json(response, 200, { idConsumer, isActiveConsumer: payload.isActiveConsumer ? 1 : 0 });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao alterar status do consumidor:", message: "Não foi possível alterar o status do consumidor.", duplicate: "" });
     }
     return;
   }
@@ -1711,7 +1825,7 @@ const server = createServer(async (request, response) => {
       json(response, 200, {
         ok: true,
         database: "connected",
-        apiVersion: "0.1.0",
+        apiVersion: applicationVersion,
         startedAt: apiStartedAt.toISOString(),
         uptimeSeconds: Math.floor(process.uptime())
       });
@@ -2053,7 +2167,8 @@ const server = createServer(async (request, response) => {
                 nfceCertificateSerialCompany, logoMimeCompany, logoDataCompany,
                 projectIconMimeCompany, projectIconDataCompany
          FROM company_settings
-         WHERE idCompanySetting = 1`
+         ORDER BY idCompanySetting ASC
+         LIMIT 1`
       );
       json(response, 200, { company: rows[0] || null });
     } catch (error) {
@@ -2080,7 +2195,8 @@ const server = createServer(async (request, response) => {
                 (nfceCertificatePasswordCompany IS NOT NULL AND nfceCertificatePasswordCompany <> '') AS hasCertificatePasswordCompany,
                 nfceCertificateDataCompany, nfceCertificatePasswordCompany
          FROM company_settings
-         WHERE idCompanySetting = 1`
+         ORDER BY idCompanySetting ASC
+         LIMIT 1`
       );
       const row = rows[0] || null;
       if (row && row.hasCertificateCompany && row.hasCertificatePasswordCompany
@@ -2094,7 +2210,8 @@ const server = createServer(async (request, response) => {
           await pool.query(
             `UPDATE company_settings
              SET nfceCertificateExpiresCompany = ?, nfceCertificateSerialCompany = ?
-             WHERE idCompanySetting = 1`,
+             ORDER BY idCompanySetting ASC
+             LIMIT 1`,
             [row.nfceCertificateExpiresCompany || metadata.expires, row.nfceCertificateSerialCompany || metadata.serial]
           );
           row.nfceCertificateExpiresCompany ||= metadata.expires;
@@ -2133,7 +2250,8 @@ const server = createServer(async (request, response) => {
                 nfceHomologationCscCompany, nfceHomologationTokenCompany,
                 nfceCertificateDataCompany, nfceCertificatePasswordCompany
          FROM company_settings
-         WHERE idCompanySetting = 1`
+         ORDER BY idCompanySetting ASC
+         LIMIT 1`
       );
       const company = companyRows[0];
       if (!company) throw new SaleValidationError("Cadastro da empresa não encontrado.", 404);
@@ -2271,7 +2389,8 @@ const server = createServer(async (request, response) => {
              nfceCertificateSerialCompany = ?, nfceCertificateNameCompany = COALESCE(NULLIF(?, ''), nfceCertificateNameCompany),
              nfceCertificateDataCompany = COALESCE(?, nfceCertificateDataCompany),
              nfceCertificatePasswordCompany = COALESCE(?, nfceCertificatePasswordCompany)
-         WHERE idCompanySetting = 1`,
+         ORDER BY idCompanySetting ASC
+         LIMIT 1`,
         [
           nfceStateCompany, nfceModelCompany, nfceEnvironmentCompany,
           nfceSeriesCompany, nfceInitialNumberCompany, nfceContingencyCompany,
@@ -2292,7 +2411,8 @@ const server = createServer(async (request, response) => {
                 (nfceCertificateDataCompany IS NOT NULL AND nfceCertificateDataCompany <> '') AS hasCertificateCompany,
                 (nfceCertificatePasswordCompany IS NOT NULL AND nfceCertificatePasswordCompany <> '') AS hasCertificatePasswordCompany
          FROM company_settings
-         WHERE idCompanySetting = 1`
+         ORDER BY idCompanySetting ASC
+         LIMIT 1`
       );
       const row = rows[0] || null;
       if (row) row.nfceCertificateExpiresCompany = normalizeDateValue(row.nfceCertificateExpiresCompany);
@@ -2317,7 +2437,8 @@ const server = createServer(async (request, response) => {
       const [currentCompanyRows] = await pool.query(
         `SELECT municipalityCodeCompany
          FROM company_settings
-         WHERE idCompanySetting = 1`
+         ORDER BY idCompanySetting ASC
+         LIMIT 1`
       );
       const currentCompany = currentCompanyRows[0] || {};
       const text = (value, fieldName, maxLength, required = false) => {
@@ -2389,7 +2510,8 @@ const server = createServer(async (request, response) => {
              mobileCompany = ?, websiteCompany = ?, emailCompany = ?,
              logoMimeCompany = ?, logoDataCompany = ?,
              projectIconMimeCompany = ?, projectIconDataCompany = ?
-         WHERE idCompanySetting = 1`,
+         ORDER BY idCompanySetting ASC
+         LIMIT 1`,
         [
           companyTypeCompany, documentCompany, corporateNameCompany, tradeNameCompany,
           stateRegistrationCompany, municipalRegistrationCompany, cnaeCompany,
@@ -2415,7 +2537,8 @@ const server = createServer(async (request, response) => {
                 nfceCertificateSerialCompany, logoMimeCompany, logoDataCompany,
                 projectIconMimeCompany, projectIconDataCompany
          FROM company_settings
-         WHERE idCompanySetting = 1`
+         ORDER BY idCompanySetting ASC
+         LIMIT 1`
       );
       json(response, 200, { company: rows[0] });
     } catch (error) {
@@ -4086,7 +4209,7 @@ server.listen(config.apiPort, config.apiHost, () => {
     ensureGeneralSettingsSchema(),
     ensureCompanySchema(),
     ensureSupplierSchema(),
-    ensureCustomerConsumerSchema(),
+    ensureCustomerConsumerSchema().then(migrateCustomerConsumerSchema),
     ensureNavigationSchema()
   ]).then(() => ensureUppercaseTextData()).catch((error) => {
     console.error("Falha ao preparar ou normalizar o banco:", error);

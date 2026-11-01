@@ -2,7 +2,7 @@ import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { bindFormRowPreview } from "../ui/form-row-preview.js";
 import { renderPreservingFormDraft } from "../ui/form-draft.js";
-import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { getApiUrl } from "../shared/api.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
 
@@ -407,7 +407,7 @@ export function createSupplierScreen({
       if (!idSupplier) searchTerm = "";
       await load();
       editingSupplier = null;
-      scheduleMessageClear(() => { message = ""; render(); });
+      scheduleMessageClear(() => { message = ""; clearRenderedFeedback(root); });
     } catch (submitError) {
       error = submitError instanceof Error ? submitError.message : "Falha ao salvar o fornecedor.";
     } finally {
@@ -441,7 +441,7 @@ export function createSupplierScreen({
       if (!response.ok) throw new Error(payload.error || "Não foi possível excluir o fornecedor.");
       message = "Fornecedor excluído com sucesso.";
       await load();
-      scheduleMessageClear(() => { message = ""; render(); });
+      scheduleMessageClear(() => { message = ""; clearRenderedFeedback(root); });
     } catch (removeError) {
       error = removeError instanceof Error ? removeError.message : "Falha ao excluir o fornecedor.";
       render();

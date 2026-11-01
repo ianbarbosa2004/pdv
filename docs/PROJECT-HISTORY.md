@@ -7,6 +7,50 @@ inicial do produto até o estado atual do workspace. Ele complementa o
 
 ## 0. Estado mais recente
 
+As correções mais recentes consolidaram o fluxo operacional do PDV Zanzibar.
+O menu **Sair**, o botão de fechamento da janela e os eventos de encerramento
+passaram a usar o fluxo nativo do Tauri, com permissões explícitas e
+confirmação de backup quando aplicável. A navegação persistida agora é
+deduplicada por identidade, menu e item pai, preserva itens personalizados e
+mantém **Sair** como a última opção ativa.
+
+Os formulários administrativos passaram a preservar rascunhos durante
+carregamentos assíncronos sem restaurar um snapshot vazio sobre dados recebidos
+da API. Após salvar ou cancelar, o formulário é limpo de forma explícita, e o
+feedback temporário é removido sem reconstruir a árvore HTML nem perder o foco
+do operador.
+
+Clientes e Consumidores foram separados conceitualmente. Clientes mantêm o
+histórico financeiro de Vale e criam o Consumidor vinculado na mesma transação;
+Consumidores avulsos continuam disponíveis para operação. CPF/CNPJ e telefone
+recebem máscara nas listagens, as colunas removidas não voltam a ser exibidas,
+os switches de status permanecem visíveis e um Consumidor vinculado não pode
+alterar o próprio status diretamente. Alterações independentes de nome,
+apelido, telefone e observações não são sobrescritas pelo cadastro do Cliente.
+O campo legado `paymentTermCustomer` não faz parte do schema inicial, e sua
+migração compatível ocorre somente na inicialização da API.
+
+O cadastro de **Dados da Empresa** seleciona deterministicamente o único
+registro lógico sem depender do identificador `1`. A API cria a linha somente
+quando a tabela está vazia, e a tela preserva apenas edições reais do operador,
+incluindo logo e ícone, durante o carregamento. O painel introdutório de
+Operações Fiscais foi removido para deixar o formulário da empresa diretamente
+acessível.
+
+O versionamento deixou de ser alterado por builds. `npm.cmd run build` e
+`npm.cmd run release:client` usam a versão atual; incrementos exigem
+`version:patch`, `version:minor` ou `version:major`. Os instaladores finais
+usam os nomes fixos `pdv-zanzibar.msi`, `pdv-zanzibar.exe` e
+`pdv-zanzibar-metadata.json`, sem versão no nome do arquivo. O script de
+release seleciona somente os artefatos da versão corrente e só regenera ícones
+quando `--refresh-icons` é solicitado.
+
+O Status da API exibe separadamente a versão do aplicativo, a versão da API e
+o fingerprint do frontend. A API deriva sua versão do `package.json`, enquanto
+o identificador do frontend contém somente o fingerprint. Assim, versões
+diferentes entre terminal e servidor ficam explícitas quando os componentes
+são publicados separadamente.
+
 O cadastro de Fornecedores foi consolidado como tela própria de **Cadastros**,
 com persistência na API, pesquisa, visualização lateral, edição em modal,
 ativação/inativação e exclusão. O formulário usa select de UF, remove o campo
@@ -63,6 +107,13 @@ valores de inputs, selects, textareas, checkboxes e radios quando a árvore do
 formulário é reconstruída. A diretriz também exige que as ações explícitas de
 Limpar, Cancelar e salvamento mantenham seus significados, sem preservar
 indevidamente um rascunho de inclusão em modo de visualização ou edição modal.
+Novos formulários devem seguir o checklist de
+[`DEVELOPMENT.md`](DEVELOPMENT.md), cobrindo o ciclo
+`submit() -> load() -> renderPreservingFormDraft()` e testando que a limpeza
+após inclusão, edição ou cancelamento não recapture valores antigos.
+O desaparecimento automático do feedback também foi padronizado em todas as
+telas: `clearRenderedFeedback(root)` remove somente o aviso e não reconstrói o
+formulário, preservando o foco do próximo campo digitado.
 
 ## 1. Direção inicial
 

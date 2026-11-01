@@ -133,6 +133,16 @@ test("prioriza handler da chave quando a rota persistida é diferente", () => {
   assert.equal(resolveNavigationHandler({}, "fiscal-operations"), keyHandler);
 });
 
+test("mantém o handler global de saída quando a tela não o declara localmente", () => {
+  const exitHandler = () => "exit";
+  global.window = {
+    __PDV_NAVIGATION__: { items: [] },
+    __PDV_NAVIGATION_HANDLERS__: { exit: exitHandler }
+  };
+
+  assert.equal(resolveNavigationHandler({}, "exit"), exitHandler);
+});
+
 test("recria a rota essencial de Status da API quando a navegação persistida a perde", () => {
   const navigation = ensureApiStatusNavigation({
     menus: [{ idNavigationMenu: 1, keyNavigationMenu: "tools", labelNavigationMenu: "Ferramentas" }],
@@ -203,4 +213,34 @@ test("mantém Sair como último menu ativo e não permite que ele desapareça", 
   assert.equal(exit.isActiveNavigationMenu, 1);
   assert.equal(exit.orderNavigationMenu, 65535);
   assert.equal(ordered.at(-1), exit);
+});
+
+test("remove itens persistidos duplicados dos itens padrão", () => {
+  const navigation = mergeNavigationDefaults({
+    menus: [{ idNavigationMenu: 7, keyNavigationMenu: "settings", labelNavigationMenu: "Configurações" }],
+    items: [
+      { idNavigationItem: 8, idNavigationMenu: 7, keyNavigationItem: "navigation-builder", routeNavigationItem: "navigation-builder" },
+      { idNavigationItem: 9, idNavigationMenu: 7, keyNavigationItem: "navigation-builder", routeNavigationItem: "navigation-builder" }
+    ]
+  });
+
+  const builderItems = navigation.items.filter((item) => item.keyNavigationItem === "navigation-builder");
+  assert.equal(builderItems.length, 1);
+  assert.equal(builderItems[0].idNavigationItem, 8);
+});
+
+test("preserva item personalizado que reutiliza rota padrão", () => {
+  const navigation = mergeNavigationDefaults({
+    menus: [{ idNavigationMenu: 7, keyNavigationMenu: "tools", labelNavigationMenu: "Ferramentas" }],
+    items: [{
+      idNavigationItem: 20,
+      idNavigationMenu: 7,
+      keyNavigationItem: "custom-api-check",
+      labelNavigationItem: "Verificação personalizada",
+      routeNavigationItem: "api-status"
+    }]
+  });
+
+  const customItem = navigation.items.find((item) => item.keyNavigationItem === "custom-api-check");
+  assert.equal(customItem?.routeNavigationItem, "api-status");
 });

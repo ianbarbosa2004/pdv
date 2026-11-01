@@ -14,5 +14,9 @@ export const createFeedbackTimer = () => {
 
 export const renderSuccessFeedback = (message, escapeHtml) =>
   message
-    ? `<div class="success-message page-feedback" role="status" aria-live="polite">${escapeHtml(message)}</div>`
+    ? `<div class="success-message page-feedback" data-success-feedback role="status" aria-live="polite">${escapeHtml(message)}</div>`
     : "";
+
+export const clearRenderedFeedback = (root) => {
+  root.querySelector("[data-success-feedback]")?.remove();
+};

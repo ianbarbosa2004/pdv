@@ -1,5 +1,5 @@
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
-import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 
 const escapeHtml = (value) =>
   String(value ?? "")
@@ -135,7 +135,7 @@ export function createNfceQueryScreen({ onBack, onNfce, ...handlers }) {
       render();
       scheduleMessageClear(() => {
         message = "";
-        render();
+        clearRenderedFeedback(root);
       });
     });
     root.querySelector("[data-load-demo]")?.addEventListener("click", () => {
@@ -145,7 +145,7 @@ export function createNfceQueryScreen({ onBack, onNfce, ...handlers }) {
       render();
       scheduleMessageClear(() => {
         message = "";
-        render();
+        clearRenderedFeedback(root);
       });
     });
     root.querySelectorAll("[data-item-index]").forEach((checkbox) => {
@@ -162,7 +162,7 @@ export function createNfceQueryScreen({ onBack, onNfce, ...handlers }) {
       render();
       scheduleMessageClear(() => {
         message = "";
-        render();
+        clearRenderedFeedback(root);
       });
     });
   };
