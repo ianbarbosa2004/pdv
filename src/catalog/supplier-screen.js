@@ -86,14 +86,12 @@ const formatPhone = (value) => {
 
 const formatEmail = (value) => String(value ?? "").replace(/\s/g, "").toLocaleLowerCase("pt-BR").slice(0, 180);
 
-const capitalizeText = (value) => String(value ?? "")
+const uppercaseText = (value) => String(value ?? "")
   .trim()
   .replace(/\s+/g, " ")
-  .toLocaleLowerCase("pt-BR")
-  .replace(/(^|[\s/-])([a-zà-ÿ])/giu, (_, separator, character) =>
-    `${separator}${character.toLocaleUpperCase("pt-BR")}`);
+  .toLocaleUpperCase("pt-BR");
 
-const capitalizedSupplierFields = new Set([
+const uppercaseSupplierFields = new Set([
   "companyNameSupplier",
   "tradeNameSupplier",
   "contactNameSupplier",
@@ -105,7 +103,7 @@ const capitalizedSupplierFields = new Set([
 ]);
 
 const normalizeSupplierText = (field, value) =>
-  capitalizedSupplierFields.has(field) ? capitalizeText(value) : String(value ?? "").trim();
+  uppercaseSupplierFields.has(field) ? uppercaseText(value) : String(value ?? "").trim();
 
 export function createSupplierScreen({
   onBack,
@@ -404,6 +402,7 @@ export function createSupplierScreen({
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Não foi possível salvar o fornecedor.");
       message = idSupplier ? "Fornecedor alterado com sucesso." : "Fornecedor cadastrado com sucesso.";
+      if (!idSupplier) searchTerm = "";
       await load();
       editingSupplier = null;
       scheduleMessageClear(() => { message = ""; render(); });

@@ -50,12 +50,17 @@ const normalizePayload = (payload) => {
   if (payments.some(({ amountSalePayment }) => amountSalePayment <= 0)) throw new SaleValidationError("O valor do pagamento deve ser positivo.");
   const discountSale = toCents(payload.discountSale ?? 0, "Desconto");
   if (discountSale < 0) throw new SaleValidationError("O desconto não pode ser negativo.");
+  const idCustomerSale = payload.idCustomerSale == null ? null : Number(payload.idCustomerSale);
+  if (idCustomerSale !== null && (!Number.isSafeInteger(idCustomerSale) || idCustomerSale <= 0)) {
+    throw new SaleValidationError("Cliente do Vale inválido.");
+  }
 
   return {
     clientIdSale,
     items: [...itemMap].map(([idProduct, quantitySaleItem]) => ({ idProduct, quantitySaleItem })),
     payments,
-    discountSale
+    discountSale,
+    idCustomerSale
   };
 };
 
@@ -124,12 +129,28 @@ export async function createSale(connection, payload) {
     if (paymentTotal !== totalSaleCents) throw new SaleValidationError("A soma dos pagamentos deve ser igual ao total da venda.");
 
     const [paymentMethods] = await connection.query(
-      `SELECT idPaymentMethod FROM payment_methods
+      `SELECT idPaymentMethod, namePaymentMethod FROM payment_methods
        WHERE isActivePaymentMethod = 1 AND idPaymentMethod IN (${input.payments.map(() => "?").join(", ")})`,
       input.payments.map(({ idPaymentMethod }) => idPaymentMethod)
     );
     if (paymentMethods.length !== new Set(input.payments.map(({ idPaymentMethod }) => idPaymentMethod)).size) {
       throw new SaleValidationError("Uma ou mais formas de pagamento não estão disponíveis.", 409);
+    }
+    const usesVoucher = paymentMethods.some((method) => method.namePaymentMethod?.toLocaleUpperCase("pt-BR") === "VALE");
+    if (usesVoucher && !input.idCustomerSale) throw new SaleValidationError("Selecione o cliente para registrar a venda em Vale.");
+    if (usesVoucher) {
+      const [customers] = await connection.query(
+        "SELECT idCustomer, creditLimitCustomer FROM customers WHERE idCustomer = ? AND isActiveCustomer = 1 FOR UPDATE",
+        [input.idCustomerSale]
+      );
+      if (!customers.length) throw new SaleValidationError("Cliente do Vale não encontrado ou inativo.", 409);
+      const [openVouchers] = await connection.query(
+        `SELECT COALESCE(SUM(amountCustomerVoucher), 0) AS totalOpen
+         FROM customer_vouchers WHERE idCustomer = ? AND statusCustomerVoucher = 'open'`,
+        [input.idCustomerSale]
+      );
+      const available = Number(customers[0].creditLimitCustomer || 0) - Number(openVouchers[0]?.totalOpen || 0);
+      if (available + 0.0001 < totalSaleCents / 100) throw new SaleValidationError("O limite disponível de Vale é insuficiente.", 409);
     }
 
     const [saleResult] = await connection.query(
@@ -165,6 +186,19 @@ export async function createSale(connection, payload) {
       await connection.query(
         "INSERT INTO sale_payments (idSale, idPaymentMethod, amountSalePayment) VALUES (?, ?, ?)",
         [idSale, payment.idPaymentMethod, serializeMoney(payment.amountSalePayment)]
+      );
+    }
+    if (usesVoucher) {
+      const [customerRows] = await connection.query(
+        "SELECT paymentTermCustomer FROM customers WHERE idCustomer = ? LIMIT 1",
+        [input.idCustomerSale]
+      );
+      const termDays = Number(customerRows[0]?.paymentTermCustomer || 0);
+      await connection.query(
+        `INSERT INTO customer_vouchers
+          (idCustomer, idSale, amountCustomerVoucher, dueDateCustomerVoucher)
+         VALUES (?, ?, ?, DATE_ADD(CURDATE(), INTERVAL ? DAY))`,
+        [input.idCustomerSale, idSale, serializeMoney(totalSaleCents), termDays]
       );
     }
 

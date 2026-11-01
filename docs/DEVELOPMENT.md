@@ -35,7 +35,8 @@ As tabelas de cadastro e apoio atualmente são:
 | Operações fiscais | `fiscal_operations`, `fiscal_catalog_items` | Operações e listas de CFOP, CST/CSOSN, ICMS, IPI, PIS/COFINS e demais parâmetros |
 | Configuração | `company_settings`, `printer_settings`, `general_settings` | Empresa, NFC-e, certificado protegido, impressoras, layout de cupom e regras operacionais gerais |
 | Navegação | `navigation_menus`, `navigation_items` | Menus, barras contextuais, rotas e ordenação |
-| Venda | `sales`, `sale_items`, `sale_payments` | Venda, itens congelados, pagamentos e idempotência |
+| Venda | `sales`, `sale_items`, `sale_payments`, `customer_vouchers` | Venda, itens congelados, pagamentos, idempotência e débitos de Vale |
+| Pessoas | `customers`, `consumers` | Clientes financeiros, consumidores operacionais e relação automática Cliente → Consumidor |
 
 As chaves e colunas persistidas seguem o padrão `nomeCampoEntidade`, por
 exemplo `ncmProduct`, `receiptLayoutPrinterSetting`,
@@ -97,6 +98,13 @@ revisada e autorizada.
 Quando uma mudança alterar API, banco ou fluxo de cadastro, inclua cobertura
 para sucesso, entradas inválidas, erros explícitos e efeitos relevantes no
 estado persistido.
+
+Clientes exigem somente o nome. Ao criar um Cliente, a API cria o Consumidor
+correspondente na mesma transação; consumidores avulsos continuam permitidos.
+O histórico financeiro de Vale fica vinculado ao Cliente e o histórico de
+consumo deve ser exibido somente na área de Consumidores. O fechamento de uma
+venda em Vale valida o cliente ativo, o limite disponível e grava o débito
+junto com a venda.
 
 O cadastro de operações fiscais é uma camada de parametrização. Ele armazena
 CFOP, regime, tipo de entrada/saída, contexto fiscal, situações tributárias,
@@ -242,13 +250,13 @@ novas pelo `schema.sql` e adicionada de forma idempotente em bases existentes.
 Fornecedores são mantidos em uma tela própria no menu **Cadastros**. O
 cadastro cobre pessoa jurídica e pessoa física, documento, razão social/nome,
 nome fantasia, contato, telefone, e-mail, endereço completo, UF e observações.
-O país não é solicitado na tela e a API mantém `Brasil` como padrão. CNPJ/CPF,
+O país não é solicitado na tela e a API mantém `BRASIL` como padrão. CNPJ/CPF,
 telefone e CEP recebem máscara durante a digitação; e-mails são normalizados
 sem espaços e em minúsculas. O documento é armazenado sem máscara e possui
 unicidade por tipo de pessoa; a interface apresenta o valor formatado.
-Os dados retornados pelas consultas usam capitalização de palavras para
-facilitar a revisão no formulário. No salvamento, a API preserva o texto
-informado pelo operador, sem alterar maiúsculas e minúsculas.
+Os dados retornados pelas consultas são apresentados em maiúsculas, preservando
+a acentuação. No salvamento, os campos textuais humanos são normalizados para
+maiúsculas pela API.
 
 No formulário de novo fornecedor, o botão ao lado do CNPJ consulta a BrasilAPI
 e preenche razão social, nome fantasia, contato, telefone, e-mail e endereço
@@ -279,10 +287,78 @@ durante o lançamento de uma compra.
 
 Em **Ferramentas > Importar cadastros**, o painel **Importar Produtos** oferece
 um modelo CSV, a validação do arquivo antes do envio e a importação em lote.
-O arquivo usa cabeçalho fixo e referencia grupo, operação fiscal, tipo de
-produto e unidade pelos nomes já cadastrados. A API valida cada linha e grava
-todo o lote em uma única transação; se uma linha falhar, nenhum produto do
-lote é persistido.
+O modelo baixado usa cabeçalhos em português, incluindo **Preço de venda** e
+**Preço de custo**. A tela também aceita o cabeçalho técnico anterior para
+preservar compatibilidade com arquivos já preparados. O arquivo referencia
+grupo, operação fiscal, tipo de produto e unidade pelos nomes já cadastrados.
+A API valida cada linha e grava todo o lote em uma única transação; se uma
+linha falhar, nenhum produto do lote é persistido.
+A tela disponibiliza downloads em Markdown com as listas atuais de **Grupos**,
+**Operações Fiscais de Venda**, **Tipos de Produto** e **Unidades**, indicando a
+coluna do CSV e o valor exato que deve ser informado. O campo de nome/descrição
+do produto é salvo em maiúsculas, preservando a acentuação, durante a importação.
+Os campos textuais de cadastros existentes também são normalizados para maiúsculas
+na inicialização da API. NCM e CEST podem
+ser informados com pontuação, como `0201.30.00` e `0603.10.00`; a API remove a
+formatação antes de validar e persistir os códigos.
+
+### Migração de textos existentes
+
+Para converter os textos já armazenados no MariaDB para maiúsculas, execute no
+ambiente do servidor:
+
+```powershell
+npm.cmd run migrate:uppercase
+```
+
+O comando usa as credenciais do `.env`, verifica as tabelas existentes e executa
+a alteração em uma única transação. A migração é idempotente: executar novamente
+não altera valores que já estejam normalizados.
+
+São convertidos textos humanos de produtos, grupos, classes, clientes,
+consumidores, fornecedores, empresa, formas de pagamento, NCM/CEST, operações
+fiscais, catálogos fiscais e nomes persistidos nos itens de venda. O construtor
+de menus não participa da migração. Códigos, e-mails, URLs, chaves técnicas,
+rotas, enums e demais identificadores não são convertidos.
+
+Antes da escrita, o comando verifica colisões nos campos textuais com índice
+único, como classe, grupo, tipo de produto e forma de pagamento. Se dois valores
+distintos se tornarem iguais após a conversão, a migração é interrompida sem
+alterar o banco e informa a tabela e a coluna conflitantes. Não execute a
+migração com a API em processo de atualização concorrente; faça backup conforme
+o procedimento operacional do servidor antes de uma primeira execução em
+produção.
+
+### Distribuição do PDV Zanzibar
+
+O comando `npm.cmd run release:client -- --api-url=http://192.168.1.200:3000`
+usa diretamente os ícones atuais de `src-tauri/icons`, sem consultar o ícone
+cadastrado na API, e compila o projeto nativo **PDV Zanzibar** em MSI/EXE.
+O endereço da API é embutido no frontend para a execução do terminal e pode
+ser substituído explicitamente com `--api-url`. O comando não faz push ou
+deploy.
+O instalador deve ser gerado novamente após trocar o ícone. Na máquina do
+cliente, instale o arquivo recém-gerado e crie um novo atalho; o Windows pode
+manter em cache o ícone de atalhos antigos. O arquivo `*-metadata.json` gerado
+junto aos instaladores registra o nome do projeto, a API usada e a origem dos
+ícones para conferência da distribuição.
+
+### Painéis introdutórios e rotas administrativas
+
+As telas de Ferramentas e Configurações usam o componente visual
+`.backoffice-home-heading` para apresentar categoria, título e descrição da
+função antes do formulário ou da listagem. O CSS compartilhado faz o painel
+ocupar a linha inteira quando necessário e mantém margem inferior de 20 px
+antes do conteúdo seguinte. A tela Atualizar NCM / CEST usa
+`.ncm-cest-update-panel` para ocupar 100% da largura; a tela Dados da Empresa
+usa o mesmo padrão de introdução.
+
+Operações Fiscais e Consulta de NFC-e possuem aliases diretos no roteamento
+principal (`fiscal-operations` e `nfce-query`), além dos handlers usados pelos
+menus e barras contextuais. Ao criar uma nova entrada persistida, o
+`keyNavigationItem` deve apontar para um handler registrado em `src/main.js`,
+ou a entrada deve informar uma `routeNavigationItem` que possa ser resolvida
+pelo roteamento compartilhado.
 
 Na tela **Matérias-primas**, um novo cadastro inicia com SKU `MP-`, sem operação
 fiscal de venda, **Controla estoque** desmarcado e **Exibe no PDV** desmarcado.
@@ -295,9 +371,15 @@ O cadastro é uma tela parametrizada por tipo de produto. **Produtos** é a
 entrada do menu principal; **Matérias-primas**, **Embalagem** e **Material de
 Uso e Consumo** ficam disponíveis na barra contextual dessa tela. Cada tela
 envia o filtro `productType` para `GET /api/products`, fixa o tipo no
+
 formulário e mantém o mesmo contrato de gravação. Isso permite adicionar
 campos e regras específicas por tipo em uma etapa posterior sem duplicar a
 camada de API. **Outros Insumos** não faz parte da navegação.
+
+Matérias-primas, embalagens e materiais de uso e consumo não são produtos para
+venda. Nessas três telas, o formulário e a listagem exibem somente **Preço de
+custo**; a API grava `priceProduct` com o mesmo valor de `costPriceProduct`
+para manter o contrato de preço e impedir divergência entre os campos.
 
 Classes possuem a referência `idFiscalOperationClass`, migrada de forma
 compatível para bases existentes. A API valida a operação fiscal ativa ao criar

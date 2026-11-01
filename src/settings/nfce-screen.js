@@ -53,6 +53,11 @@ export function createNfceScreen({
       </div>
       <section class="classic-content company-content">
         ${renderSuccessFeedback(message, escapeHtml)}
+        <div class="backoffice-home-heading">
+          <p class="eyebrow">Configurações</p>
+          <h1>Configuração NFC-e</h1>
+          <p>Defina os parâmetros fiscais e o certificado usados para emissão de NFC-e.</p>
+        </div>
         <form class="classic-form-panel company-form" data-form>
           <div class="classic-panel-header">Fiscal - NFC-e</div>
           <div class="classic-form-body">

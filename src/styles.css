@@ -856,6 +856,12 @@ h2 {
   box-shadow: 0 1px 2px rgb(35 49 64 / 8%);
 }
 
+.classic-content > .backoffice-home-heading,
+.settings-content > .backoffice-home-heading,
+.thermal-print-content > .backoffice-home-heading {
+  margin-bottom: 20px;
+}
+
 .backoffice-home-heading h1 {
   margin: 3px 0 6px;
   color: #203b5a;
@@ -1005,6 +1011,15 @@ h2 {
   max-width: 1680px;
   margin: 0 auto;
   padding: 18px;
+}
+
+.catalog-import-screen .classic-content {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.catalog-import-screen .backoffice-home-heading,
+.catalog-import-screen .classic-form-panel {
+  width: 100%;
 }
 
 .navigation-builder {
@@ -1374,6 +1389,10 @@ h2 {
   width: min(100% - 36px, 1440px);
   margin: 0 auto;
   padding: 28px 0 42px;
+}
+
+.thermal-print-content .backoffice-home-heading {
+  margin-bottom: 24px;
 }
 
 .thermal-print-heading {
@@ -1765,6 +1784,20 @@ h2 {
 .fiscal-content {
   grid-template-columns: minmax(720px, 760px) minmax(0, 1fr);
   max-width: 1900px;
+}
+
+.fiscal-content > .backoffice-home-heading,
+.company-content > .backoffice-home-heading {
+  grid-column: 1 / -1;
+}
+
+.fiscal-content > .backoffice-home-heading {
+  width: 100%;
+}
+
+.ncm-cest-update-panel {
+  grid-column: 1 / -1;
+  width: 100%;
 }
 
 .fiscal-catalog-content {

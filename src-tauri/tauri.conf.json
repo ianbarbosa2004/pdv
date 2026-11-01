@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "PDV",
+  "productName": "PDV Zanzibar",
   "version": "0.1.0",
   "identifier": "com.ianbarbosa2004.pdv",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "PDV",
+        "title": "PDV Zanzibar",
         "width": 800,
         "height": 600,
         "resizable": true,

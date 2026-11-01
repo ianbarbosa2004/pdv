@@ -8,6 +8,7 @@ import { createFiscalOperationScreen } from "./catalog/fiscal-operation-screen.j
 import { createFiscalCatalogScreen } from "./catalog/fiscal-catalog-screen.js";
 import { createThermalPrintScreen } from "./tools/thermal-print-screen.js";
 import { createNcmCestUpdateScreen } from "./tools/ncm-cest-update-screen.js";
+import { createNfceQueryScreen } from "./tools/nfce-query-screen.js";
 import { createApiStatusScreen } from "./tools/api-status-screen.js";
 import { createSettingsScreen } from "./settings/settings-screen.js";
 import { createNcmCestScreen } from "./catalog/ncm-cest-screen.js";
@@ -19,6 +20,7 @@ import { createNavigationBuilderScreen } from "./settings/navigation-builder-scr
 import { createGeneralSettingsScreen } from "./settings/general-settings-screen.js";
 import { createCatalogImportScreen } from "./tools/catalog-import-screen.js";
 import { createSupplierScreen } from "./catalog/supplier-screen.js";
+import { createCustomerConsumerScreen } from "./catalog/customer-consumer-screen.js";
 import { loadProjectIcon } from "./ui/project-icon.js";
 import { installTablePagination } from "./ui/table-pagination.js";
 import { getApiUrl, loadConfiguredApiUrl } from "./shared/api.js";
@@ -47,6 +49,7 @@ const common = () => ({
   onUnits: showUnits,
   onNcmCest: showNcmCest,
   onFiscalOperations: showFiscalOperations,
+  "fiscal-operations": showFiscalOperations,
   onThermalPrint: showThermalPrint,
   onNcmCestUpdate: showNcmCestUpdate,
   onApiStatus: showApiStatus,
@@ -56,6 +59,8 @@ const common = () => ({
   "general-settings": showGeneralSettings,
   onCompany: showCompany,
   onNfce: showNfce,
+  onNfceQuery: showNfceQuery,
+  "nfce-query": showNfceQuery,
   onNavigationBuilder: showNavigationBuilder,
   "navigation-builder": showNavigationBuilder,
   onFinancial: showPaymentMethods,
@@ -63,7 +68,11 @@ const common = () => ({
   onCatalogImport: showCatalogImport,
   "import-catalogs": showCatalogImport,
   onSuppliers: showSuppliers,
-  suppliers: showSuppliers
+  suppliers: showSuppliers,
+  onCustomers: showCustomers,
+  customers: showCustomers,
+  onConsumers: showConsumers,
+  consumers: showConsumers
 });
 
 const showSales = (options = {}) => mount(createSaleScreen({ onBackoffice: showBackoffice, ...options }));
@@ -92,6 +101,10 @@ const showCatalogImport = () =>
   mount(createCatalogImportScreen({ onBack: showBackoffice, onTools: showCatalogImport, ...common() }));
 const showSuppliers = () =>
   mount(createSupplierScreen({ onBack: showBackoffice, ...common() }));
+const showCustomers = () =>
+  mount(createCustomerConsumerScreen({ kind: "customer", onBack: showBackoffice, ...common() }));
+const showConsumers = () =>
+  mount(createCustomerConsumerScreen({ kind: "consumer", onBack: showBackoffice, ...common() }));
 const showFiscalOperations = () =>
   mount(createFiscalOperationScreen({
     onBack: showBackoffice,
@@ -130,7 +143,7 @@ const showFinishedProducts = () =>
 const showRawMaterials = () =>
   mount(createCatalogScreen({
     title: "Matérias-primas",
-    productTypeDescription: "Matéria Prima",
+    productTypeDescription: "Matéria-Prima",
     navigationActive: "raw-materials",
     singularLabel: "matéria-prima",
     createFormTitle: "Nova matéria-prima",
@@ -188,6 +201,8 @@ const showCompany = () =>
   mount(createCompanyScreen({ onBack: showBackoffice, ...common() }));
 const showNfce = () =>
   mount(createNfceScreen({ onBack: showBackoffice, ...common() }));
+const showNfceQuery = () =>
+  mount(createNfceQueryScreen({ onBack: showBackoffice, onNfce: showNfce, ...common() }));
 const showNavigationBuilder = () =>
   mount(createNavigationBuilderScreen({ onBack: showSettings, ...common() }));
 

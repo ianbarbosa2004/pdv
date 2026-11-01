@@ -10,15 +10,46 @@ inicial do produto até o estado atual do workspace. Ele complementa o
 O cadastro de Fornecedores foi consolidado como tela própria de **Cadastros**,
 com persistência na API, pesquisa, visualização lateral, edição em modal,
 ativação/inativação e exclusão. O formulário usa select de UF, remove o campo
-País da interface e mantém `Brasil` como padrão no servidor. CNPJ/CPF, telefone
+País da interface e mantém `BRASIL` como padrão no servidor. CNPJ/CPF, telefone
 e CEP recebem máscaras na interface, enquanto o e-mail é normalizado sem
-espaços e em minúsculas.
+espaços e em minúsculas. Os campos textuais humanos são persistidos em
+maiúsculas, preservando a acentuação.
 
 As consultas auxiliares de CNPJ (BrasilAPI) e CEP (ViaCEP) funcionam tanto no
 novo cadastro quanto na edição. Os dados retornados são apresentados com
-capitalização de palavras para revisão, mas o salvamento preserva exatamente o
-texto informado pelo operador. A tabela `suppliers` é preparada de forma
+maiúsculas, preservando a acentuação, e o salvamento normaliza os campos textuais
+de cadastro para maiúsculas. O construtor de menus é uma exceção e preserva sua
+formatação própria. A tabela `suppliers` é preparada de forma
 idempotente pela API, sem expor credenciais do MariaDB aos terminais.
+
+Também foram implementados os cadastros separados de **Clientes** e
+**Consumidores**. O nome é o único campo obrigatório; a criação de um Cliente
+cria seu Consumidor correspondente dentro da mesma transação, enquanto
+Consumidores avulsos continuam disponíveis para mesas e comandas. A forma de
+pagamento **Vale** exige um cliente ativo, valida o limite disponível e grava o
+débito atomicamente com a venda em `customer_vouchers`.
+
+Foi criado o comando `npm.cmd run release:client -- --api-url=...` para gerar
+distribuições do projeto **PDV Zanzibar**. O build usa diretamente os ícones
+atuais de `src-tauri/icons`, sem depender do cadastro de ícone na API, embute
+o endereço da API no frontend e produz MSI e NSIS com a identidade visual
+versionada no projeto.
+
+A política de maiúsculas foi aplicada aos registros existentes do MariaDB por
+meio do comando `npm.cmd run migrate:uppercase`. A migração normaliza textos
+humanos de cadastros, preserva acentuação, ignora o construtor de menus e não
+altera códigos, e-mails, URLs ou identificadores técnicos. O processo verifica
+colisões em campos únicos antes da escrita, executa em transação e pode ser
+repetido com segurança; a execução inicial normalizou 11.871 valores em 38
+colunas.
+
+As telas administrativas também passaram a usar painéis introdutórios
+padronizados, com espaçamento entre a introdução e o conteúdo seguinte. O
+painel de Atualizar NCM / CEST ocupa toda a largura da tela e o cadastro de
+Dados da Empresa passou a exibir a mesma introdução das demais telas. Foram
+registrados aliases diretos para Operações Fiscais e Consulta de NFC-e no
+roteamento principal, permitindo que os itens persistidos nesses menus abram
+as telas tanto em desenvolvimento quanto no build.
 
 ## 1. Direção inicial
 

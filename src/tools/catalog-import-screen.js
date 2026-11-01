@@ -9,15 +9,47 @@ const escapeHtml = (value) => String(value ?? "")
 const csvHeaders = [
   "skuProduct", "pdvCodeProduct", "nameProduct", "descriptionGroup",
   "descriptionFiscalOperation", "descriptionProductType", "codeUnit",
-  "ncmProduct", "cestProduct", "priceProduct", "stockQuantityProduct",
+  "ncmProduct", "cestProduct", "priceProduct", "costPriceProduct", "stockQuantityProduct",
   "controlsStockProduct", "isFractionalProduct", "printsKitchenProduct",
   "showsInPdvProduct"
 ];
 
+const csvHeaderLabels = [
+  "SKU", "Código PDV", "Nome", "Grupo",
+  "Operação fiscal de venda", "Tipo de produto", "Unidade",
+  "NCM", "CEST", "Preço de venda", "Preço de custo", "Estoque",
+  "Controla estoque", "Produto fracionado", "Imprime na cozinha",
+  "Exibe no PDV"
+];
+
 const csvExample = [
-  csvHeaders.join(";"),
-  "PROD-001;789000000001;Café torrado;Mercearia;;;;78912345;;19,90;10;sim;não;não;sim"
+  csvHeaderLabels.join(";"),
+  "PROD-001;789000000001;Café torrado;Mercearia;;;;0201.30.00;0603.10.00;19,90;12,50;10;sim;não;não;sim"
 ].join("\r\n");
+
+const markdownCell = (value) => String(value ?? "-").replaceAll("|", "\\|").replace(/\r?\n/g, " ");
+
+const buildReferenceMarkdown = ({
+  title, intro, field, fieldLabel, columns, rows
+}) => [
+  `# ${title}`,
+  "",
+  intro,
+  "",
+  `## Campo do CSV`,
+  "",
+  `- Coluna: \`${field}\``,
+  `- Preenchimento: ${fieldLabel}`,
+  "",
+  "Use o valor da coluna **Valor para o CSV** exatamente como está listado.",
+  "",
+  `## Valores cadastrados (${rows.length})`,
+  "",
+  `| ${columns.join(" | ")} |`,
+  `| ${columns.map(() => "---").join(" | ")} |`,
+  ...rows.map((row) => `| ${row.map(markdownCell).join(" | ")} |`),
+  ""
+].join("\n");
 
 const parseCsv = (text) => {
   const delimiter = (text.split(/\r?\n/, 1)[0].match(/;/g) || []).length
@@ -55,12 +87,16 @@ const parseCsv = (text) => {
   }
   if (rows.length < 2) throw new Error("O arquivo não possui linhas de produtos.");
   const headers = rows.shift().map((header) => header.trim());
-  if (headers.join("|") !== csvHeaders.join("|")) {
+  const headerKeys = headers.join("|") === csvHeaderLabels.join("|")
+    ? csvHeaders
+    : headers;
+  if (headerKeys.join("|") !== csvHeaders.join("|")) {
     throw new Error(`Cabeçalho inválido. Baixe o modelo CSV para usar as colunas corretas.`);
   }
   return rows.filter((item) => item.some((cell) => cell.trim())).map((item, index) => {
     const record = Object.fromEntries(csvHeaders.map((header, column) => [header, String(item[column] ?? "").trim()]));
-    if (!record.skuProduct || !record.nameProduct || !record.descriptionGroup || !record.priceProduct) {
+    if (!record.skuProduct || !record.nameProduct || !record.descriptionGroup
+      || (!record.priceProduct && !record.costPriceProduct)) {
       throw new Error(`Linha ${index + 2}: SKU, nome, grupo e preço são obrigatórios.`);
     }
     return record;
@@ -76,7 +112,116 @@ export function createCatalogImportScreen({
   let error = "";
   let message = "";
   let loading = false;
+  let referenceLoading = true;
+  let referenceError = "";
+  let references = {
+    groups: [],
+    fiscalOperations: [],
+    productTypes: [],
+    units: []
+  };
   const scheduleMessageClear = createFeedbackTimer();
+
+  const loadReferences = async () => {
+    referenceLoading = true;
+    referenceError = "";
+    render();
+    try {
+      const responses = await Promise.all([
+        fetch(`${getApiUrl()}/api/groups`),
+        fetch(`${getApiUrl()}/api/fiscal-operations`),
+        fetch(`${getApiUrl()}/api/product-types`),
+        fetch(`${getApiUrl()}/api/units`)
+      ]);
+      const payloads = await Promise.all(responses.map((response) => response.json()));
+      const [groupsPayload, fiscalPayload, productTypesPayload, unitsPayload] = payloads;
+      if (responses.some((response) => !response.ok)
+        || !Array.isArray(groupsPayload.groups)
+        || !Array.isArray(fiscalPayload.fiscalOperations)
+        || !Array.isArray(productTypesPayload.productTypes)
+        || !Array.isArray(unitsPayload.units)) {
+        throw new Error("Não foi possível carregar as listas auxiliares para o CSV.");
+      }
+      references = {
+        groups: groupsPayload.groups,
+        fiscalOperations: fiscalPayload.fiscalOperations,
+        productTypes: productTypesPayload.productTypes,
+        units: unitsPayload.units
+      };
+    } catch (loadError) {
+      referenceError = loadError instanceof Error
+        ? loadError.message
+        : "Não foi possível carregar as listas auxiliares para o CSV.";
+    } finally {
+      referenceLoading = false;
+      render();
+    }
+  };
+
+  const getReferenceDownloads = () => [
+    {
+      key: "groups",
+      title: "Grupos",
+      fileName: "referencia-grupos.md",
+      intro: "Use a descrição cadastrada no campo `descriptionGroup` da linha do CSV.",
+      field: "descriptionGroup",
+      fieldLabel: "descrição exata do grupo cadastrado",
+      columns: ["Valor para o CSV", "Classe"],
+      rows: references.groups.map((item) => [item.descriptionGroup, item.descriptionClass])
+    },
+    {
+      key: "fiscalOperations",
+      title: "Operações Fiscais de Venda",
+      fileName: "referencia-operacoes-fiscais-venda.md",
+      intro: "Use somente operações fiscais de saída ativas no campo `descriptionFiscalOperation`.",
+      field: "descriptionFiscalOperation",
+      fieldLabel: "descrição exata da operação fiscal de venda",
+      columns: ["Valor para o CSV", "CFOP", "Tipo"],
+      rows: references.fiscalOperations.map((item) => [
+        item.descriptionFiscalOperation,
+        item.cfopFiscalOperation || "-",
+        item.typeFiscalOperation
+      ])
+    },
+    {
+      key: "productTypes",
+      title: "Tipos de Produto",
+      fileName: "referencia-tipos-de-produto.md",
+      intro: "Use a descrição cadastrada no campo `descriptionProductType`.",
+      field: "descriptionProductType",
+      fieldLabel: "descrição exata do tipo de produto",
+      columns: ["Valor para o CSV", "Código SPED"],
+      rows: references.productTypes.map((item) => [
+        item.descriptionProductType,
+        item.codeSpedProductType || "-"
+      ])
+    },
+    {
+      key: "units",
+      title: "Unidades",
+      fileName: "referencia-unidades.md",
+      intro: "Use o código cadastrado no campo `codeUnit`.",
+      field: "codeUnit",
+      fieldLabel: "código da unidade tributável",
+      columns: ["Valor para o CSV", "Descrição"],
+      rows: references.units.map((item) => [item.codeUnit, item.descriptionUnit])
+    }
+  ];
+
+  const downloadReference = (reference) => {
+    const blob = new Blob([`\uFEFF${buildReferenceMarkdown(reference)}`], {
+      type: "text/markdown;charset=utf-8"
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = reference.fileName;
+    anchor.style.display = "none";
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
 
   const render = () => {
     root.className = "catalog-screen catalog-import-screen";
@@ -93,6 +238,7 @@ export function createCatalogImportScreen({
       <section class="classic-content">
         ${renderSuccessFeedback(message, escapeHtml)}
         <div class="backoffice-home-heading">
+          <p class="eyebrow">Ferramentas</p>
           <h1>Importar cadastros</h1>
           <p>Use o modelo CSV para testar e importar produtos em lote sem cadastrar cada item manualmente.</p>
         </div>
@@ -100,7 +246,7 @@ export function createCatalogImportScreen({
           <div class="classic-panel-header">Importar Produtos</div>
           <div class="classic-form-body">
             <input data-file-input type="file" accept=".csv,text/csv" hidden />
-            <p class="form-help">Campos principais: SKU, # PDV, nome, grupo e preço. Os demais campos podem ficar vazios.</p>
+            <p class="form-help">Selecione um arquivo CSV para validá-lo antes da importação. Este painel verifica os dados, identifica erros e permite importar vários produtos em uma única operação.</p>
             <p data-file-name>${selectedFile ? escapeHtml(`${selectedFile.name} — ${rows.length} linha(s) válida(s)`) : "Nenhum arquivo selecionado."}</p>
             ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}
           </div>
@@ -108,6 +254,18 @@ export function createCatalogImportScreen({
             <button class="classic-button" data-download-model type="button">Baixar modelo CSV</button>
             <button class="classic-button" data-test-file type="button" ${loading ? "disabled" : ""}>Testar arquivo</button>
             <button class="classic-button primary" data-import-file type="button" ${loading || !rows.length ? "disabled" : ""}>${loading ? "Importando..." : "Importar arquivo"}</button>
+          </div>
+        </section>
+        <section class="classic-form-panel">
+          <div class="classic-panel-header">Listas para preenchimento do CSV</div>
+          <div class="classic-form-body">
+            <p class="form-help">Baixe as referências com os valores exatos que devem ser usados nas colunas Grupo, Operação fiscal de venda, Tipo de produto e Unidade.</p>
+            ${referenceError ? `<p class="payment-error">${escapeHtml(referenceError)}</p>` : ""}
+            ${referenceLoading
+              ? "<p class=\"classic-empty\">Carregando listas auxiliares...</p>"
+              : `<div class="classic-form-actions reference-download-actions">
+                  ${getReferenceDownloads().map((reference) => `<button class="classic-button" data-download-reference="${reference.key}" type="button">${escapeHtml(reference.title)} (.md)</button>`).join("")}
+                </div>`}
           </div>
         </section>
       </section>
@@ -130,6 +288,17 @@ export function createCatalogImportScreen({
   const readSelectedFile = async () => {
     if (!selectedFile) throw new Error("Selecione um arquivo CSV antes de testar.");
     rows = parseCsv(await selectedFile.text());
+  };
+
+  const validateRowsWithApi = async () => {
+    const response = await fetch(`${getApiUrl()}/api/products/import`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rows, validateOnly: true })
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Não foi possível validar o arquivo.");
+    return payload;
   };
 
   const bind = () => {
@@ -172,6 +341,25 @@ export function createCatalogImportScreen({
         render();
       }
     });
+    root.querySelectorAll("[data-download-reference]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const reference = getReferenceDownloads().find((item) => item.key === button.dataset.downloadReference);
+        if (!reference) return;
+        try {
+          downloadReference(reference);
+          error = "";
+          message = `${reference.title} baixados com sucesso.`;
+          scheduleMessageClear(() => { message = ""; render(); });
+          render();
+        } catch (downloadError) {
+          error = downloadError instanceof Error
+            ? downloadError.message
+            : `Não foi possível baixar ${reference.title.toLocaleLowerCase("pt-BR")}.`;
+          message = "";
+          render();
+        }
+      });
+    });
     root.querySelector("[data-test-file]")?.addEventListener("click", async () => {
       if (!selectedFile) {
         selectFile();
@@ -179,6 +367,7 @@ export function createCatalogImportScreen({
       }
       try {
         await readSelectedFile();
+        await validateRowsWithApi();
         error = "";
         message = `Arquivo válido: ${rows.length} produto(s) pronto(s) para importação.`;
         scheduleMessageClear(() => { message = ""; render(); });
@@ -214,5 +403,6 @@ export function createCatalogImportScreen({
   };
 
   render();
+  loadReferences();
   return root;
 }

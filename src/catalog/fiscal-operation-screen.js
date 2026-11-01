@@ -83,6 +83,11 @@ export function createFiscalOperationScreen({
       ${renderFiscalNavigation("fiscal-operations")}
       <section class="classic-content fiscal-content">
         ${renderSuccessFeedback(message, escapeHtml)}
+        <div class="backoffice-home-heading">
+          <p class="eyebrow">Cadastros fiscais</p>
+          <h1>Operações Fiscais</h1>
+          <p>Cadastre as regras fiscais usadas pelo PDV nas operações de entrada e saída.</p>
+        </div>
         <form class="classic-form-panel fiscal-operation-form" data-form>
           <div class="classic-panel-header">${editing ? "Alterar operação fiscal" : "Nova operação fiscal"}</div>
           <div class="classic-form-body">

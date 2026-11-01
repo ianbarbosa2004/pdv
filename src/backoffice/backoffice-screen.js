@@ -101,7 +101,9 @@ export function createBackofficeScreen({
   onNfceQuery,
   onNavigationBuilder,
   onPaymentMethods,
-  onSuppliers
+  onSuppliers,
+  onCustomers,
+  onConsumers
 }) {
   const root = document.createElement("main");
   const shortcutHandlers = {
@@ -126,7 +128,9 @@ export function createBackofficeScreen({
     "nfce-query": onNfceQuery,
     "navigation-builder": onNavigationBuilder,
     "payment-methods": onPaymentMethods,
-    suppliers: onSuppliers
+    suppliers: onSuppliers,
+    customers: onCustomers,
+    consumers: onConsumers
   };
   const shortcuts = getBackofficeShortcuts(shortcutHandlers);
 
@@ -173,6 +177,7 @@ export function createBackofficeScreen({
     settings: onSettings,
     company: onCompany,
     nfce: onNfce,
+    "nfce-query": onNfceQuery,
     "payment-methods": onPaymentMethods
   });
   root.querySelector("[data-back]")?.addEventListener("click", onBack);

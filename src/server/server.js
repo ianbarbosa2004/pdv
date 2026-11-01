@@ -48,6 +48,7 @@ const formatCertificateDate = (value) => {
   if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
     throw new Error("A validade do certificado não foi encontrada.");
   }
+
   const year = value.getFullYear();
   const month = String(value.getMonth() + 1).padStart(2, "0");
   const day = String(value.getDate()).padStart(2, "0");
@@ -178,6 +179,16 @@ const parseMoney = (value, fieldName) => {
   }
   return String(value);
 };
+
+const uppercaseText = (value) => String(value ?? "")
+  .trim()
+  .replace(/\s+/g, " ")
+  .toLocaleUpperCase("pt-BR");
+
+const isNonSaleProductType = (description) =>
+  ["MATÉRIA-PRIMA", "EMBALAGEM", "MATERIAL DE USO E CONSUMO"].includes(
+    uppercaseText(description)
+  );
 
 const parseNonNegativeQuantity = (value) => {
   if (!/^(?:0|[1-9]\d*)(?:\.\d{1,3})?$/.test(String(value))) {
@@ -314,7 +325,7 @@ const ensureFiscalCatalogSchema = async () => {
   await pool.query(
     `INSERT INTO fiscal_catalog_items
       (catalogFiscalCatalogItem, codeFiscalCatalogItem, descriptionFiscalCatalogItem, valueFiscalCatalogItem)
-     VALUES ('cfops', '5.101', 'Venda de produção do estabelecimento', NULL)
+     VALUES ('cfops', '5.101', 'VENDA DE PRODUÇÃO DO ESTABELECIMENTO', NULL)
      ON DUPLICATE KEY UPDATE
        descriptionFiscalCatalogItem = VALUES(descriptionFiscalCatalogItem),
        isActiveFiscalCatalogItem = 1`
@@ -349,6 +360,61 @@ const ensureGeneralSettingsSchema = async () => {
     updatedAtGeneralSetting TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (idGeneralSetting),
     UNIQUE KEY uqGeneralSettingsKey (keyGeneralSetting)
+  ) ENGINE=InnoDB`);
+};
+
+const ensureCustomerConsumerSchema = async () => {
+  await pool.query(`CREATE TABLE IF NOT EXISTS customers (
+    idCustomer BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    nameCustomer VARCHAR(180) NOT NULL,
+    documentCustomer VARCHAR(20) NULL,
+    phoneCustomer VARCHAR(25) NOT NULL DEFAULT '',
+    emailCustomer VARCHAR(180) NOT NULL DEFAULT '',
+    addressCustomer VARCHAR(180) NOT NULL DEFAULT '',
+    creditLimitCustomer DECIMAL(12,2) NOT NULL DEFAULT 0,
+    paymentTermCustomer SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    notesCustomer VARCHAR(400) NULL,
+    isActiveCustomer TINYINT(1) NOT NULL DEFAULT 1,
+    createdAtCustomer TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updatedAtCustomer TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (idCustomer),
+    UNIQUE KEY uqCustomersDocument (documentCustomer)
+  ) ENGINE=InnoDB`);
+  const [customerDocumentColumns] = await pool.query(
+    `SELECT IS_NULLABLE FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'customers'
+       AND COLUMN_NAME = 'documentCustomer'`
+  );
+  if (customerDocumentColumns[0]?.IS_NULLABLE !== "YES") {
+    await pool.query("UPDATE customers SET documentCustomer = NULL WHERE documentCustomer = ''");
+    await pool.query("ALTER TABLE customers MODIFY COLUMN documentCustomer VARCHAR(20) NULL");
+  }
+  await pool.query(`CREATE TABLE IF NOT EXISTS consumers (
+    idConsumer BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    idCustomer BIGINT UNSIGNED NULL,
+    nameConsumer VARCHAR(180) NOT NULL,
+    nicknameConsumer VARCHAR(120) NOT NULL DEFAULT '',
+    phoneConsumer VARCHAR(25) NOT NULL DEFAULT '',
+    notesConsumer VARCHAR(400) NULL,
+    isActiveConsumer TINYINT(1) NOT NULL DEFAULT 1,
+    createdAtConsumer TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updatedAtConsumer TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (idConsumer),
+    UNIQUE KEY uqConsumersCustomer (idCustomer),
+    KEY idxConsumersStatus (isActiveConsumer),
+    CONSTRAINT fkConsumersCustomer FOREIGN KEY (idCustomer) REFERENCES customers (idCustomer) ON DELETE SET NULL
+  ) ENGINE=InnoDB`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS customer_vouchers (
+    idCustomerVoucher BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    idCustomer BIGINT UNSIGNED NOT NULL,
+    idSale BIGINT UNSIGNED NULL,
+    amountCustomerVoucher DECIMAL(12,2) NOT NULL,
+    dueDateCustomerVoucher DATE NULL,
+    statusCustomerVoucher ENUM('open', 'paid', 'cancelled') NOT NULL DEFAULT 'open',
+    createdAtCustomerVoucher TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (idCustomerVoucher),
+    KEY idxCustomerVouchersCustomer (idCustomer, statusCustomerVoucher),
+    CONSTRAINT fkCustomerVouchersCustomer FOREIGN KEY (idCustomer) REFERENCES customers (idCustomer) ON DELETE RESTRICT
   ) ENGINE=InnoDB`);
 };
 
@@ -586,15 +652,15 @@ const ensureProductCatalogSchema = async () => {
     `SELECT
        (SELECT idProductType
         FROM product_types
-        WHERE descriptionProductType = 'Mercadoria para Revenda'
+        WHERE descriptionProductType = 'MERCADORIA PARA REVENDA'
         LIMIT 1) AS sourceProductType,
        (SELECT idProductType
         FROM product_types
-        WHERE descriptionProductType = 'Produto Acabado'
+        WHERE descriptionProductType = 'PRODUTO ACABADO'
         LIMIT 1) AS targetProductType,
        (SELECT idFiscalOperation
         FROM fiscal_operations
-        WHERE descriptionFiscalOperation = 'Venda de produção'
+        WHERE descriptionFiscalOperation = 'VENDA DE PRODUÇÃO'
           AND typeFiscalOperation = 'exit'
           AND isActiveFiscalOperation = 1
         ORDER BY idFiscalOperation
@@ -634,7 +700,8 @@ const ensureProductCatalogSchema = async () => {
     ["controlsStockProduct", "ALTER TABLE products ADD COLUMN controlsStockProduct TINYINT(1) NOT NULL DEFAULT 1 AFTER stockQuantityProduct"],
     ["isFractionalProduct", "ALTER TABLE products ADD COLUMN isFractionalProduct TINYINT(1) NOT NULL DEFAULT 0 AFTER controlsStockProduct"],
     ["printsKitchenProduct", "ALTER TABLE products ADD COLUMN printsKitchenProduct TINYINT(1) NOT NULL DEFAULT 0 AFTER isFractionalProduct"],
-    ["showsInPdvProduct", "ALTER TABLE products ADD COLUMN showsInPdvProduct TINYINT(1) NOT NULL DEFAULT 1 AFTER printsKitchenProduct"]
+    ["showsInPdvProduct", "ALTER TABLE products ADD COLUMN showsInPdvProduct TINYINT(1) NOT NULL DEFAULT 1 AFTER printsKitchenProduct"],
+    ["costPriceProduct", "ALTER TABLE products ADD COLUMN costPriceProduct DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER priceProduct"]
   ];
   for (const [name, statement] of additions) {
     if (!existing.has(name)) await pool.query(statement);
@@ -1005,6 +1072,37 @@ const prepareNavigationSchema = async () => {
     );
   }
 
+  for (const [key, label, description, order] of [
+    ["customers", "Clientes", "Cadastre clientes e acompanhe seus vales.", 20],
+    ["consumers", "Consumidores", "Identifique consumidores e consulte seu histórico de consumo.", 21]
+  ]) {
+    const [existingItems] = await pool.query(
+      `SELECT idNavigationItem FROM navigation_items
+       WHERE idNavigationMenu = ? AND idParentNavigationItem IS NULL
+         AND (keyNavigationItem = ? OR routeNavigationItem = ? OR labelNavigationItem = ?)
+       LIMIT 1`,
+      [catalogMenuId, key, key, label]
+    );
+    if (existingItems[0]) {
+      await pool.query(
+        `UPDATE navigation_items SET idNavigationMenu = ?, idParentNavigationItem = NULL,
+          typeNavigationItem = 'item', keyNavigationItem = ?, labelNavigationItem = ?,
+          routeNavigationItem = ?, descriptionNavigationItem = ?, isActiveNavigationItem = 1,
+          orderNavigationItem = ? WHERE idNavigationItem = ?`,
+        [catalogMenuId, key, label, key, description, order, existingItems[0].idNavigationItem]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO navigation_items
+          (idNavigationMenu, idParentNavigationItem, typeNavigationItem, keyNavigationItem,
+           labelNavigationItem, routeNavigationItem, descriptionNavigationItem,
+           orderNavigationItem, isActiveNavigationItem, showsInBackofficeHomeNavigationItem)
+         VALUES (?, NULL, 'item', ?, ?, ?, ?, ?, 1, 0)`,
+        [catalogMenuId, key, label, key, description, order]
+      );
+    }
+  }
+
   const [menuIdColumns] = await pool.query(
     `SELECT DATA_TYPE
      FROM information_schema.COLUMNS
@@ -1038,6 +1136,39 @@ const ensureNavigationSchema = (() => {
   };
 })();
 
+const ensureUppercaseTextData = async () => {
+  const updates = [
+    ["classes", ["descriptionClass"]],
+    ["groups", ["descriptionGroup"]],
+    ["products", ["nameProduct"]],
+    ["product_types", ["descriptionProductType"]],
+    ["units", ["descriptionUnit"]],
+    ["ncm_catalog", ["descriptionNcm"]],
+    ["cest_catalog", ["descriptionCest", "segmentCest"]],
+    ["payment_methods", ["namePaymentMethod"]],
+    ["suppliers", [
+      "companyNameSupplier", "tradeNameSupplier", "contactNameSupplier", "addressSupplier",
+      "addressComplementSupplier", "neighborhoodSupplier", "citySupplier", "countrySupplier",
+      "notesSupplier"
+    ]],
+    ["customers", ["nameCustomer", "addressCustomer", "notesCustomer"]],
+    ["consumers", ["nameConsumer", "nicknameConsumer", "notesConsumer"]],
+    ["company_settings", [
+      "corporateNameCompany", "tradeNameCompany", "addressCompany", "addressComplementCompany",
+      "neighborhoodCompany", "countryCompany", "cityCompany"
+    ]],
+    ["fiscal_operations", ["descriptionFiscalOperation", "operationNatureFiscalOperation", "legalBasisFiscalOperation"]],
+    ["fiscal_catalog_items", ["descriptionFiscalCatalogItem"]],
+    ["general_settings", ["labelGeneralSetting"]],
+    ["sale_items", ["productNameSaleItem"]]
+  ];
+  for (const [table, columns] of updates) {
+    for (const column of columns) {
+      await pool.query(`UPDATE \`${table}\` SET \`${column}\` = UPPER(\`${column}\`) WHERE \`${column}\` IS NOT NULL`);
+    }
+  }
+};
+
 const ensurePaymentMethodSchema = async () => {
   await pool.query(`CREATE TABLE IF NOT EXISTS payment_methods (
     idPaymentMethod BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -1070,6 +1201,12 @@ const ensurePaymentMethodSchema = async () => {
   for (const [column, statement] of additions) {
     if (!existing.has(column)) await pool.query(statement);
   }
+  await pool.query(
+    `INSERT INTO payment_methods
+      (namePaymentMethod, cashFlowAccountPaymentMethod, termDaysPaymentMethod, isActivePaymentMethod)
+     VALUES ('Vale', 'Caixa', 30, 1)
+     ON DUPLICATE KEY UPDATE isActivePaymentMethod = 1`
+  );
 };
 
 const ensureSupplierSchema = async () => {
@@ -1128,6 +1265,172 @@ const server = createServer(async (request, response) => {
       "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS"
     });
     response.end();
+    return;
+  }
+
+  if (request.method === "GET" && request.url.startsWith("/api/customers")) {
+    try {
+      await ensureCustomerConsumerSchema();
+      const includeInactive = new URL(request.url, "http://localhost").searchParams.get("includeInactive") === "1";
+      const [customers] = await pool.query(
+        `SELECT c.idCustomer, c.nameCustomer, c.documentCustomer, c.phoneCustomer,
+                c.emailCustomer, c.addressCustomer, c.creditLimitCustomer,
+                c.paymentTermCustomer, c.notesCustomer, c.isActiveCustomer,
+                co.idConsumer, co.nameConsumer
+         FROM customers c LEFT JOIN consumers co ON co.idCustomer = c.idCustomer
+         WHERE (? OR c.isActiveCustomer = 1)
+         ORDER BY c.nameCustomer, c.idCustomer`,
+        [includeInactive]
+      );
+      json(response, 200, { customers });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao listar clientes:", message: "Não foi possível consultar os clientes.", duplicate: "" });
+    }
+    return;
+  }
+
+  if ((request.method === "POST" || request.method === "PUT") && request.url === "/api/customers") {
+    try {
+      const payload = await readJsonBody(request);
+      const idCustomer = request.method === "PUT" ? parsePositiveId(payload.idCustomer) : null;
+      const text = (field, max) => typeof payload[field] === "string" ? payload[field].trim().slice(0, max) : "";
+      const humanText = (field, max) => uppercaseText(text(field, max));
+      const nameCustomer = humanText("nameCustomer", 180);
+      const documentDigits = text("documentCustomer", 20).replace(/\D/g, "");
+      const documentCustomer = documentDigits || null;
+      const phoneCustomer = text("phoneCustomer", 25);
+      const emailCustomer = text("emailCustomer", 180).toLocaleLowerCase("pt-BR");
+      const addressCustomer = humanText("addressCustomer", 180);
+      const creditLimitCustomer = Number(payload.creditLimitCustomer || 0);
+      const paymentTermCustomer = Number(payload.paymentTermCustomer || 0);
+      const notesCustomer = humanText("notesCustomer", 400);
+      if ((request.method === "PUT" && !idCustomer) || !nameCustomer
+        || !Number.isFinite(creditLimitCustomer) || creditLimitCustomer < 0
+        || !Number.isInteger(paymentTermCustomer) || paymentTermCustomer < 0
+        || (emailCustomer && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailCustomer))) {
+        throw new SaleValidationError("Informe o nome e valores válidos para o cliente.");
+      }
+      await ensureCustomerConsumerSchema();
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        if (request.method === "POST") {
+          const [result] = await connection.query(
+            `INSERT INTO customers
+              (nameCustomer, documentCustomer, phoneCustomer, emailCustomer, addressCustomer,
+               creditLimitCustomer, paymentTermCustomer, notesCustomer)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [nameCustomer, documentCustomer, phoneCustomer, emailCustomer, addressCustomer, creditLimitCustomer, paymentTermCustomer, notesCustomer || null]
+          );
+          await connection.query(
+            "INSERT INTO consumers (idCustomer, nameConsumer, phoneConsumer) VALUES (?, ?, ?)",
+            [result.insertId, nameCustomer, phoneCustomer]
+          );
+          await connection.commit();
+          json(response, 201, { idCustomer: result.insertId });
+        } else {
+          const [result] = await connection.query(
+            `UPDATE customers SET nameCustomer = ?, documentCustomer = ?, phoneCustomer = ?,
+              emailCustomer = ?, addressCustomer = ?, creditLimitCustomer = ?,
+              paymentTermCustomer = ?, notesCustomer = ? WHERE idCustomer = ?`,
+            [nameCustomer, documentCustomer, phoneCustomer, emailCustomer, addressCustomer, creditLimitCustomer, paymentTermCustomer, notesCustomer || null, idCustomer]
+          );
+          if (!result.affectedRows) throw new SaleValidationError("Cliente não encontrado.", 404);
+          await connection.query(
+            "UPDATE consumers SET nameConsumer = ?, phoneConsumer = ? WHERE idCustomer = ?",
+            [nameCustomer, phoneCustomer, idCustomer]
+          );
+          await connection.commit();
+          json(response, 200, { idCustomer });
+        }
+      } catch (error) {
+        await connection.rollback();
+        throw error;
+      } finally { connection.release(); }
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao salvar cliente:", message: "Não foi possível salvar o cliente.", duplicate: "Já existe um cliente com esse documento." });
+    }
+    return;
+  }
+
+  if (request.method === "DELETE" && request.url === "/api/customers") {
+    try {
+      const payload = await readJsonBody(request);
+      const idCustomer = parsePositiveId(payload.idCustomer);
+      if (!idCustomer) throw new SaleValidationError("Cliente inválido.");
+      await ensureCustomerConsumerSchema();
+      const [result] = await pool.query("UPDATE customers SET isActiveCustomer = 0 WHERE idCustomer = ?", [idCustomer]);
+      if (!result.affectedRows) throw new SaleValidationError("Cliente não encontrado.", 404);
+      json(response, 200, { ok: true, idCustomer });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao excluir cliente:", message: "Não foi possível excluir o cliente.", duplicate: "" });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && request.url.startsWith("/api/consumers")) {
+    try {
+      await ensureCustomerConsumerSchema();
+      const includeInactive = new URL(request.url, "http://localhost").searchParams.get("includeInactive") === "1";
+      const [consumers] = await pool.query(
+        `SELECT co.idConsumer, co.idCustomer, co.nameConsumer, co.nicknameConsumer,
+                co.phoneConsumer, co.notesConsumer, co.isActiveConsumer,
+                c.nameCustomer FROM consumers co
+         LEFT JOIN customers c ON c.idCustomer = co.idCustomer
+         WHERE (? OR co.isActiveConsumer = 1)
+         ORDER BY co.nameConsumer, co.idConsumer`,
+        [includeInactive]
+      );
+      json(response, 200, { consumers });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao listar consumidores:", message: "Não foi possível consultar os consumidores.", duplicate: "" });
+    }
+    return;
+  }
+
+  if ((request.method === "POST" || request.method === "PUT") && request.url === "/api/consumers") {
+    try {
+      const payload = await readJsonBody(request);
+      const idConsumer = request.method === "PUT" ? parsePositiveId(payload.idConsumer) : null;
+      const text = (field, max) => typeof payload[field] === "string" ? payload[field].trim().slice(0, max) : "";
+      const humanText = (field, max) => uppercaseText(text(field, max));
+      const nameConsumer = humanText("nameConsumer", 180);
+      if ((request.method === "PUT" && !idConsumer) || !nameConsumer) throw new SaleValidationError("Informe o nome do consumidor.");
+      await ensureCustomerConsumerSchema();
+      const values = [nameConsumer, humanText("nicknameConsumer", 120), text("phoneConsumer", 25), humanText("notesConsumer", 400) || null];
+      if (request.method === "POST") {
+        const [result] = await pool.query(
+          "INSERT INTO consumers (nameConsumer, nicknameConsumer, phoneConsumer, notesConsumer) VALUES (?, ?, ?, ?)",
+          values
+        );
+        json(response, 201, { idConsumer: result.insertId });
+      } else {
+        const [result] = await pool.query(
+          `UPDATE consumers SET nameConsumer = ?, nicknameConsumer = ?, phoneConsumer = ?, notesConsumer = ?
+           WHERE idConsumer = ? AND idCustomer IS NULL`,
+          [...values, idConsumer]
+        );
+        if (!result.affectedRows) throw new SaleValidationError("Consumidor vinculado a cliente não encontrado ou não pode ser alterado aqui.", 409);
+        json(response, 200, { idConsumer });
+      }
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao salvar consumidor:", message: "Não foi possível salvar o consumidor.", duplicate: "" });
+    }
+    return;
+  }
+
+  if (request.method === "DELETE" && request.url === "/api/consumers") {
+    try {
+      const payload = await readJsonBody(request);
+      const idConsumer = parsePositiveId(payload.idConsumer);
+      if (!idConsumer) throw new SaleValidationError("Consumidor inválido.");
+      await ensureCustomerConsumerSchema();
+      const [result] = await pool.query("UPDATE consumers SET isActiveConsumer = 0 WHERE idConsumer = ? AND idCustomer IS NULL", [idConsumer]);
+      if (!result.affectedRows) throw new SaleValidationError("Consumidor vinculado a cliente não pode ser excluído aqui.", 409);
+      json(response, 200, { ok: true, idConsumer });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao excluir consumidor:", message: "Não foi possível excluir o consumidor.", duplicate: "" });
+    }
     return;
   }
 
@@ -1754,24 +2057,26 @@ const server = createServer(async (request, response) => {
         if (required && !result) throw new SaleValidationError(`${fieldName} é obrigatório.`);
         return result;
       };
+      const humanText = (value, fieldName, maxLength, required = false) =>
+        uppercaseText(text(value, fieldName, maxLength, required));
       const companyTypeCompany = text(payload.companyTypeCompany, "Tipo de pessoa", 10, true);
       if (!["juridica", "fisica"].includes(companyTypeCompany)) {
         throw new SaleValidationError("Tipo de pessoa inválido.");
       }
       const documentCompany = text(payload.documentCompany, "CNPJ / CPF", 20, true);
-      const corporateNameCompany = text(payload.corporateNameCompany, "Razão social / Nome", 180, true);
-      const tradeNameCompany = text(payload.tradeNameCompany, "Nome fantasia", 120);
+      const corporateNameCompany = humanText(payload.corporateNameCompany, "Razão social / Nome", 180, true);
+      const tradeNameCompany = humanText(payload.tradeNameCompany, "Nome fantasia", 120);
       const stateRegistrationCompany = text(payload.stateRegistrationCompany, "Inscrição Estadual", 30);
       const municipalRegistrationCompany = text(payload.municipalRegistrationCompany, "Inscrição Municipal", 30);
       const cnaeCompany = text(payload.cnaeCompany, "CNAE", 20);
       const zipCodeCompany = text(payload.zipCodeCompany, "CEP", 9);
-      const addressCompany = text(payload.addressCompany, "Endereço", 180);
+      const addressCompany = humanText(payload.addressCompany, "Endereço", 180);
       const addressNumberCompany = text(payload.addressNumberCompany, "Número", 20);
-      const addressComplementCompany = text(payload.addressComplementCompany, "Complemento", 80);
-      const neighborhoodCompany = text(payload.neighborhoodCompany, "Bairro", 100);
-      const countryCompany = text(payload.countryCompany, "País", 80, true);
+      const addressComplementCompany = humanText(payload.addressComplementCompany, "Complemento", 80);
+      const neighborhoodCompany = humanText(payload.neighborhoodCompany, "Bairro", 100);
+      const countryCompany = humanText(payload.countryCompany, "País", 80, true);
       const stateCompany = text(payload.stateCompany, "UF", 2);
-      const cityCompany = text(payload.cityCompany, "Cidade", 100);
+      const cityCompany = humanText(payload.cityCompany, "Cidade", 100);
       const municipalityCodeCompany = text(
         payload.municipalityCodeCompany ?? currentCompany.municipalityCodeCompany ?? "3148004",
         "Código IBGE do município",
@@ -2035,13 +2340,13 @@ const server = createServer(async (request, response) => {
       await ensureProductCatalogSchema();
       const requestUrl = new URL(request.url, "http://localhost");
       const includeInactive = requestUrl.searchParams.get("includeInactive") === "1";
-      const productTypeDescription = requestUrl.searchParams.get("productType")?.trim() || "";
+      const productTypeDescription = uppercaseText(requestUrl.searchParams.get("productType") || "");
       const [products] = await pool.query(
         `SELECT products.idProduct, products.idGroup, products.skuProduct,
                 products.pdvCodeProduct, products.nameProduct,
                 products.idFiscalOperationSaleProduct, products.idProductTypeProduct,
                 products.idUnitProduct, products.ncmProduct,
-                products.cestProduct, products.priceProduct,
+                products.cestProduct, products.priceProduct, products.costPriceProduct,
                 products.stockQuantityProduct, products.controlsStockProduct,
                 products.isFractionalProduct, products.printsKitchenProduct,
                 products.showsInPdvProduct,
@@ -2115,7 +2420,7 @@ const server = createServer(async (request, response) => {
       const payload = await readJsonBody(request);
       const isUnit = request.url === "/api/units";
       const description = typeof payload[isUnit ? "descriptionUnit" : "descriptionProductType"] === "string"
-        ? payload[isUnit ? "descriptionUnit" : "descriptionProductType"].trim()
+        ? uppercaseText(payload[isUnit ? "descriptionUnit" : "descriptionProductType"])
         : "";
       const spedCode = !isUnit && typeof payload.codeSpedProductType === "string"
         ? payload.codeSpedProductType.trim().toUpperCase()
@@ -2148,7 +2453,7 @@ const server = createServer(async (request, response) => {
       const isUnit = request.url === "/api/units";
       const id = parsePositiveId(payload[isUnit ? "idUnit" : "idProductType"]);
       const description = typeof payload[isUnit ? "descriptionUnit" : "descriptionProductType"] === "string"
-        ? payload[isUnit ? "descriptionUnit" : "descriptionProductType"].trim()
+        ? uppercaseText(payload[isUnit ? "descriptionUnit" : "descriptionProductType"])
         : "";
       const spedCode = !isUnit && typeof payload.codeSpedProductType === "string"
         ? payload.codeSpedProductType.trim().toUpperCase()
@@ -2247,21 +2552,22 @@ const server = createServer(async (request, response) => {
       const idSupplier = request.method === "PUT" ? parsePositiveId(payload.idSupplier) : null;
       const typeSupplier = ["juridica", "fisica"].includes(payload.typeSupplier) ? payload.typeSupplier : "";
       const value = (field, max) => typeof payload[field] === "string" ? payload[field].trim().slice(0, max) : "";
+      const humanValue = (field, max) => uppercaseText(value(field, max));
       const documentSupplier = value("documentSupplier", 20).replace(/\D/g, "");
-      const companyNameSupplier = value("companyNameSupplier", 180);
-      const tradeNameSupplier = value("tradeNameSupplier", 120);
-      const contactNameSupplier = value("contactNameSupplier", 120);
+      const companyNameSupplier = humanValue("companyNameSupplier", 180);
+      const tradeNameSupplier = humanValue("tradeNameSupplier", 120);
+      const contactNameSupplier = humanValue("contactNameSupplier", 120);
       const phoneSupplier = value("phoneSupplier", 25);
       const emailSupplier = value("emailSupplier", 180);
       const zipCodeSupplier = value("zipCodeSupplier", 9);
-      const addressSupplier = value("addressSupplier", 180);
+      const addressSupplier = humanValue("addressSupplier", 180);
       const addressNumberSupplier = value("addressNumberSupplier", 20);
-      const addressComplementSupplier = value("addressComplementSupplier", 80);
-      const neighborhoodSupplier = value("neighborhoodSupplier", 100);
-      const citySupplier = value("citySupplier", 100);
+      const addressComplementSupplier = humanValue("addressComplementSupplier", 80);
+      const neighborhoodSupplier = humanValue("neighborhoodSupplier", 100);
+      const citySupplier = humanValue("citySupplier", 100);
       const stateSupplier = value("stateSupplier", 2).toUpperCase();
-      const countrySupplier = value("countrySupplier", 80) || "Brasil";
-      const notesSupplier = value("notesSupplier", 400);
+      const countrySupplier = humanValue("countrySupplier", 80) || "BRASIL";
+      const notesSupplier = humanValue("notesSupplier", 400);
       const documentLength = typeSupplier === "fisica" ? 11 : 14;
       if ((request.method === "PUT" && !idSupplier) || !typeSupplier || documentSupplier.length !== documentLength
         || !companyNameSupplier || !countrySupplier || (emailSupplier && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailSupplier))
@@ -2364,7 +2670,7 @@ const server = createServer(async (request, response) => {
     try {
       const payload = await readJsonBody(request);
       const idClass = parsePositiveId(payload.idClass);
-      const descriptionClass = typeof payload.descriptionClass === "string" ? payload.descriptionClass.trim() : "";
+      const descriptionClass = typeof payload.descriptionClass === "string" ? uppercaseText(payload.descriptionClass) : "";
       const idFiscalOperationClass = parsePositiveId(payload.idFiscalOperationClass);
       if (!idClass || !descriptionClass || descriptionClass.length > 120 || !idFiscalOperationClass) {
         throw new SaleValidationError("Classe, descrição e operação fiscal são obrigatórias.");
@@ -2485,9 +2791,9 @@ const server = createServer(async (request, response) => {
       const idNcmCestRelation = request.method === "PUT" ? parsePositiveId(payload.idNcmCestRelation) : null;
       const ncmCode = typeof payload.ncmCode === "string" ? payload.ncmCode.replace(/\D/g, "") : "";
       const cestCode = typeof payload.cestCode === "string" ? payload.cestCode.replace(/\D/g, "") : "";
-      const ncmDescription = typeof payload.ncmDescription === "string" ? payload.ncmDescription.trim() : "";
-      const cestDescription = typeof payload.cestDescription === "string" ? payload.cestDescription.trim() : "";
-      const segment = typeof payload.segment === "string" ? payload.segment.trim() : "";
+      const ncmDescription = typeof payload.ncmDescription === "string" ? uppercaseText(payload.ncmDescription) : "";
+      const cestDescription = typeof payload.cestDescription === "string" ? uppercaseText(payload.cestDescription) : "";
+      const segment = typeof payload.segment === "string" ? uppercaseText(payload.segment) : "";
       if (
         (request.method === "PUT" && !idNcmCestRelation) ||
         !/^\d{8}$/.test(ncmCode) ||
@@ -2582,7 +2888,7 @@ const server = createServer(async (request, response) => {
   if (request.method === "POST" && request.url === "/api/classes") {
     try {
       const payload = await readJsonBody(request);
-      const descriptionClass = typeof payload.descriptionClass === "string" ? payload.descriptionClass.trim() : "";
+      const descriptionClass = typeof payload.descriptionClass === "string" ? uppercaseText(payload.descriptionClass) : "";
       const idFiscalOperationClass = parsePositiveId(payload.idFiscalOperationClass);
       if (!descriptionClass || descriptionClass.length > 120 || !idFiscalOperationClass) {
         throw new SaleValidationError("Descrição da classe e operação fiscal são obrigatórias.");
@@ -2627,7 +2933,7 @@ const server = createServer(async (request, response) => {
   if (request.method === "POST" && request.url === "/api/groups") {
     try {
       const payload = await readJsonBody(request);
-      const descriptionGroup = typeof payload.descriptionGroup === "string" ? payload.descriptionGroup.trim() : "";
+      const descriptionGroup = typeof payload.descriptionGroup === "string" ? uppercaseText(payload.descriptionGroup) : "";
       const idClass = parsePositiveId(payload.idClass);
       const showsInPdvGroup = parseBooleanFlag(payload.showsInPdvGroup, "Exibe no PDV", false);
       if (!descriptionGroup || descriptionGroup.length > 120 || !idClass) throw new SaleValidationError("Descrição do grupo e classe são obrigatórios.");
@@ -2646,7 +2952,7 @@ const server = createServer(async (request, response) => {
       const payload = await readJsonBody(request);
       const idGroup = parsePositiveId(payload.idGroup);
       const idClass = parsePositiveId(payload.idClass);
-      const descriptionGroup = typeof payload.descriptionGroup === "string" ? payload.descriptionGroup.trim() : "";
+      const descriptionGroup = typeof payload.descriptionGroup === "string" ? uppercaseText(payload.descriptionGroup) : "";
       const showsInPdvGroup = parseBooleanFlag(payload.showsInPdvGroup, "Exibe no PDV", false);
       if (!idGroup || !idClass || !descriptionGroup || descriptionGroup.length > 120) throw new SaleValidationError("Grupo, classe ou descrição inválida.");
       const [classes] = await pool.query("SELECT idClass FROM classes WHERE idClass = ?", [idClass]);
@@ -2711,7 +3017,7 @@ const server = createServer(async (request, response) => {
   if (request.method === "POST" && request.url === "/api/products") {
     try {
       const payload = await readJsonBody(request);
-      const nameProduct = typeof payload.nameProduct === "string" ? payload.nameProduct.trim() : "";
+      const nameProduct = typeof payload.nameProduct === "string" ? uppercaseText(payload.nameProduct) : "";
       const skuProduct = typeof payload.skuProduct === "string" ? payload.skuProduct.trim().toUpperCase() : "";
       const pdvCodeProduct = payload.pdvCodeProduct === null || payload.pdvCodeProduct === undefined ? null : String(payload.pdvCodeProduct).trim() || null;
       const ncmProduct = typeof payload.ncmProduct === "string" ? payload.ncmProduct.replace(/\D/g, "") : "";
@@ -2723,7 +3029,7 @@ const server = createServer(async (request, response) => {
       if (!nameProduct || nameProduct.length > 180 || !skuProduct || skuProduct.length > 64 || !idGroup || (ncmProduct && !/^\d{8}$/.test(ncmProduct)) || (cestProduct && !/^\d{7}$/.test(cestProduct))) throw new SaleValidationError("Nome, SKU, grupo, NCM ou CEST inválidos.");
       await ensureProductCatalogSchema();
       const allowNegativeStock = await getGeneralSettingBoolean("allowNegativeStock");
-      const priceProduct = parseMoney(payload.priceProduct, "Preço");
+      const costPriceProduct = parseMoney(payload.costPriceProduct ?? "0", "Preço de custo");
       const controlsStockProduct = parseBooleanFlag(payload.controlsStockProduct, "Controla estoque", true);
       const isFractionalProduct = parseBooleanFlag(payload.isFractionalProduct, "Produto fracionado");
       const printsKitchenProduct = parseBooleanFlag(payload.printsKitchenProduct, "Imprime cozinha");
@@ -2733,7 +3039,11 @@ const server = createServer(async (request, response) => {
       if (!groups.length) throw new SaleValidationError("Grupo não encontrado.", 409);
       const [productTypeRows] = await pool.query("SELECT idProductType, descriptionProductType FROM product_types WHERE idProductType = ? AND isActiveProductType = 1", [idProductTypeProduct]);
       if (idProductTypeProduct && !productTypeRows.length) throw new SaleValidationError("Tipo de produto não encontrado.", 409);
-      if (productTypeRows[0]?.descriptionProductType === "Matéria-Prima" && !/^MP-/i.test(skuProduct)) {
+      const nonSaleProduct = isNonSaleProductType(productTypeRows[0]?.descriptionProductType);
+      const priceProduct = nonSaleProduct
+        ? costPriceProduct
+        : parseMoney(payload.priceProduct, "Preço");
+      if (uppercaseText(productTypeRows[0]?.descriptionProductType) === "MATÉRIA-PRIMA" && !/^MP-/i.test(skuProduct)) {
         throw new SaleValidationError("O SKU de matéria-prima deve começar com MP-.");
       }
       const [unitRows] = await pool.query("SELECT idUnit FROM units WHERE idUnit = ? AND isActiveUnit = 1", [idUnitProduct]);
@@ -2762,16 +3072,16 @@ const server = createServer(async (request, response) => {
       const [result] = await pool.query(
         `INSERT INTO products
           (idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct,
-           idProductTypeProduct, idUnitProduct, ncmProduct, cestProduct, priceProduct,
+           idProductTypeProduct, idUnitProduct, ncmProduct, cestProduct, priceProduct, costPriceProduct,
            stockQuantityProduct, controlsStockProduct, isFractionalProduct, printsKitchenProduct,
            showsInPdvProduct)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
         [idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct,
           idProductTypeProduct, idUnitProduct, ncmProduct || null, cestProduct || null,
-          priceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct,
+          priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct,
           printsKitchenProduct, showsInPdvProduct]
       );
-      json(response, 201, { product: { idProduct: result.insertId, idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct, idProductTypeProduct, idUnitProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct, printsKitchenProduct, showsInPdvProduct } });
+      json(response, 201, { product: { idProduct: result.insertId, idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct, idProductTypeProduct, idUnitProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct, printsKitchenProduct, showsInPdvProduct } });
     } catch (error) {
       handleError(response, error, { log: "Falha ao criar produto:", message: "Não foi possível criar o produto.", duplicate: "SKU ou código PDV já cadastrado." });
     }
@@ -2783,6 +3093,7 @@ const server = createServer(async (request, response) => {
     try {
       const payload = await readJsonBody(request);
       const rows = Array.isArray(payload.rows) ? payload.rows : [];
+      const validateOnly = payload.validateOnly === true;
       if (!rows.length || rows.length > 1000) {
         throw new SaleValidationError("Informe entre 1 e 1000 produtos para importar.");
       }
@@ -2791,26 +3102,73 @@ const server = createServer(async (request, response) => {
       connection = await pool.getConnection();
       await connection.beginTransaction();
       let importedCount = 0;
+      const importedSkus = new Map();
+      const importedPdvCodes = new Map();
       for (const [index, row] of rows.entries()) {
         const line = index + 2;
         const skuProduct = typeof row.skuProduct === "string" ? row.skuProduct.trim().toUpperCase() : "";
         const pdvCodeProduct = typeof row.pdvCodeProduct === "string" ? row.pdvCodeProduct.trim() || null : null;
-        const nameProduct = typeof row.nameProduct === "string" ? row.nameProduct.trim() : "";
-        const descriptionGroup = typeof row.descriptionGroup === "string" ? row.descriptionGroup.trim() : "";
-        const descriptionFiscalOperation = typeof row.descriptionFiscalOperation === "string" ? row.descriptionFiscalOperation.trim() : "";
-        const descriptionProductType = typeof row.descriptionProductType === "string" ? row.descriptionProductType.trim() : "";
+        const nameProduct = typeof row.nameProduct === "string" ? uppercaseText(row.nameProduct) : "";
+        const descriptionGroup = typeof row.descriptionGroup === "string" ? uppercaseText(row.descriptionGroup) : "";
+        const descriptionFiscalOperation = typeof row.descriptionFiscalOperation === "string" ? uppercaseText(row.descriptionFiscalOperation) : "";
+        const descriptionProductType = typeof row.descriptionProductType === "string" ? uppercaseText(row.descriptionProductType) : "";
         const codeUnit = typeof row.codeUnit === "string" ? row.codeUnit.trim().toUpperCase() : "";
         const ncmProduct = typeof row.ncmProduct === "string" ? row.ncmProduct.replace(/\D/g, "") : "";
         const cestProduct = typeof row.cestProduct === "string" ? row.cestProduct.replace(/\D/g, "") : "";
         const priceValue = String(row.priceProduct ?? "").trim().replace(",", ".");
+        const costPriceValue = String(row.costPriceProduct ?? "0").trim().replace(",", ".");
         const stockValue = String(row.stockQuantityProduct ?? "0").trim().replace(",", ".");
         const parseImportBoolean = (value, fallback) => {
           if (value === undefined || value === null || value === "") return fallback;
           return ["1", "true", "sim", "s", "yes", "y"].includes(String(value).trim().toLowerCase()) ? 1 : 0;
         };
-        if (!skuProduct || skuProduct.length > 64 || !nameProduct || nameProduct.length > 180 || !descriptionGroup || !priceValue) {
+        if (!skuProduct || skuProduct.length > 64 || !nameProduct || nameProduct.length > 180 || !descriptionGroup
+          || (!priceValue && !costPriceValue)) {
           throw new SaleValidationError(`Linha ${line}: SKU, nome, grupo e preço são obrigatórios ou inválidos.`);
         }
+        const duplicateMessages = [];
+        const previousSkuLine = importedSkus.get(skuProduct);
+        if (previousSkuLine) {
+          duplicateMessages.push(`SKU "${skuProduct}" também aparece na linha ${previousSkuLine} do arquivo`);
+        }
+        if (pdvCodeProduct) {
+          const previousPdvLine = importedPdvCodes.get(pdvCodeProduct.toLocaleLowerCase("pt-BR"));
+          if (previousPdvLine) {
+            duplicateMessages.push(`código PDV "${pdvCodeProduct}" também aparece na linha ${previousPdvLine} do arquivo`);
+          }
+        }
+        const existingConditions = ["skuProduct = ?"];
+        const existingParameters = [skuProduct];
+        if (pdvCodeProduct) {
+          existingConditions.push("pdvCodeProduct = ?");
+          existingParameters.push(pdvCodeProduct);
+        }
+        const [existingProducts] = await connection.query(
+          `SELECT skuProduct, pdvCodeProduct, nameProduct
+           FROM products
+           WHERE ${existingConditions.join(" OR ")}
+           LIMIT 10`,
+          existingParameters
+        );
+        for (const existingProduct of existingProducts) {
+          if (existingProduct.skuProduct === skuProduct) {
+            duplicateMessages.push(
+              `SKU "${skuProduct}" já está cadastrado no produto "${existingProduct.nameProduct}"`
+            );
+          }
+          if (pdvCodeProduct
+            && String(existingProduct.pdvCodeProduct || "").toLocaleLowerCase("pt-BR")
+              === pdvCodeProduct.toLocaleLowerCase("pt-BR")) {
+            duplicateMessages.push(
+              `código PDV "${pdvCodeProduct}" já está cadastrado no produto "${existingProduct.nameProduct}"`
+            );
+          }
+        }
+        if (duplicateMessages.length) {
+          throw new SaleValidationError(`Linha ${line}: ${duplicateMessages.join("; ")}.`);
+        }
+        importedSkus.set(skuProduct, line);
+        if (pdvCodeProduct) importedPdvCodes.set(pdvCodeProduct.toLocaleLowerCase("pt-BR"), line);
         const [groupRows] = await connection.query(
           "SELECT idGroup FROM `groups` WHERE descriptionGroup = ? LIMIT 1",
           [descriptionGroup]
@@ -2834,7 +3192,8 @@ const server = createServer(async (request, response) => {
         if (descriptionProductType && !typeRows.length) {
           throw new SaleValidationError(`Linha ${line}: tipo de produto "${descriptionProductType}" não encontrado.`);
         }
-        if (typeRows[0]?.descriptionProductType === "Matéria-Prima" && !/^MP-/i.test(skuProduct)) {
+        const nonSaleProduct = isNonSaleProductType(typeRows[0]?.descriptionProductType);
+        if (uppercaseText(typeRows[0]?.descriptionProductType) === "MATÉRIA-PRIMA" && !/^MP-/i.test(skuProduct)) {
           throw new SaleValidationError(`Linha ${line}: o SKU de matéria-prima deve começar com MP-.`);
         }
         const [unitRows] = codeUnit
@@ -2872,7 +3231,10 @@ const server = createServer(async (request, response) => {
         } else if (cestProduct) {
           throw new SaleValidationError(`Linha ${line}: informe o NCM antes de selecionar o CEST.`);
         }
-        const priceProduct = parseMoney(priceValue, `Preço da linha ${line}`);
+        const costPriceProduct = parseMoney(costPriceValue || "0", `Preço de custo da linha ${line}`);
+        const priceProduct = nonSaleProduct
+          ? costPriceProduct
+          : parseMoney(priceValue, `Preço da linha ${line}`);
         const controlsStockProduct = parseImportBoolean(row.controlsStockProduct, 1);
         const isFractionalProduct = parseImportBoolean(row.isFractionalProduct, 0);
         const printsKitchenProduct = parseImportBoolean(row.printsKitchenProduct, 0);
@@ -2881,22 +3243,27 @@ const server = createServer(async (request, response) => {
         await connection.query(
           `INSERT INTO products
             (idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct,
-             idProductTypeProduct, idUnitProduct, ncmProduct, cestProduct, priceProduct,
+             idProductTypeProduct, idUnitProduct, ncmProduct, cestProduct, priceProduct, costPriceProduct,
              stockQuantityProduct, controlsStockProduct, isFractionalProduct, printsKitchenProduct,
              showsInPdvProduct)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
           [
             groupRows[0].idGroup, skuProduct, pdvCodeProduct, nameProduct,
             fiscalRows[0]?.idFiscalOperation || null, typeRows[0]?.idProductType || null,
             unitRows[0]?.idUnit || null, ncmProduct || null, cestProduct || null,
-            priceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct,
+            priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct,
             printsKitchenProduct, showsInPdvProduct
           ]
         );
         importedCount += 1;
       }
-      await connection.commit();
-      json(response, 201, { importedCount });
+      if (validateOnly) {
+        await connection.rollback();
+        json(response, 200, { valid: true, validatedCount: rows.length });
+      } else {
+        await connection.commit();
+        json(response, 201, { importedCount });
+      }
     } catch (error) {
       if (connection) await connection.rollback().catch(() => {});
       handleError(response, error, {
@@ -2914,7 +3281,7 @@ const server = createServer(async (request, response) => {
     try {
       const payload = await readJsonBody(request);
       const idProduct = parsePositiveId(payload.idProduct);
-      const nameProduct = typeof payload.nameProduct === "string" ? payload.nameProduct.trim() : "";
+      const nameProduct = typeof payload.nameProduct === "string" ? uppercaseText(payload.nameProduct) : "";
       const skuProduct = typeof payload.skuProduct === "string" ? payload.skuProduct.trim().toUpperCase() : "";
       const pdvCodeProduct = payload.pdvCodeProduct === null || payload.pdvCodeProduct === undefined ? null : String(payload.pdvCodeProduct).trim() || null;
       const ncmProduct = typeof payload.ncmProduct === "string" ? payload.ncmProduct.replace(/\D/g, "") : "";
@@ -2926,7 +3293,7 @@ const server = createServer(async (request, response) => {
       if (!idProduct || !nameProduct || nameProduct.length > 180 || !skuProduct || skuProduct.length > 64 || !idGroup || (ncmProduct && !/^\d{8}$/.test(ncmProduct)) || (cestProduct && !/^\d{7}$/.test(cestProduct))) throw new SaleValidationError("Produto, nome, SKU, grupo, NCM ou CEST inválidos.");
       await ensureProductCatalogSchema();
       const allowNegativeStock = await getGeneralSettingBoolean("allowNegativeStock");
-      const priceProduct = parseMoney(payload.priceProduct, "Preço");
+      const costPriceProduct = parseMoney(payload.costPriceProduct ?? "0", "Preço de custo");
       const controlsStockProduct = parseBooleanFlag(payload.controlsStockProduct, "Controla estoque", true);
       const isFractionalProduct = parseBooleanFlag(payload.isFractionalProduct, "Produto fracionado");
       const printsKitchenProduct = parseBooleanFlag(payload.printsKitchenProduct, "Imprime cozinha");
@@ -2936,7 +3303,11 @@ const server = createServer(async (request, response) => {
       if (!groups.length) throw new SaleValidationError("Grupo não encontrado.", 409);
       const [productTypeRows] = await pool.query("SELECT idProductType, descriptionProductType FROM product_types WHERE idProductType = ? AND isActiveProductType = 1", [idProductTypeProduct]);
       if (idProductTypeProduct && !productTypeRows.length) throw new SaleValidationError("Tipo de produto não encontrado.", 409);
-      if (productTypeRows[0]?.descriptionProductType === "Matéria-Prima" && !/^MP-/i.test(skuProduct)) {
+      const nonSaleProduct = isNonSaleProductType(productTypeRows[0]?.descriptionProductType);
+      const priceProduct = nonSaleProduct
+        ? costPriceProduct
+        : parseMoney(payload.priceProduct, "Preço");
+      if (uppercaseText(productTypeRows[0]?.descriptionProductType) === "MATÉRIA-PRIMA" && !/^MP-/i.test(skuProduct)) {
         throw new SaleValidationError("O SKU de matéria-prima deve começar com MP-.");
       }
       const [unitRows] = await pool.query("SELECT idUnit FROM units WHERE idUnit = ? AND isActiveUnit = 1", [idUnitProduct]);
@@ -2965,17 +3336,17 @@ const server = createServer(async (request, response) => {
       const [result] = await pool.query(
         `UPDATE products SET idGroup = ?, skuProduct = ?, pdvCodeProduct = ?, nameProduct = ?,
            idFiscalOperationSaleProduct = ?, idProductTypeProduct = ?, idUnitProduct = ?,
-           ncmProduct = ?, cestProduct = ?, priceProduct = ?, stockQuantityProduct = ?,
+           ncmProduct = ?, cestProduct = ?, priceProduct = ?, costPriceProduct = ?, stockQuantityProduct = ?,
            controlsStockProduct = ?, isFractionalProduct = ?, printsKitchenProduct = ?,
            showsInPdvProduct = ?
          WHERE idProduct = ?`,
         [idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct,
           idProductTypeProduct, idUnitProduct, ncmProduct || null, cestProduct || null,
-          priceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct,
+          priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct,
           printsKitchenProduct, showsInPdvProduct, idProduct]
       );
       if (!result.affectedRows) throw new SaleValidationError("Produto não encontrado.", 404);
-      json(response, 200, { product: { idProduct, idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct, idProductTypeProduct, idUnitProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct, printsKitchenProduct, showsInPdvProduct } });
+      json(response, 200, { product: { idProduct, idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct, idProductTypeProduct, idUnitProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct, printsKitchenProduct, showsInPdvProduct } });
     } catch (error) {
       handleError(response, error, { log: "Falha ao editar produto:", message: "Não foi possível editar o produto.", duplicate: "SKU ou código PDV já cadastrado." });
     }
@@ -3057,7 +3428,7 @@ const server = createServer(async (request, response) => {
         await ensurePaymentMethodSchema();
         const payload = await readJsonBody(request);
         const idPaymentMethod = request.method === "PUT" ? parsePositiveId(payload.idPaymentMethod) : null;
-        const namePaymentMethod = typeof payload.namePaymentMethod === "string" ? payload.namePaymentMethod.trim() : "";
+        const namePaymentMethod = typeof payload.namePaymentMethod === "string" ? uppercaseText(payload.namePaymentMethod) : "";
         const cashFlowAccountPaymentMethod = payload.cashFlowAccountPaymentMethod;
         const termDaysPaymentMethod = Number(payload.termDaysPaymentMethod);
         const discountValuePaymentMethod = Number(payload.discountValuePaymentMethod);
@@ -3173,7 +3544,7 @@ const server = createServer(async (request, response) => {
       const payload = await readJsonBody(request);
       const catalog = typeof payload.catalogFiscalCatalogItem === "string" ? payload.catalogFiscalCatalogItem.trim() : "";
       const idFiscalCatalogItem = request.method === "PUT" ? parsePositiveId(payload.idFiscalCatalogItem) : null;
-      const descriptionFiscalCatalogItem = typeof payload.descriptionFiscalCatalogItem === "string" ? payload.descriptionFiscalCatalogItem.trim() : "";
+      const descriptionFiscalCatalogItem = typeof payload.descriptionFiscalCatalogItem === "string" ? uppercaseText(payload.descriptionFiscalCatalogItem) : "";
       let codeFiscalCatalogItem = typeof payload.codeFiscalCatalogItem === "string" ? payload.codeFiscalCatalogItem.trim() : "";
       if (catalog === "cfops") codeFiscalCatalogItem = normalizeCfopCode(codeFiscalCatalogItem);
       if (slugCodeCatalogs.has(catalog)) codeFiscalCatalogItem = slugifyCatalogDescription(descriptionFiscalCatalogItem);
@@ -3279,7 +3650,7 @@ const server = createServer(async (request, response) => {
     try {
       const payload = await readJsonBody(request);
       const idFiscalOperation = request.method === "PUT" ? parsePositiveId(payload.idFiscalOperation) : null;
-      const descriptionFiscalOperation = typeof payload.descriptionFiscalOperation === "string" ? payload.descriptionFiscalOperation.trim() : "";
+      const descriptionFiscalOperation = typeof payload.descriptionFiscalOperation === "string" ? uppercaseText(payload.descriptionFiscalOperation) : "";
       const taxRegimeFiscalOperation = typeof payload.taxRegimeFiscalOperation === "string" ? payload.taxRegimeFiscalOperation.trim() : "";
       const typeFiscalOperation = payload.typeFiscalOperation;
       const contextFiscalOperation = payload.contextFiscalOperation;
@@ -3434,34 +3805,19 @@ const server = createServer(async (request, response) => {
 });
 server.listen(config.apiPort, config.apiHost, () => {
   console.log(`API PDV ouvindo em http://${config.apiHost}:${config.apiPort}`);
-  void ensureFiscalCatalogSchema().catch((error) => {
-    console.error("Falha ao preparar os cadastros fiscais:", error);
-  });
-  void ensureFiscalOperationSchema().catch((error) => {
-    console.error("Falha ao preparar as operações fiscais:", error);
-  });
-  void ensureNcmCestSchema().catch((error) => {
-    console.error("Falha ao preparar o cadastro NCM / CEST:", error);
-  });
-  void ensureProductFiscalSchema().catch((error) => {
-    console.error("Falha ao preparar os campos fiscais dos produtos:", error);
-  });
-  void ensureProductCatalogSchema().catch((error) => {
-    console.error("Falha ao preparar os cadastros auxiliares de produtos:", error);
-  });
-  void ensurePrinterSettingsSchema().catch((error) => {
-    console.error("Falha ao preparar as configurações de impressora:", error);
-  });
-  void ensureGeneralSettingsSchema().catch((error) => {
-    console.error("Falha ao preparar as configurações gerais:", error);
-  });
-  void ensureCompanySchema().catch((error) => {
-    console.error("Falha ao preparar o cadastro da empresa:", error);
-  });
-  void ensureSupplierSchema().catch((error) => {
-    console.error("Falha ao preparar o cadastro de fornecedores:", error);
-  });
-  void ensureNavigationSchema().catch((error) => {
-    console.error("Falha ao preparar a estrutura de navegação:", error);
+  void Promise.all([
+    ensureFiscalCatalogSchema(),
+    ensureFiscalOperationSchema(),
+    ensureNcmCestSchema(),
+    ensureProductFiscalSchema(),
+    ensureProductCatalogSchema(),
+    ensurePrinterSettingsSchema(),
+    ensureGeneralSettingsSchema(),
+    ensureCompanySchema(),
+    ensureSupplierSchema(),
+    ensureCustomerConsumerSchema(),
+    ensureNavigationSchema()
+  ]).then(() => ensureUppercaseTextData()).catch((error) => {
+    console.error("Falha ao preparar ou normalizar o banco:", error);
   });
 });

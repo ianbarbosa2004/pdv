@@ -82,9 +82,13 @@ no próprio servidor da loja. Para gerar um executável de um terminal que deve
 acessar outro computador, informe o endereço da API no build:
 
 ```powershell
-$env:VITE_PDV_API_URL = "http://IP_DO_SERVIDOR:3000"
-npm.cmd run tauri -- build --no-bundle
+npm.cmd run release:client -- --api-url=http://IP_DO_SERVIDOR:3000
 ```
+
+Esse comando gera os bundles MSI e NSIS/EXE em `dist\releases`, copia os
+instaladores atuais e grava um arquivo de metadados com o endereço da API e a
+origem dos ícones. Para gerar somente um build Tauri sem instaladores, defina
+`VITE_PDV_API_URL` e use `npm.cmd run tauri -- build --no-bundle`.
 
 Não use o endereço do frontend Vite como endereço da API. Se a aplicação
 receber uma página HTML no lugar de JSON, confirme essa variável e valide
@@ -214,6 +218,18 @@ Quando houver alteração no schema ou na persistência:
 5. valide a API e uma leitura real após a migração;
 6. confirme que vendas, estoque, pagamentos e produtos existentes foram
    preservados.
+
+Quando a alteração envolver a política de textos em maiúsculas, execute no
+servidor, com a API parada ou em janela controlada:
+
+```powershell
+npm.cmd run migrate:uppercase
+```
+
+O comando verifica colisões em colunas únicas, executa a conversão em uma única
+transação e é idempotente. Faça a primeira execução somente depois de validar
+um backup restaurável; a migração não converte códigos, e-mails, URLs, rotas,
+chaves técnicas nem a formatação do Construtor de Menu.
 
 As versões que incluem o cadastro fiscal também criam ou atualizam a tabela
 `fiscal_catalog_items`. A inicialização da API faz somente a criação estrutural
