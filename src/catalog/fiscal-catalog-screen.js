@@ -1,6 +1,7 @@
 import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { bindFormRowPreview } from "../ui/form-row-preview.js";
+import { renderPreservingFormDraft } from "../ui/form-draft.js";
 import { bindFiscalNavigation, renderFiscalNavigation } from "./fiscal-navigation.js";
 import {
   bindNumberMasks,
@@ -8,6 +9,7 @@ import {
   normalizeMaskedNumber
 } from "../ui/number-mask.js";
 import { getApiUrl } from "../shared/api.js";
+import { confirmAction } from "../ui/confirmation-modal.js";
 
 const catalogLabels = {
   cfops: "CFOP",
@@ -180,7 +182,7 @@ export function createFiscalCatalogScreen({
       error = loadError instanceof Error ? loadError.message : "Falha ao carregar o cadastro fiscal.";
     } finally {
       loading = false;
-      render();
+      renderPreservingFormDraft(root, render);
     }
   };
 
@@ -214,7 +216,12 @@ export function createFiscalCatalogScreen({
   };
 
   const remove = async (idFiscalCatalogItem) => {
-    if (!window.confirm("Excluir este cadastro fiscal definitivamente?")) return;
+    const confirmed = await confirmAction({
+      title: "Excluir cadastro fiscal",
+      message: "Excluir este cadastro fiscal definitivamente?",
+      confirmLabel: "Excluir cadastro"
+    });
+    if (!confirmed) return;
     try {
       const response = await fetch(`${getApiUrl()}/api/fiscal-catalogs`, {
         method: "DELETE",

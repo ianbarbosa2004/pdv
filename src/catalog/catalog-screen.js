@@ -9,6 +9,7 @@ import {
 } from "../ui/number-mask.js";
 import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { getApiUrl } from "../shared/api.js";
+import { confirmAction } from "../ui/confirmation-modal.js";
 
 const escapeHtml = (value) =>
   String(value)
@@ -652,7 +653,13 @@ export function createCatalogScreen({
   };
 
   const deleteProduct = async (id) => {
-    if (!window.confirm("Excluir este produto definitivamente? Esta ação não poderá ser desfeita.")) return;
+    const confirmed = await confirmAction({
+      title: "Excluir produto",
+      message: "Excluir este produto definitivamente?",
+      detail: "Esta ação não poderá ser desfeita.",
+      confirmLabel: "Excluir produto"
+    });
+    if (!confirmed) return;
     try {
       const response = await fetch(`${getApiUrl()}/api/products`, {
         method: "DELETE",

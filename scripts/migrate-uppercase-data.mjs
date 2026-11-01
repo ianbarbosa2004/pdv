@@ -17,10 +17,6 @@ const textColumns = [
   ]],
   ["customers", ["nameCustomer", "addressCustomer", "notesCustomer"]],
   ["consumers", ["nameConsumer", "nicknameConsumer", "notesConsumer"]],
-  ["company_settings", [
-    "corporateNameCompany", "tradeNameCompany", "addressCompany", "addressComplementCompany",
-    "neighborhoodCompany", "countryCompany", "cityCompany"
-  ]],
   ["general_settings", ["labelGeneralSetting"]],
   ["fiscal_operations", [
     "descriptionFiscalOperation", "operationNatureFiscalOperation",

@@ -1,6 +1,7 @@
 import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { bindFormRowPreview } from "../ui/form-row-preview.js";
+import { renderPreservingFormDraft } from "../ui/form-draft.js";
 import {
   bindFinancialNavigation,
   renderFinancialNavigation
@@ -12,6 +13,7 @@ import {
 } from "../ui/number-mask.js";
 import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { getApiUrl } from "../shared/api.js";
+import { confirmAction } from "../ui/confirmation-modal.js";
 
 const escapeHtml = (value) =>
   String(value ?? "")
@@ -301,7 +303,7 @@ export function createPaymentMethodScreen({
       error = loadError instanceof Error ? loadError.message : "Falha ao carregar as formas de pagamento.";
     } finally {
       loading = false;
-      render();
+      renderPreservingFormDraft(root, render);
     }
   };
 
@@ -342,7 +344,12 @@ export function createPaymentMethodScreen({
   };
 
   const remove = async (idPaymentMethod) => {
-    if (!window.confirm("Excluir esta forma de pagamento definitivamente?")) return;
+    const confirmed = await confirmAction({
+      title: "Excluir forma de pagamento",
+      message: "Excluir esta forma de pagamento definitivamente?",
+      confirmLabel: "Excluir forma"
+    });
+    if (!confirmed) return;
     try {
       const response = await fetch(`${getApiUrl()}/api/payment-methods`, {
         method: "DELETE",

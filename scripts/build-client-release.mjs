@@ -18,6 +18,8 @@ const apiUrl = String(
   args["api-url"] || process.env.PDV_API_URL || process.env.VITE_PDV_API_URL || "http://192.168.1.200:3000"
 ).replace(/\/+$/, "");
 
+await run(process.execPath, [join(root, "scripts", "increment-version.mjs")]);
+
 const run = (command, commandArgs, environment = {}) => new Promise((resolvePromise, reject) => {
   const isWindowsCommand = process.platform === "win32" && command.toLowerCase().endsWith(".cmd");
   const executable = isWindowsCommand ? (process.env.ComSpec || "cmd.exe") : command;
@@ -72,7 +74,8 @@ await run(npmCommand, [
 ]);
 await run(npmCommand, ["run", "tauri", "--", "build"], {
   VITE_PDV_API_URL: apiUrl,
-  VITE_PDV_BUILD_SOURCE: "fixed-icon-release"
+  VITE_PDV_BUILD_SOURCE: "fixed-icon-release",
+  PDV_SKIP_VERSION_BUMP: "1"
 });
 
 await mkdir(releaseDir, { recursive: true });

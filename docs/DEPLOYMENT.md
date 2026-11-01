@@ -87,7 +87,9 @@ npm.cmd run release:client -- --api-url=http://IP_DO_SERVIDOR:3000
 
 Esse comando gera os bundles MSI e NSIS/EXE em `dist\releases`, copia os
 instaladores atuais e grava um arquivo de metadados com o endereço da API e a
-origem dos ícones. Para gerar somente um build Tauri sem instaladores, defina
+origem dos ícones. A execução incrementa automaticamente o patch da versão
+uma única vez e aplica o mesmo número ao instalador. Para gerar somente um
+build Tauri sem instaladores, defina
 `VITE_PDV_API_URL` e use `npm.cmd run tauri -- build --no-bundle`.
 
 Não use o endereço do frontend Vite como endereço da API. Se a aplicação
@@ -108,12 +110,27 @@ configuração não descarta as demais. O bundle de instalação não contém es
 arquivo: ele permanece no diretório de dados da aplicação e não é sobrescrito
 pela compilação ou atualização do executável.
 
+Os backups compactados ficam no diretório exibido pela tela
+**Ferramentas > Backup e restauração**. Defina `PDV_BACKUP_DIR` para escolher
+um destino fixo. Em produção, sem essa variável, o serviço tenta a pasta
+`backups` dentro da instalação da API e usa
+`%LOCALAPPDATA%\\PDV Zanzibar\\backups` quando a pasta da instalação não for
+gravável. Inclua o diretório efetivo na rotina de cópia externa do servidor,
+sem versioná-lo no Git. A restauração deve ser executada pela tela
+**Ferramentas > Backup e restauração** somente após confirmar que o arquivo é
+da loja e da data corretas.
+
 Em **Ferramentas > Status da API**, o campo **Identificador do frontend** mostra
 o fingerprint da versão compilada. Ele é calculado a partir do commit e das
 alterações locais presentes no código no momento da execução do Vite. Dev e
 bundle gerados a partir da mesma árvore de código devem exibir o mesmo
 identificador; valores diferentes indicam que o `.exe` foi gerado de outra
 versão. A tela também informa se o menu veio da API ou da contingência local.
+
+O campo **Versão do aplicativo** mostra a versão SemVer embutida no build,
+como `0.1.4`. Use esse campo para confirmar se o terminal está executando o
+artefato esperado; use o **Identificador do frontend** para distinguir builds
+da mesma versão ou investigar diferenças no código compilado.
 
 Se a instalação usar NFC-e ou armazenar certificado A1, configure
 `PDV_CERTIFICATE_ENCRYPTION_KEY` antes de iniciar a API. A chave deve ser

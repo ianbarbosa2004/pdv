@@ -19,6 +19,7 @@ const buildId = `${packageJson.version}-${sourceFingerprint}`;
 
 export default defineConfig({
   define: {
+    "import.meta.env.VITE_PDV_VERSION": JSON.stringify(packageJson.version),
     "import.meta.env.VITE_PDV_BUILD_ID": JSON.stringify(buildId),
     "import.meta.env.VITE_PDV_BUILD_SOURCE": JSON.stringify("source-fingerprint")
   },

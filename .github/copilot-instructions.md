@@ -55,6 +55,10 @@ compile com `npm.cmd run tauri -- build --no-bundle`.
   organize-os em `tests/unit/` e `tests/integration/`.
 - Crie documentação operacional e decisões técnicas em `docs/`, mantendo o
   `README.md` como visão geral e índice.
+- Siga SemVer: o build incrementa automaticamente o `PATCH`; use
+  `npm.cmd run version:minor` para funcionalidades compatíveis e
+  `npm.cmd run version:major` para mudanças incompatíveis ou a primeira versão
+  estável.
 
 ## Segurança e operação
 

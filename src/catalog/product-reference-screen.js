@@ -1,9 +1,11 @@
 import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { bindFormRowPreview } from "../ui/form-row-preview.js";
+import { renderPreservingFormDraft } from "../ui/form-draft.js";
 import { bindProductNavigation, renderProductNavigation } from "./product-navigation.js";
 import { createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { getApiUrl } from "../shared/api.js";
+import { confirmAction } from "../ui/confirmation-modal.js";
 
 const escapeHtml = (value) =>
   String(value)
@@ -88,7 +90,7 @@ export function createProductReferenceScreen({
       error = loadError instanceof Error ? loadError.message : `Falha ao carregar ${definition.plural}.`;
     } finally {
       loading = false;
-      render();
+      renderPreservingFormDraft(root, render);
     }
   };
 
@@ -142,7 +144,12 @@ export function createProductReferenceScreen({
   };
 
   const remove = async (id) => {
-    if (!window.confirm(`Excluir esta ${definition.singular} definitivamente?`)) return;
+    const confirmed = await confirmAction({
+      title: `Excluir ${definition.singular}`,
+      message: `Excluir esta ${definition.singular} definitivamente?`,
+      confirmLabel: `Excluir ${definition.singular}`
+    });
+    if (!confirmed) return;
     try {
       const response = await fetch(`${getApiUrl()}${definition.endpoint}`, {
         method: "DELETE",

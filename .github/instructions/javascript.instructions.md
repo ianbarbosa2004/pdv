@@ -13,4 +13,12 @@ description: 'JavaScript and Node.js conventions for the PDV'
 - Use SQL parametrizado por meio da camada de banco.
 - Preserve a propagação explícita de erros.
 - Use `node:test`; não migre para Jest ou Vitest sem decisão explícita.
+- Em formulários reconstruídos por `root.innerHTML`, preserve o rascunho
+  digitado antes de renderizar novamente. Reutilize
+  `src/ui/form-draft.js` ou um estado de rascunho equivalente; a técnica deve
+  cobrir inputs, selects, textareas, checkboxes e radios, sem capturar modos
+  de visualização ou substituir uma limpeza explícita do usuário.
+- Para perguntas que interrompem uma ação, use `src/ui/confirmation-modal.js`
+  em vez de `window.confirm`, com título, consequência, ação principal nomeada
+  e cancelamento explícito. Não use diálogos nativos para confirmações do PDV.
 - Não inclua artefatos gerados ou dados de runtime em alterações.

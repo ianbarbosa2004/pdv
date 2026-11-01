@@ -9,9 +9,12 @@ export const renderMainMenu = () => {
     if (!itemsByMenu.has(item.idNavigationMenu)) itemsByMenu.set(item.idNavigationMenu, []);
     itemsByMenu.get(item.idNavigationMenu).push(item);
   }
-  const menus = [...(navigation.menus || [])].sort((a, b) =>
-    Number(a.orderNavigationMenu || 0) - Number(b.orderNavigationMenu || 0)
-  );
+  const menus = [...(navigation.menus || [])].sort((a, b) => {
+    const aExit = String(a.keyNavigationMenu).toLowerCase() === "exit";
+    const bExit = String(b.keyNavigationMenu).toLowerCase() === "exit";
+    if (aExit !== bExit) return aExit ? 1 : -1;
+    return Number(a.orderNavigationMenu || 0) - Number(b.orderNavigationMenu || 0);
+  });
   return `
     <nav class="classic-menubar" aria-label="Menu principal">
       ${menus.filter((menu) =>

@@ -15,6 +15,12 @@ e CEP recebem máscaras na interface, enquanto o e-mail é normalizado sem
 espaços e em minúsculas. Os campos textuais humanos são persistidos em
 maiúsculas, preservando a acentuação.
 
+Os campos textuais de **Configurações > Dados da Empresa** passaram a
+preservar a capitalização informada pelo operador. A conversão automática para
+maiúsculas continua aplicada somente aos cadastros e códigos que mantêm essa
+regra de domínio; documentos, UF, códigos fiscais e credenciais seguem suas
+validações específicas.
+
 As consultas auxiliares de CNPJ (BrasilAPI) e CEP (ViaCEP) funcionam tanto no
 novo cadastro quanto na edição. Os dados retornados são apresentados com
 maiúsculas, preservando a acentuação, e o salvamento normaliza os campos textuais
@@ -50,6 +56,13 @@ Dados da Empresa passou a exibir a mesma introdução das demais telas. Foram
 registrados aliases diretos para Operações Fiscais e Consulta de NFC-e no
 roteamento principal, permitindo que os itens persistidos nesses menus abram
 as telas tanto em desenvolvimento quanto no build.
+
+Foi padronizada a preservação de rascunhos dos formulários durante
+renderizações assíncronas. O helper `src/ui/form-draft.js` captura e restaura
+valores de inputs, selects, textareas, checkboxes e radios quando a árvore do
+formulário é reconstruída. A diretriz também exige que as ações explícitas de
+Limpar, Cancelar e salvamento mantenham seus significados, sem preservar
+indevidamente um rascunho de inclusão em modo de visualização ou edição modal.
 
 ## 1. Direção inicial
 

@@ -27,6 +27,21 @@ export const getConfiguredApiUrl = () =>
   normalizeApiUrl(offlineConfig.apiUrl) ||
   normalizeApiUrl(import.meta.env.VITE_PDV_API_URL);
 
+export const getConfiguredBackupDirectory = () =>
+  String(offlineConfig.backupDirectory ?? "").trim();
+
+export const saveConfiguredBackupDirectory = async (value) => {
+  const normalized = String(value ?? "").trim();
+  if (normalized.length > 500) {
+    throw new Error("O diretório de backup excede o limite permitido.");
+  }
+  offlineConfig = { ...offlineConfig, backupDirectory: normalized };
+  if (isTauriWindow()) {
+    await invoke("save_offline_config", { config: offlineConfig });
+  }
+  return normalized;
+};
+
 export const saveConfiguredApiUrl = async (value) => {
   const normalized = normalizeApiUrl(value);
   if (!/^https?:\/\/[^/\s]+(?::\d{1,5})?(?:\/[^/\s]*)?$/i.test(normalized)) {
