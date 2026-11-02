@@ -22,10 +22,15 @@ import { createCatalogImportScreen } from "./tools/catalog-import-screen.js";
 import { createSupplierScreen } from "./catalog/supplier-screen.js";
 import { createCustomerConsumerScreen } from "./catalog/customer-consumer-screen.js";
 import { createBackupScreen } from "./tools/backup-screen.js";
+import { createViewsScreen } from "./tools/views-screen.js";
+import { createNoCostScreen } from "./tools/no-cost-screen.js";
+import { createNoPhysicalStateScreen } from "./tools/no-physical-state-screen.js";
+import { createCulinaryReferenceScreen } from "./catalog/culinary-reference-screen.js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { loadProjectIcon } from "./ui/project-icon.js";
 import { installTablePagination } from "./ui/table-pagination.js";
 import {
+  apiFetch,
   getApiUrl,
   getConfiguredBackupDirectory,
   loadConfiguredApiUrl
@@ -59,6 +64,8 @@ const mount = (screen) => {
   installTablePagination(screen);
 };
 const common = () => ({
+  sales: showSales,
+  "front-of-cash": showSales,
   onClasses: showClasses,
   onGroups: showGroups,
   onProducts: showCatalog,
@@ -81,6 +88,14 @@ const common = () => ({
   "api-status": showApiStatus,
   onBackup: showBackup,
   backup: showBackup,
+  onViews: showViews,
+  views: showViews,
+  "groups-products": showGroupsProducts,
+  "no-cost": showNoCost,
+  "no-physical-state": showNoPhysicalState,
+  "culinary-units": showCulinaryUnits,
+  "physical-states": showPhysicalStates,
+  "culinary-conversions": showCulinaryConversions,
   onSettings: showSettings,
   onGeneralSettings: showGeneralSettings,
   "general-settings": showGeneralSettings,
@@ -128,6 +143,37 @@ const showApiStatus = () =>
   mount(createApiStatusScreen({ onBack: showBackoffice, onTools: showApiStatus, ...common() }));
 const showBackup = () =>
   mount(createBackupScreen({ onBack: showBackoffice, onTools: showBackup, ...common() }));
+const showGroupsProducts = () =>
+  mount(createViewsScreen({
+    active: "groups-products",
+    onBack: showBackoffice,
+    onGroupsProducts: showGroupsProducts,
+    onNoCost: showNoCost,
+    onNoPhysicalState: showNoPhysicalState,
+    ...common()
+  }));
+const showNoCost = () =>
+  mount(createNoCostScreen({
+    onBack: showBackoffice,
+    onGroupsProducts: showGroupsProducts,
+    onNoCost: showNoCost,
+    ...common()
+  }));
+const showNoPhysicalState = () =>
+  mount(createNoPhysicalStateScreen({
+    onBack: showBackoffice,
+    onGroupsProducts: showGroupsProducts,
+    onNoCost: showNoCost,
+    onNoPhysicalState: showNoPhysicalState,
+    ...common()
+  }));
+const showCulinaryUnits = () =>
+  mount(createCulinaryReferenceScreen({ kind: "culinaryUnits", onBack: showSales, ...common() }));
+const showPhysicalStates = () =>
+  mount(createCulinaryReferenceScreen({ kind: "physicalStates", onBack: showSales, ...common() }));
+const showCulinaryConversions = () =>
+  mount(createCulinaryReferenceScreen({ kind: "conversions", onBack: showSales, ...common() }));
+const showViews = showGroupsProducts;
 const showCatalogImport = () =>
   mount(createCatalogImportScreen({ onBack: showBackoffice, onTools: showCatalogImport, ...common() }));
 const showSuppliers = () =>
@@ -149,7 +195,7 @@ const showFiscalCatalog = (catalog) =>
     onCatalog: showFiscalCatalog,
     ...common()
   }));
-const showCatalog = () =>
+const showCatalog = (initialProductId = null) =>
   mount(createCatalogScreen({
     title: "Mercadoria para Revenda",
     listTitle: "Mercadorias para Revenda",
@@ -158,24 +204,27 @@ const showCatalog = () =>
     singularLabel: "mercadoria para revenda",
     createFormTitle: "Nova mercadoria para revenda",
     skuPrefix: "REV-",
+    initialProductId,
     onBack: showSales,
     ...common()
   }));
-const showFinishedProducts = () =>
+const showFinishedProducts = (initialProductId = null) =>
   mount(createCatalogScreen({
     title: "Produtos Acabados",
     productTypeDescription: "Produto Acabado",
     navigationActive: "finished-products",
+    initialProductId,
     singularLabel: "produto acabado",
     defaultFiscalOperationDescription: "Venda de produção",
     onBack: showSales,
     ...common()
   }));
-const showRawMaterials = () =>
+const showRawMaterials = (initialProductId = null) =>
   mount(createCatalogScreen({
     title: "Matérias-primas",
     productTypeDescription: "Matéria-Prima",
     navigationActive: "raw-materials",
+    initialProductId,
     singularLabel: "matéria-prima",
     createFormTitle: "Nova matéria-prima",
     editFormTitle: "Editar matéria-prima",
@@ -186,11 +235,12 @@ const showRawMaterials = () =>
     onBack: showSales,
     ...common()
   }));
-const showPackaging = () =>
+const showPackaging = (initialProductId = null) =>
   mount(createCatalogScreen({
     title: "Embalagem",
     productTypeDescription: "Embalagem",
     navigationActive: "packaging",
+    initialProductId,
     singularLabel: "embalagem",
     createFormTitle: "Nova embalagem",
     editFormTitle: "Editar embalagem",
@@ -201,11 +251,12 @@ const showPackaging = () =>
     onBack: showSales,
     ...common()
   }));
-const showConsumables = () =>
+const showConsumables = (initialProductId = null) =>
   mount(createCatalogScreen({
     title: "Material de Uso e Consumo",
     productTypeDescription: "Material de Uso e Consumo",
     navigationActive: "consumables",
+    initialProductId,
     singularLabel: "material de uso e consumo",
     createFormTitle: "Novo material de uso e consumo",
     editFormTitle: "Editar material de uso e consumo",
@@ -236,6 +287,15 @@ const showNfceQuery = () =>
   mount(createNfceQueryScreen({ onBack: showBackoffice, onNfce: showNfce, ...common() }));
 const showNavigationBuilder = () =>
   mount(createNavigationBuilderScreen({ onBack: showSettings, ...common() }));
+
+const showProductEditor = (product) => {
+  const productType = String(product?.productTypeDescription ?? "").trim().toLocaleUpperCase("pt-BR");
+  if (productType === "PRODUTO ACABADO") return showFinishedProducts(product.idProduct);
+  if (productType === "MATÉRIA-PRIMA") return showRawMaterials(product.idProduct);
+  if (productType === "EMBALAGEM") return showPackaging(product.idProduct);
+  if (productType === "MATERIAL DE USO E CONSUMO") return showConsumables(product.idProduct);
+  return showCatalog(product?.idProduct);
+};
 
 window.__PDV_NAVIGATION_HANDLERS__ = common();
 
@@ -329,7 +389,7 @@ const createCloseBackupPrompt = () => {
     if (event.target.closest("[data-close-backup-create]")) {
       state = "loading";
       render();
-      void fetch(`${getApiUrl()}/api/backups`, {
+      void apiFetch(`${getApiUrl()}/api/backups`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ backupDirectory: getConfiguredBackupDirectory() })
@@ -400,7 +460,7 @@ const installCloseBackupPrompt = () => {
 
 const loadNavigation = async () => {
   const apiUrl = getApiUrl();
-  const response = await fetch(`${apiUrl}/api/navigation?includeInactive=1`);
+  const response = await apiFetch(`${apiUrl}/api/navigation?includeInactive=1`);
   const payload = await response.json();
   if (!response.ok || !Array.isArray(payload.menus) || !Array.isArray(payload.items)) {
     throw new Error("A API retornou uma navegação inválida.");
@@ -413,7 +473,7 @@ const checkApiHealth = async () => {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 5000);
   try {
-    const response = await fetch(`${getApiUrl()}/api/health`, { signal: controller.signal });
+    const response = await apiFetch(`${getApiUrl()}/api/health`, { signal: controller.signal });
     return response.ok;
   } catch {
     return false;

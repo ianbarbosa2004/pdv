@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS products (
   nameProduct VARCHAR(180) NOT NULL,
   idFiscalOperationSaleProduct BIGINT UNSIGNED NULL,
   idProductTypeProduct BIGINT UNSIGNED NULL,
+  idPhysicalStateProduct INT NOT NULL DEFAULT 0,
   idUnitProduct BIGINT UNSIGNED NULL,
   ncmProduct CHAR(8) NULL,
   cestProduct CHAR(7) NULL,
@@ -305,7 +306,7 @@ CREATE TABLE IF NOT EXISTS navigation_items (
   idNavigationItem BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   idNavigationMenu SMALLINT UNSIGNED NOT NULL,
   idParentNavigationItem BIGINT UNSIGNED NULL,
-  typeNavigationItem ENUM('item', 'submenu', 'bar') NOT NULL,
+  typeNavigationItem ENUM('item', 'submenu', 'bar', 'divider') NOT NULL,
   keyNavigationItem VARCHAR(80) NOT NULL,
   labelNavigationItem VARCHAR(120) NOT NULL,
   routeNavigationItem VARCHAR(120) NULL,
@@ -420,3 +421,34 @@ CREATE TABLE IF NOT EXISTS sale_payments (
     FOREIGN KEY (idPaymentMethod) REFERENCES payment_methods (idPaymentMethod)
     ON DELETE RESTRICT
 ) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS physical_states (
+  idPhysicalState INT AUTO_INCREMENT PRIMARY KEY,
+  codePhysicalState VARCHAR(30) NOT NULL UNIQUE,
+  namePhysicalState VARCHAR(50) NOT NULL,
+  descriptionPhysicalState VARCHAR(150) NULL,
+  isActivePhysicalState TINYINT(1) NOT NULL DEFAULT 1
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS culinary_units (
+  idCulinaryUnit INT AUTO_INCREMENT PRIMARY KEY,
+  codeCulinaryUnit VARCHAR(20) NOT NULL UNIQUE,
+  nameCulinaryUnit VARCHAR(50) NOT NULL,
+  baseUnitCulinaryUnit ENUM('g', 'ml', 'un') NOT NULL,
+  categoryCulinaryUnit ENUM('weight', 'volume', 'unit') NOT NULL,
+  descriptionCulinaryUnit VARCHAR(100) NULL,
+  isActiveCulinaryUnit TINYINT(1) NOT NULL DEFAULT 1
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS culinary_unit_conversions (
+  idCulinaryUnitConversion INT AUTO_INCREMENT PRIMARY KEY,
+  idFromCulinaryUnitConversion INT NOT NULL,
+  idToCulinaryUnitConversion INT NOT NULL,
+  idPhysicalStateCulinaryUnitConversion INT NOT NULL,
+  factorCulinaryUnitConversion DECIMAL(10, 4) NOT NULL,
+  notesCulinaryUnitConversion VARCHAR(150) NULL,
+  FOREIGN KEY (idFromCulinaryUnitConversion) REFERENCES culinary_units(idCulinaryUnit) ON DELETE CASCADE,
+  FOREIGN KEY (idToCulinaryUnitConversion) REFERENCES culinary_units(idCulinaryUnit) ON DELETE CASCADE,
+  FOREIGN KEY (idPhysicalStateCulinaryUnitConversion) REFERENCES physical_states(idPhysicalState) ON DELETE RESTRICT,
+  UNIQUE KEY uqCulinaryUnitConversions (idFromCulinaryUnitConversion, idToCulinaryUnitConversion, idPhysicalStateCulinaryUnitConversion)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

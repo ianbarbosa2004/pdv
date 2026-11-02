@@ -21,7 +21,6 @@ export const renderProductNavigation = (active) => {
   const items = getContextualNavigationItems("products", productNavigation);
   return `
     <div class="classic-toolbar">
-      <button class="classic-tool-button" data-product-nav="back" type="button">← Frente de caixa</button>
       ${renderContextualNavigationItems(items, active, "product-nav")}
     </div>
   `;

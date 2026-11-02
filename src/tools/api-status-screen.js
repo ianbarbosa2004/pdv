@@ -1,5 +1,5 @@
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
-import { getApiUrl } from "../shared/api.js";
+import { apiFetch, getApiUrl  } from "../shared/api.js";
 import { buildInfo } from "../shared/build-info.js";
 
 const escapeHtml = (value) =>
@@ -54,7 +54,7 @@ export function createApiStatusScreen({
   let error = "";
 
   const request = async (path, options) => {
-    const response = await fetch(`${getApiUrl()}${path}`, {
+    const response = await apiFetch(`${getApiUrl()}${path}`, {
       headers: { "Content-Type": "application/json" },
       ...options
     });

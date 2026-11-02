@@ -7,6 +7,32 @@ inicial do produto até o estado atual do workspace. Ele complementa o
 
 ## 0. Estado mais recente
 
+O feedback de sucesso das telas administrativas é exibido em um overlay modal
+temporário, centralizado e fora do fluxo de layout. O helper compartilhado
+mantém o status acessível, remove o overlay após aproximadamente 2,5 segundos
+e evita que a mensagem altere a rolagem ou o foco do operador.
+
+O Construtor de navegação preserva a posição da viewport ao salvar alterações.
+O mesmo helper é usado no fluxo de inclusão e exclusão de divisores, depois da
+atualização da navegação persistida, evitando o retorno automático ao topo da
+listagem.
+
+Foi consolidada a diretriz global de navegação: o projeto não possui submenu
+visual. Itens relacionados continuam podendo ser agrupados tecnicamente para
+roteamento e ordenação, mas a interface deve apresentar essas telas apenas na
+barra contextual correspondente, sem dropdown ou submenu aninhado no menu
+principal.
+
+As Views de produtos foram consolidadas sob o item direto **Ferramentas > Views**,
+sem submenu visual no menu principal, seguindo o padrão de Produtos.
+**Grupos x Produtos** usa a árvore ordenada por classe e grupo, enquanto
+**Sem Custo** mostra somente produtos com custo zero. Ambas reutilizam
+`src/tools/product-list-view.js`, com pesquisa, ordenação, status, visibilidade,
+exclusão e edição. A edição agora permanece na própria View por meio de modal,
+permitindo várias alterações sem retornar à tela de Produtos. A versão da
+implementação foi incrementada para `0.7.0` por ser uma nova capacidade
+compatível; correções posteriores de navegação levaram o cliente a `0.7.2`.
+
 As correções mais recentes consolidaram o fluxo operacional do PDV Zanzibar.
 O menu **Sair**, o botão de fechamento da janela e os eventos de encerramento
 passaram a usar o fluxo nativo do Tauri, com permissões explícitas e
@@ -177,7 +203,7 @@ extraída e coberta por testes.
 Em seguida, a persistência foi transferida de uma ideia inicial de SQLite
 local para o modelo centralizado com MariaDB e API Node.js. Foram criados:
 
-- `schema.sql`;
+- `database/schema.sql`;
 - pool MariaDB com `utf8mb4`;
 - `GET /api/health`;
 - `GET /api/products`;
@@ -336,6 +362,12 @@ Ferramentas (`tools`) e Configurações (`settings`), incluindo seus itens e
 submenus, são protegidos contra desativação tanto na interface quanto na API.
 Registros desativados permanecem disponíveis no construtor para manutenção,
 mas não são publicados no menu ativo.
+
+Foi adicionada a tela **Ferramentas > Grupos x Produtos**, uma consulta de
+produtos organizada por classe e grupo. A árvore lateral mostra a quantidade
+de produtos cadastrados por grupo e a seleção filtra a listagem do lado
+direito; a listagem mantém as ações de Produtos, incluindo edição, status,
+visibilidade e exclusão.
 
 O módulo `src/ui/navigation-routing.js` resolve handlers primeiro por
 `keyNavigationItem` e depois por `routeNavigationItem`. Assim, novos registros

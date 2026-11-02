@@ -3,7 +3,7 @@ import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { bindFormRowPreview } from "../ui/form-row-preview.js";
 import { renderPreservingFormDraft } from "../ui/form-draft.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
-import { getApiUrl } from "../shared/api.js";
+import { apiFetch, getApiUrl } from "../shared/api.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
 
 const escapeHtml = (value) => String(value ?? "")
@@ -136,7 +136,7 @@ export function createSupplierScreen({
     loading = true;
     render();
     try {
-      const response = await fetch(`${getApiUrl()}/api/suppliers?includeInactive=1`);
+      const response = await apiFetch(`${getApiUrl()}/api/suppliers?includeInactive=1`);
       const payload = await response.json();
       if (!response.ok || !Array.isArray(payload.suppliers)) throw new Error(payload.error || "Não foi possível carregar os fornecedores.");
       suppliers = payload.suppliers;
@@ -287,13 +287,22 @@ export function createSupplierScreen({
     let feedback = form?.querySelector("[data-supplier-lookup-message]");
     if (!feedback) {
       feedback = document.createElement("div");
-      feedback.className = "success-message page-feedback";
+      feedback.className = "page-feedback";
       feedback.dataset.supplierLookupMessage = "true";
       feedback.setAttribute("role", "status");
       feedback.setAttribute("aria-live", "polite");
+      feedback.innerHTML = `
+        <div class="feedback-modal-panel">
+          <div class="feedback-modal-icon" aria-hidden="true">✓</div>
+          <div class="feedback-modal-content">
+            <strong class="feedback-modal-title">Concluído</strong>
+            <span class="feedback-modal-message"></span>
+          </div>
+        </div>
+      `;
       form?.querySelector(".classic-form-body")?.prepend(feedback);
     }
-    feedback.textContent = messageText;
+    feedback.querySelector(".feedback-modal-message").textContent = messageText;
   };
 
   const setLookupError = (form, messageText) => {
@@ -387,7 +396,7 @@ export function createSupplierScreen({
     message = "";
     render();
     try {
-      const response = await fetch(`${getApiUrl()}/api/suppliers`, {
+      const response = await apiFetch(`${getApiUrl()}/api/suppliers`, {
         method: idSupplier ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -418,7 +427,7 @@ export function createSupplierScreen({
 
   const updateStatus = async (idSupplier, isActiveSupplier) => {
     try {
-      const response = await fetch(`${getApiUrl()}/api/suppliers/status`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idSupplier, isActiveSupplier }) });
+      const response = await apiFetch(`${getApiUrl()}/api/suppliers/status`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idSupplier, isActiveSupplier }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Não foi possível alterar o status.");
       await load();
@@ -436,7 +445,7 @@ export function createSupplierScreen({
     });
     if (!confirmed) return;
     try {
-      const response = await fetch(`${getApiUrl()}/api/suppliers`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idSupplier }) });
+      const response = await apiFetch(`${getApiUrl()}/api/suppliers`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idSupplier }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Não foi possível excluir o fornecedor.");
       message = "Fornecedor excluído com sucesso.";

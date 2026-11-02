@@ -25,6 +25,7 @@ const item = (menuKey, key, label, route, order, parentKey = null, type = "item"
 
 export const DEFAULT_NAVIGATION = Object.freeze({
   menus: [
+    menu("sales", "Frente de Caixa", 0),
     menu("cadastros", "Cadastros", 1),
     menu("settings", "Configurações", 2),
     menu("tools", "Ferramentas", 3),
@@ -42,6 +43,10 @@ export const DEFAULT_NAVIGATION = Object.freeze({
     item("cadastros", "classes", "Classes", "classes", 8, "products", "bar"),
     item("cadastros", "groups", "Grupos", "groups", 9, "products", "bar"),
     item("cadastros", "ncm-cest", "NCM / CEST", "ncm-cest", 10, "products", "bar"),
+    item("cadastros", "technical-sheet", "Ficha Técnica", "culinary-units", 11),
+    item("cadastros", "culinary-units", "Unidades Culinárias", "culinary-units", 1, "technical-sheet", "bar"),
+    item("cadastros", "physical-states", "Estados Físicos", "physical-states", 2, "technical-sheet", "bar"),
+    item("cadastros", "culinary-conversions", "Conversões", "culinary-conversions", 3, "technical-sheet", "bar"),
     item("cadastros", "fiscal-operations", "Operações Fiscais", "fiscal-operations", 2),
     item("cadastros", "cfops", "CFOP", "cfops", 2, "fiscal-operations", "bar"),
     item("cadastros", "tax-situations", "CST / CSOSN", "tax-situations", 3, "fiscal-operations", "bar"),
@@ -69,7 +74,11 @@ export const DEFAULT_NAVIGATION = Object.freeze({
     item("tools", "thermal-print", "Impressão térmica", "thermal-print", 3),
     item("tools", "nfce-query", "Consulta de NFC-e", "nfce-query", 4),
     item("tools", "import-catalogs", "Importar cadastros", "import-catalogs", 5),
-    item("tools", "backup", "Backup e restauração", "backup", 6)
+    item("tools", "backup", "Backup e restauração", "backup", 6),
+    item("tools", "views", "Views", null, 7),
+    item("tools", "groups-products", "Grupos x Produtos", "groups-products", 1, "views", "bar"),
+    item("tools", "no-cost", "Sem Custo", "no-cost", 2, "views", "bar"),
+    item("tools", "no-physical-state", "Sem Estado Físico", "no-physical-state", 3, "views", "bar")
   ]
 });
 
@@ -88,26 +97,39 @@ export const mergeNavigationDefaults = (navigation) => {
   const items = [];
   const menuIds = new Map();
   const itemIds = new Map();
+  const consumedPersistedMenus = new Set();
   const consumedPersistedItems = new Set();
 
   for (const definition of DEFAULT_NAVIGATION.menus) {
-    const persisted = persistedMenus.find((entry) =>
+    const persistedIndex = persistedMenus.findIndex((entry, index) =>
+      !consumedPersistedMenus.has(index)
+      && (
       normalizeNavigationKey(entry.keyNavigationMenu) === definition.keyNavigationMenu
       || normalizeNavigationKey(entry.labelNavigationMenu) === normalizeNavigationKey(definition.labelNavigationMenu)
+      )
     );
+    const persisted = persistedIndex >= 0 ? persistedMenus[persistedIndex] : null;
+    if (persistedIndex >= 0) consumedPersistedMenus.add(persistedIndex);
     const merged = {
       ...clone(definition),
       ...(persisted || {}),
       keyNavigationMenu: definition.keyNavigationMenu,
       idNavigationMenu: persisted?.idNavigationMenu || `default-menu-${definition.keyNavigationMenu}`
     };
-    if (definition.keyNavigationMenu === "exit") {
-      merged.labelNavigationMenu = "Sair";
-      merged.orderNavigationMenu = 65535;
+    if (definition.keyNavigationMenu === "sales" || definition.keyNavigationMenu === "exit") {
+      merged.labelNavigationMenu = definition.keyNavigationMenu === "sales"
+        ? "Frente de Caixa"
+        : "Sair";
+      merged.orderNavigationMenu = definition.keyNavigationMenu === "sales" ? 0 : 65535;
       merged.isActiveNavigationMenu = 1;
     }
     menus.push(merged);
     menuIds.set(definition.keyNavigationMenu, merged.idNavigationMenu);
+  }
+
+  for (const [index, entry] of persistedMenus.entries()) {
+    if (consumedPersistedMenus.has(index)) continue;
+    menus.push({ ...entry });
   }
 
   for (const definition of DEFAULT_NAVIGATION.items) {
@@ -142,6 +164,9 @@ export const mergeNavigationDefaults = (navigation) => {
   const defaultDefinitions = DEFAULT_NAVIGATION.items;
   for (const [index, entry] of persistedItems.entries()) {
     if (consumedPersistedItems.has(index)) continue;
+    if (defaultDefinitions.some((definition) =>
+      normalizeNavigationKey(entry.keyNavigationItem) === normalizeNavigationKey(definition.keyNavigationItem)
+    )) continue;
     if (defaultDefinitions.some((definition) => {
       const menuMatches = !entry.idNavigationMenu
         || String(entry.idNavigationMenu) === String(menuIds.get(definition.menuKey));

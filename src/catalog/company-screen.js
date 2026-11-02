@@ -2,7 +2,7 @@ import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { setProjectIcon } from "../ui/project-icon.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { renderPreservingFormDraft } from "../ui/form-draft.js";
-import { getApiUrl } from "../shared/api.js";
+import { apiFetch, getApiUrl } from "../shared/api.js";
 
 const escapeHtml = (value) =>
   String(value ?? "")
@@ -403,7 +403,7 @@ export function createCompanyScreen({
     loading = true;
     render();
     try {
-      const response = await fetch(`${getApiUrl()}/api/company`);
+      const response = await apiFetch(`${getApiUrl()}/api/company`);
       const payload = await response.json();
       if (!response.ok || !payload.company) {
         throw new Error(payload.error || "Não foi possível carregar o cadastro da empresa.");
@@ -448,7 +448,7 @@ export function createCompanyScreen({
         payload.projectIconDataCompany = company.projectIconDataCompany || "";
         payload.projectIconMimeCompany = company.projectIconMimeCompany || "";
       }
-      const response = await fetch(`${getApiUrl()}/api/company`, {
+      const response = await apiFetch(`${getApiUrl()}/api/company`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)

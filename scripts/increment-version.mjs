@@ -11,6 +11,7 @@ const lockPath = join(root, "package-lock.json");
 const tauriConfigPath = join(root, "src-tauri", "tauri.conf.json");
 const cargoManifestPath = join(root, "src-tauri", "Cargo.toml");
 const cargoLockPath = join(root, "src-tauri", "Cargo.lock");
+const versioningOnlyPattern = /^(?:scripts\/(?:versioning|increment-version)\.mjs|src-tauri\/(?:Cargo\.toml|Cargo\.lock|tauri\.conf\.json)|package(?:-lock)?\.json)$/i;
 
 const readJson = async (path) => JSON.parse(await readFile(path, "utf8"));
 const writeJson = (path, value) => writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
@@ -65,6 +66,11 @@ const requestedLevel = process.argv[2] || "patch";
 let level = requestedLevel;
 if (requestedLevel === "auto") {
   const changes = await readGitChanges();
+  const hasVersioningChanges = changes.paths.some((path) => versioningOnlyPattern.test(path.replaceAll("\\", "/")));
+  if (hasVersioningChanges) {
+    console.log(`Versionamento automático já aplicado para as alterações pendentes; versão mantida em ${packageJson.version}.`);
+    process.exit(0);
+  }
   level = classifyVersionLevel(changes);
   if (!level) {
     console.log(`Nenhuma alteração funcional detectada; versão mantida em ${packageJson.version}.`);

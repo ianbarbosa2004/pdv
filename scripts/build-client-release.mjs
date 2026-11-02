@@ -20,6 +20,8 @@ const args = parseArgs(process.argv.slice(2));
 const apiUrl = String(
   args["api-url"] || process.env.PDV_API_URL || process.env.VITE_PDV_API_URL || "http://192.168.1.200:3000"
 ).replace(/\/+$/, "");
+const apiToken = String(args["api-token"] || process.env.VITE_PDV_API_TOKEN || "").trim();
+if (!apiToken) throw new Error("Informe --api-token ou VITE_PDV_API_TOKEN para proteger o cliente.");
 const refreshIcons = args["refresh-icons"] === true;
 
 const run = (command, commandArgs, environment = {}) => new Promise((resolvePromise, reject) => {
@@ -83,6 +85,7 @@ if (refreshIcons) {
 }
 await run(npmCommand, ["run", "tauri", "--", "build"], {
   VITE_PDV_API_URL: apiUrl,
+  VITE_PDV_API_TOKEN: apiToken,
   VITE_PDV_BUILD_SOURCE: "fixed-icon-release"
 });
 

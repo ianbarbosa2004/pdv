@@ -1,10 +1,9 @@
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
-import {
-  clearConfiguredApiUrl,
+import { apiFetch, clearConfiguredApiUrl,
   getApiUrl,
   getConfiguredApiUrl,
   saveConfiguredApiUrl
-} from "../shared/api.js";
+ } from "../shared/api.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { renderPreservingFormDraft } from "../ui/form-draft.js";
 
@@ -45,7 +44,7 @@ export function createGeneralSettingsScreen({
   const scheduleMessageClear = createFeedbackTimer();
 
   const request = async (path, options) => {
-    const response = await fetch(`${getApiUrl()}${path}`, {
+    const response = await apiFetch(`${getApiUrl()}${path}`, {
       headers: { "Content-Type": "application/json" },
       ...options
     });

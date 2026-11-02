@@ -30,9 +30,12 @@ export const renderMainMenu = () => {
           .filter((item) => String(item.idParentNavigationItem || "") === String(parentId || ""))
           .sort((a, b) => Number(a.orderNavigationItem || 0) - Number(b.orderNavigationItem || 0))
           .map((item) => {
+            if (item.typeNavigationItem === "divider") {
+              return '<hr class="classic-menu-divider" aria-hidden="true">';
+            }
             const children = renderItems(item.idNavigationItem);
             if (item.typeNavigationItem === "submenu" && children) {
-              return `<details class="classic-menu-dropdown classic-menu-subdropdown"><summary>${item.labelNavigationItem}</summary><div class="classic-menu-panel">${children}</div></details>`;
+              return `<details class="classic-menu-dropdown classic-menu-subdropdown"><summary data-main-menu="${item.keyNavigationItem}">${item.labelNavigationItem}</summary><div class="classic-menu-panel">${children}</div></details>`;
             }
             return `<button type="button" data-main-menu="${item.keyNavigationItem}">${item.labelNavigationItem}</button>`;
           }).join("");

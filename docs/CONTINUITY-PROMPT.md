@@ -12,7 +12,7 @@ sessão:
 >
 > A aplicação deve operar com produtos, categorias, estoque, vendas, itens de
 > venda, pagamentos, caixa e impressão térmica de 80 mm. O schema inicial está
-> em `schema.sql`. A conexão usa as variáveis `PDV_DB_HOST`,
+> em `database/schema.sql`. A conexão usa as variáveis `PDV_DB_HOST`,
 > `PDV_DB_PORT`, `PDV_DB_NAME`, `PDV_DB_USER` e `PDV_DB_PASSWORD`. Nunca leia,
 > exiba, registre ou versione o valor de `PDV_DB_PASSWORD` ou qualquer outro
 > segredo.
@@ -50,7 +50,7 @@ sessão:
 > desfazer automaticamente uma venda já confirmada.
 >
 > Antes de alterar código, leia os módulos relacionados em `src/client`,
-> `src/server`, `src/shared`, os testes correspondentes e o `schema.sql`.
+> `src/server`, `src/shared`, os testes correspondentes e o `database/schema.sql`.
 > Reutilize regras existentes, não duplique fontes de verdade e preserve a
 > compatibilidade da API. Nunca versione `.env`, credenciais, dados reais,
 > dumps, backups, `node_modules/`, `dist/` ou `src-tauri/target/`.

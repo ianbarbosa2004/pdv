@@ -23,7 +23,6 @@ export const renderFiscalNavigation = (active) => {
   const items = getContextualNavigationItems("fiscal-operations", fiscalNavigation);
   return `
     <div class="classic-toolbar">
-      <button class="classic-tool-button" data-fiscal-nav="back" type="button">← Frente de caixa</button>
       ${renderContextualNavigationItems(items, active, "fiscal-nav")}
     </div>
   `;

@@ -1,8 +1,7 @@
-import {
-  getApiUrl,
+import { apiFetch, getApiUrl,
   getConfiguredBackupDirectory,
   saveConfiguredBackupDirectory
-} from "../shared/api.js";
+ } from "../shared/api.js";
 import { invoke } from "@tauri-apps/api/core";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
@@ -68,7 +67,7 @@ export function createBackupScreen({
       ...options,
       headers: { "Content-Type": "application/json", ...(options.headers || {}) }
     };
-    const response = await fetch(`${getApiUrl()}${path}`, requestOptions);
+    const response = await apiFetch(`${getApiUrl()}${path}`, requestOptions);
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || "Não foi possível concluir a operação.");
     return payload;

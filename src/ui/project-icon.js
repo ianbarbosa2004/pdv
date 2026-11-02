@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { apiFetch } from "../shared/api.js";
 
 const defaultIcon = "";
 
@@ -31,7 +32,7 @@ export const setProjectIcon = (data, mime = "") => {
 
 export const loadProjectIcon = async (apiUrl) => {
   try {
-    const response = await fetch(`${apiUrl}/api/company`);
+    const response = await apiFetch(`${apiUrl}/api/company`);
     const payload = await response.json();
     if (response.ok && payload.company) {
       setProjectIcon(payload.company.projectIconDataCompany, payload.company.projectIconMimeCompany);

@@ -79,4 +79,14 @@ export const getApiUrl = () => {
 
   return `http://${host}:3000`;
 
-}; 
+};
+
+export const getApiToken = () =>
+  String(window.__PDV_API_TOKEN__ || import.meta.env.VITE_PDV_API_TOKEN || offlineConfig.apiToken || "").trim();
+
+export const apiFetch = (url, options = {}) => {
+  const headers = new Headers(options.headers || {});
+  const token = getApiToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return fetch(url, { ...options, headers });
+};

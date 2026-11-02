@@ -12,7 +12,6 @@ export const renderFinancialNavigation = (active) => {
   const items = getContextualNavigationItems("financial", financialNavigation);
   return `
     <div class="classic-toolbar">
-      <button class="classic-tool-button" data-financial-nav="back" type="button">← Frente de caixa</button>
       ${renderContextualNavigationItems(items, active, "financial-nav")}
     </div>
   `;

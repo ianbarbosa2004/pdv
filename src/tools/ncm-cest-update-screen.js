@@ -1,7 +1,7 @@
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { renderLucideIcons } from "../ui/icons.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
-import { getApiUrl } from "../shared/api.js";
+import { apiFetch, getApiUrl  } from "../shared/api.js";
 
 const escapeHtml = (value) =>
   String(value ?? "")
@@ -30,7 +30,7 @@ export function createNcmCestUpdateScreen({ onBack, onTools, onProducts, onTherm
     error = "";
     render();
     try {
-      const response = await fetch(`${getApiUrl()}/api/ncm-cest/update-status`);
+      const response = await apiFetch(`${getApiUrl()}/api/ncm-cest/update-status`);
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Não foi possível consultar a atualização.");
       status = payload;
@@ -48,7 +48,7 @@ export function createNcmCestUpdateScreen({ onBack, onTools, onProducts, onTherm
     error = "";
     render();
     try {
-      const response = await fetch(`${getApiUrl()}/api/ncm-cest/update`, { method: "POST" });
+      const response = await apiFetch(`${getApiUrl()}/api/ncm-cest/update`, { method: "POST" });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Não foi possível atualizar os catálogos.");
       message = `Atualização concluída: ${payload.ncmCount} NCMs, ${payload.cestCount} CESTs e ${payload.relationCount} relações.`;

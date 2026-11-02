@@ -8,8 +8,11 @@ produto.
 ## Organização de arquivos
 
 - Testes automatizados devem ser criados dentro de `tests/`.
-- Testes de domínio podem usar `tests/unit/` quando houver volume suficiente.
-- Testes de API, banco e contratos HTTP podem usar `tests/integration/`.
+- Testes de domínio, modelos e serviços isolados devem ficar em `tests/unit/`.
+- Testes de API, banco e contratos HTTP devem ficar em `tests/integration/`.
+- O runner padrão (`npm.cmd test`) descobre ambos os grupos recursivamente.
+- `docs/NOTES.md` é reservado para anotações pessoais de tarefas e não deve
+  ser removido durante reorganizações ou limpezas da árvore.
 - Documentação operacional, decisões técnicas e procedimentos devem ser
   criados dentro de `docs/`.
 - O `README.md` deve permanecer como índice e visão geral do projeto; detalhes
@@ -17,9 +20,28 @@ produto.
 - Não crie arquivos temporários, notas de planejamento ou documentação
   operacional na raiz do repositório.
 
+## Convenção de navegação
+
+O projeto não possui submenu visual. Menus principais devem abrir diretamente
+uma tela ou um agrupador técnico sem criar uma segunda camada visual dentro do
+menu. Quando uma área possuir telas relacionadas, elas devem ser exibidas em
+uma barra contextual própria da tela, seguindo o padrão de **Produtos**.
+
+**Frente de Caixa** é o primeiro item fixo do menu principal. Ele fica sempre
+ativo, usa ordem `0` e abre diretamente a frente de caixa por meio de
+`showSales`. O Construtor de navegação e a API não podem desativar, renomear,
+reordenar ou substituir esse item; a sincronização de defaults corrige o
+registro persistido quando necessário.
+
+Não introduza elementos HTML de submenu, dropdown aninhado ou qualquer outra
+hierarquia visual equivalente no menu principal. A hierarquia entre item pai e
+telas relacionadas pode continuar persistida em `navigation_items` para
+roteamento e ordenação, mas deve ser apresentada somente pela barra
+contextual.
+
 ## Cadastros, tabelas e migrações
 
-O `schema.sql` é o schema inicial reproduzível. A API também executa
+O `database/schema.sql` é o schema inicial reproduzível. A API também executa
 verificações idempotentes ao iniciar ou ao acessar cada área, por meio das
 funções `ensure...Schema` em `src/server/server.js`. Essas verificações criam
 tabelas ausentes e adicionam colunas novas com `ALTER TABLE`; não devem apagar,
@@ -34,6 +56,7 @@ As tabelas de cadastro e apoio atualmente são:
 | Financeiro | `payment_methods` | Forma de pagamento, conta Banco/Caixa, prazo, desconto, acréscimo e status |
 | Operações fiscais | `fiscal_operations`, `fiscal_catalog_items` | Operações e listas de CFOP, CST/CSOSN, ICMS, IPI, PIS/COFINS e demais parâmetros |
 | Configuração | `company_settings`, `printer_settings`, `general_settings` | Empresa, NFC-e, certificado protegido, impressoras, layout de cupom e regras operacionais gerais |
+| Insumos culinários | `culinary_units`, `physical_states`, `culinary_unit_conversions` | Unidades de medida, estados físicos e fatores de conversão para estoque |
 | Navegação | `navigation_menus`, `navigation_items` | Menus, barras contextuais, rotas e ordenação |
 | Venda | `sales`, `sale_items`, `sale_payments`, `customer_vouchers` | Venda, itens congelados, pagamentos, idempotência e débitos de Vale |
 | Pessoas | `customers`, `consumers` | Clientes financeiros, consumidores operacionais e relação automática Cliente → Consumidor |
@@ -45,11 +68,73 @@ foreign keys com `ON DELETE RESTRICT` quando a remoção poderia destruir
 histórico; por isso a interface oferece inativação antes da exclusão
 definitiva.
 
-Ao alterar uma tabela, atualize nesta ordem: `schema.sql`, migração compatível
+Ao alterar uma tabela, atualize nesta ordem: `database/schema.sql`, migração compatível
 em `server.js`, consultas e validações da API, telas, testes e esta
 documentação. Teste tanto uma instalação nova quanto um banco existente com
 colunas da versão anterior. A migração deve preservar dados, índices e
 restrições.
+
+As tabelas de unidades culinárias são carregadas pela migração idempotente
+`npm.cmd run migrate:culinary-units`. Ela cria as tabelas se necessário e
+atualiza somente os registros de referência e os fatores cadastrados; não
+remove produtos nem altera o estoque existente.
+
+`products.idPhysicalStateProduct` relaciona matérias-primas ao estado físico
+usado nas conversões culinárias. O valor `0` significa “não aplicável” e é
+gravado para os demais tipos de produto. O campo só aparece no cadastro de
+**Matérias-primas**; a API também força `0` quando outro cadastro tenta enviar
+um estado físico. Em um banco existente, reinicie a API uma vez após atualizar
+o código para que a migração idempotente crie a coluna; em seguida, reinicie o
+Vite para carregar o formulário atualizado.
+
+O menu **Cadastros > Ficha Técnica** mantém as telas de Unidades Culinárias,
+Estados Físicos e Conversões. As alterações são persistidas pela API nos
+cadastros culinários e as conversões relacionam duas unidades e um estado
+físico, com fator positivo. Códigos são armazenados como slugs em minúsculas e
+não aparecem nas listagens; status também permanece disponível apenas nas
+ações do cadastro. O fator é digitado e exibido no padrão decimal brasileiro,
+como `1,000`. A migração garante conversões identidade com fator `1,000` para
+grama, mililitro e unidade em cada estado físico. Os estados sólidos são
+separados em inteiro, fatiado, picado/cubos e ralado/triturado; **Congelado**
+também é mantido como estado próprio. A existência do estado não cria fator
+automaticamente: cada conversão não-identidade deve ser cadastrada
+explicitamente. Para os quatro estados adicionados posteriormente, a carga
+inicial usa fatores aproximados de referência já existentes: `colher_sopa →
+g = 10` e `xicara_cha → g = 115`, sempre identificados nas observações como
+aproximados. Também são mantidas as unidades `kg`, `l`, `colher_cafe`,
+`colher_sobremesa` e `duzia`, com conversões seguras para as unidades-base;
+conversões dependentes do produto, como fatia, folha ou lata, não são
+generalizadas nesta tabela.
+
+Em **Ferramentas > Views > Sem Estado Físico**, a listagem mostra somente
+produtos cujo tipo é **MATÉRIA-PRIMA** e cujo `idPhysicalStateProduct` é `0`.
+O filtro é aplicado sobre os dados retornados pela API, sem alterar produtos.
+
+As barras contextuais não devem incluir o link **Retaguarda**. A navegação
+principal e os handlers de cada tela permanecem responsáveis por seus acessos;
+as barras contextuais exibem somente as opções específicas da área atual. A
+tela **Frente de Caixa** é uma exceção de layout: seu cabeçalho deve manter o
+botão **Retaguarda**, pois ele não faz parte de uma barra contextual.
+
+No **Construtor de navegação**, a estrutura existente continua protegida:
+menus, itens e submenus não podem ser criados livremente. Um divisor visual é
+a única exceção e deve ser incluído pelo botão **Adicionar divisor abaixo** de
+um item existente. A API desloca atomicamente os itens seguintes do mesmo
+nível para manter o divisor imediatamente abaixo do item escolhido.
+
+A ordem é sequencial dentro do próprio escopo: menus possuem sua sequência;
+itens de menu são numerados entre os irmãos do menu; barras são numeradas
+entre os irmãos do item pai; e divisores compartilham a sequência do nível em
+que foram inseridos. A inicialização da API normaliza lacunas preservando a
+ordem relativa existente. Divisores podem ser excluídos individualmente pelo
+construtor; a API aceita `DELETE /api/navigation/items` somente para registros
+do tipo `divider` e ajusta atomicamente a ordem dos irmãos restantes.
+
+No Windows, `pdv.vbs` inicia diretamente o CLI Tauri pelo Node sem exibir as
+janelas de console do `npm` e do Cargo. Isso evita uma camada de inicialização
+do `npm` e reduz a demora antes da janela nativa aparecer. O `pdv.cmd`
+permanece como alternativa para diagnóstico. O executável Tauri de produção
+usa `windows_subsystem = "windows"` e não deve abrir uma janela de console.
 
 ## Nomenclatura de campos
 
@@ -84,8 +169,9 @@ git diff --check
 
 ### Versionamento dos builds
 
-Os comandos `npm.cmd run build` e `npm.cmd run release:client` não alteram a
-versão. O script `scripts/increment-version.mjs` mantém a mesma versão em:
+Os comandos `npm.cmd run build` e `npm.cmd run release:client` acionam
+automaticamente `npm.cmd run version:auto` antes de executar o build. O script
+mantém a mesma versão em:
 
 - `package.json`;
 - `package-lock.json`;
@@ -94,9 +180,24 @@ versão. O script `scripts/increment-version.mjs` mantém a mesma versão em:
 Quando uma alteração funcional exigir nova versão, faça um incremento explícito
 e único com `version:patch`, `version:minor` ou `version:major`. Alterações
 pontuais e correções compatíveis normalmente usam `patch`; `minor` fica
-reservado para uma nova capacidade compatível; `major` exige quebra
-incompatível. Alterações somente documentais ou testes isolados não exigem
+reservado para uma nova capacidade compatível identificada explicitamente;
+`major` exige quebra incompatível. No versionamento automático, alterações de
+fonte, arquivos novos e expansões compatíveis ficam em `patch` por padrão.
+Para solicitar `minor`, inclua no diff a marca `MINOR CHANGE:` ou
+`MINOR_CHANGE:`. Alterações somente documentais ou testes isolados não exigem
 incremento.
+
+**Diretriz:** o versionamento automático é acionado quando existe alteração
+pendente no build ou na geração do cliente. A primeira execução classifica o
+diff pendente: `patch` para correções e
+expansões compatíveis, `minor` somente com `MINOR CHANGE:` ou
+`MINOR_CHANGE:`, `major` somente com `BREAKING CHANGE:` ou
+`BREAKING_CHANGE:`. Se houver apenas documentação, testes isolados ou arquivos
+de versionamento, a versão não deve ser incrementada. Não use
+`npm.cmd run version:patch` automaticamente para substituir essa análise;
+reserve os comandos `version:minor` e `version:major` para uma decisão explícita.
+Depois que os arquivos de versão forem alterados, novas execuções antes do
+commit reconhecem que o conjunto já foi versionado e não incrementam novamente.
 
 Os comandos manuais são:
 
@@ -106,15 +207,43 @@ Os comandos manuais são:
 | `npm.cmd run version:minor` | Nova funcionalidade compatível | `0.1.9` → `0.2.0` |
 | `npm.cmd run version:major` | Mudança incompatível ou primeira versão estável | `0.9.9` → `1.0.0` |
 
-`npm.cmd run version:increment` e `npm.cmd run version:auto` permanecem como
-aliases compatíveis para `version:patch`. Eles não analisam novamente o diff
-pendente e não são chamados automaticamente pelos builds.
+`npm.cmd run version:increment` permanece como alias compatível para
+`version:patch`. `npm.cmd run version:auto` analisa o diff pendente e aplica a
+classificação automática descrita acima. Ele é acionado pelos gatilhos
+`prebuild` e `prerelease:client`, além de poder ser executado manualmente.
 
 A versão definida no `package.json` é injetada pelo Vite em
 `src/shared/build-info.js` e também é retornada pela API em
 `GET /api/health`. A tela **Ferramentas > Status da API** exibe a mesma versão
 em **Versão do aplicativo** e **Versão da API**. O **Identificador do frontend**
 é somente o fingerprint do código compilado, sem repetir a versão SemVer.
+
+O memorial das alterações por versão fica em
+[`CHANGELOG.md`](CHANGELOG.md). Cada incremento distribuível deve registrar
+nesse documento as novidades, correções e ajustes relevantes da versão,
+preferencialmente com a data e uma separação clara por categoria. O changelog
+não substitui o histórico arquitetural em `PROJECT-HISTORY.md`: o primeiro
+resume o conteúdo de cada versão; o segundo registra decisões e evolução
+duradoura do projeto.
+
+### Views de produtos
+
+**Views** é um item direto de **Ferramentas**, seguindo o mesmo padrão de
+**Produtos**. Ele não deve ser implementado como `submenu` nem como submenu
+visual dentro do menu principal. Ao clicar em **Views**, a aplicação abre a
+primeira tela, **Grupos x Produtos**, e renderiza a barra contextual com
+**Grupos x Produtos** (ordem 1) e **Sem Custo** (ordem 2).
+
+**Grupos x Produtos** exibe a árvore `Classe - Grupo`, com a contagem de
+produtos cadastrados, e a listagem com pesquisa, ordenação, status,
+visibilidade, exclusão e edição. **Sem Custo** reutiliza a mesma listagem sem a
+árvore e mantém somente produtos cujo `costPriceProduct` é zero.
+
+A edição ocorre em modal local e, após salvar, a tela preserva a navegação
+atual, a pesquisa, o grupo selecionado e a ordenação. A listagem compartilhada
+fica em `src/tools/product-list-view.js`; novas Views devem reutilizar esse
+componente em vez de duplicar tabela e eventos. Como essa área é frontend-only,
+não é necessário reiniciar a API após alterações nela.
 
 ### Backup e restauração
 
@@ -161,7 +290,7 @@ de forma única e evita reutilizar uma versão potencialmente distribuída.
 Uma instalação nova cria somente a estrutura das tabelas. Tipos de produto,
 unidades, catálogos fiscais, formas de pagamento, impressoras, configurações,
 empresa e navegação não são inseridos automaticamente pela API nem pelo
-`schema.sql`. Esses registros devem ser cadastrados explicitamente pelas telas
+`database/schema.sql`. Esses registros devem ser cadastrados explicitamente pelas telas
 correspondentes. Essa decisão evita que uma exclusão feita pelo usuário seja
 desfeita por uma rotina de inicialização e mantém o banco sob controle da loja.
 
@@ -254,11 +383,12 @@ nas telas de classes, grupos, produtos, pagamento e operação fiscal.
 ### Feedback e continuidade dos formulários
 
 Mensagens de sucesso, tanto ao incluir quanto ao editar, devem ser exibidas
-como um popup temporário fixo na tela, fora do fluxo de layout do formulário
-de inclusão ou do modal de edição.
+como um modal temporário fixo e centralizado na viewport, fora do fluxo de
+layout do formulário de inclusão ou do modal de edição. O modal não pode
+receber foco nem alterar a posição de rolagem da tela.
 O feedback deve usar o helper compartilhado em `src/ui/feedback.js`, possuir
 `role="status"`, esmaecer ao entrar e sair e desaparecer automaticamente após
-aproximadamente quatro segundos. Mensagens de erro permanecem visíveis até
+aproximadamente 2,5 segundos. Mensagens de erro permanecem visíveis até
 uma nova ação ou correção.
 Quando somente a mensagem temporária desaparecer, todas as telas devem remover
 o elemento de feedback sem reconstruir o formulário inteiro. Use
@@ -387,7 +517,7 @@ O cadastro de **Tipos de Produtos** possui o campo opcional **Código SPED**,
 exibido como primeiro campo do formulário e primeira coluna da listagem. A API
 normaliza o valor para maiúsculas, limita-o a 30 caracteres e preserva `NULL`
 quando o tipo ainda não possui código informado. A coluna é criada em bases
-novas pelo `schema.sql` e adicionada de forma idempotente em bases existentes.
+novas pelo `database/schema.sql` e adicionada de forma idempotente em bases existentes.
 
 ### Cadastro de Fornecedores
 
@@ -410,7 +540,7 @@ auxiliares: os dados retornados devem ser revisados antes do salvamento e uma
 falha de consulta não impede o preenchimento manual.
 
 A tabela `suppliers` é criada de forma idempotente pela API e já está definida
-no `schema.sql`. A tela segue o padrão de listagem com pesquisa, edição em
+no `database/schema.sql`. A tela segue o padrão de listagem com pesquisa, edição em
 modal, exclusão, ativação/inativação e feedback após cada operação.
 
 ### Consulta de NFC-e para testes
@@ -439,7 +569,10 @@ A API valida cada linha e grava todo o lote em uma única transação; se uma
 linha falhar, nenhum produto do lote é persistido.
 A tela disponibiliza downloads em Markdown com as listas atuais de **Grupos**,
 **Operações Fiscais de Venda**, **Tipos de Produto** e **Unidades**, indicando a
-coluna do CSV e o valor exato que deve ser informado. O campo de nome/descrição
+coluna do CSV e os valores aceitos. Para operação fiscal, a importação aceita a
+descrição ou o CFOP; para tipo de produto, a descrição ou o Código SPED; e
+para unidade, o código ou a descrição. Grupo continua sendo informado pela
+descrição, pois não possui código próprio no cadastro. O campo de nome/descrição
 do produto é salvo em maiúsculas, preservando a acentuação, durante a importação.
 Os campos textuais de cadastros existentes também são normalizados para maiúsculas
 na inicialização da API. NCM e CEST podem
@@ -479,6 +612,11 @@ produção.
 O comando `npm.cmd run release:client -- --api-url=http://192.168.1.200:3000`
 usa diretamente os ícones atuais de `src-tauri/icons`, sem consultar o ícone
 cadastrado na API, e compila o projeto nativo **PDV Zanzibar** em MSI/EXE.
+Os dois instaladores usam escopo por máquina. O MSI mantém um `UpgradeCode`
+fixo e o NSIS usa o mesmo escopo, permitindo atualizar a instalação existente
+sem exigir uma desinstalação manual. Não alterne entre instalações antigas de
+escopo por usuário e os novos bundles; nesse caso, o Windows pode solicitar a
+remoção da instalação anterior uma única vez.
 O endereço da API é embutido no frontend para a execução do terminal e pode
 ser substituído explicitamente com `--api-url`. O comando não faz push ou
 deploy. Os arquivos finais são renomeados para o padrão curto
@@ -506,7 +644,7 @@ na mesma mudança. Para esta base, o fluxo recomendado é:
 4. executar os testes e verificações aplicáveis;
 5. conferir `git diff --check` e garantir que `.env`, credenciais, dumps,
    backups, `node_modules`, `dist`, `src-tauri/target` e
-   `.playwright-mcp` não estejam no escopo;
+   `.playwright-mcp` e `.agents` não estejam no escopo;
 6. criar um commit com uma mensagem objetiva no padrão adotado pelo projeto;
 7. abrir o pull request contra `main`, descrevendo comportamento alterado,
    validações e eventuais passos de reinício da API;
@@ -617,6 +755,12 @@ primeiro pelo `keyNavigationItem` e, como fallback, por
 reutilizem handlers já registrados, inclusive em submenus aninhados, sem
 alterações específicas na tela da Retaguarda.
 
+Quando um divisor é inserido após um item que possui categorias filhas, ele
+continua persistido como irmão do item, mas o construtor o exibe logo abaixo
+da linha do item e antes das categorias filhas. Assim, a posição visual da
+ação corresponde ao botão **Adicionar divisor abaixo** sem alterar a
+hierarquia persistida.
+
 O cadastro de **Dados da Empresa** também mantém o ícone visual do aplicativo em
 `projectIconMimeCompany` e `projectIconDataCompany`. A interface carrega esse
 ícone em tempo de execução, usa-o no título das telas, atualiza o favicon e
@@ -625,12 +769,15 @@ tarefas quando o sistema operacional aceitar a atualização. O ícone do
 executável e do instalador continua sendo definido pelos arquivos empacotados
 em `src-tauri/icons` e só muda em uma nova compilação.
 
-As alterações usam `POST` e `PUT` em `/api/navigation/menus` e
-`/api/navigation/items`. As chaves técnicas são geradas como slugs a partir dos nomes exibidos,
-removendo acentos e convertendo espaços e pontuação em hífens. O servidor
-aceita somente letras minúsculas, números e hífen; os nomes exibidos podem ser
-alterados livremente dentro dos limites do banco. O frontend carrega somente menus e itens ativos, enquanto o
-construtor consulta também os registros inativos para permitir manutenção.
+As alterações usam `PUT` em `/api/navigation/menus` e
+`/api/navigation/items`. Novos registros não podem ser criados pela interface
+nem pelos endpoints `POST`, que respondem com `405`. Os nomes exibidos podem
+ser alterados livremente dentro dos limites do banco. O frontend carrega
+somente menus e itens ativos, enquanto o construtor consulta também os
+registros inativos para permitir manutenção. A inicialização da API pode
+corrigir chaves e rótulos legados, mas preserva o estado ativo/inativo dos
+menus editáveis; somente menus fixos, como **Frente de Caixa**, mantêm o estado
+ativo obrigatório.
 
 ### Estrutura dos menus e barras contextuais
 
@@ -682,19 +829,43 @@ Ferramentas
 ├── Atualizar NCM / CEST
 ├── Status da API
 ├── Impressão térmica
-└── Consulta de NFC-e
+├── Consulta de NFC-e
+├── Importar cadastros
+├── Backup e restauração
+└── Grupos x Produtos
 ```
+
+### Grupos x Produtos
+
+Em **Ferramentas > Views > Grupos x Produtos**, a tela consulta os grupos e
+produtos pela API e mantém uma árvore com **Classe - Grupo** no painel
+esquerdo, ordenada por classe e grupo. Cada grupo exibe entre parênteses a
+quantidade de produtos cadastrados, incluindo produtos inativos ou ocultos no
+PDV. **Todos os produtos** restaura a listagem completa; clicar em um grupo
+filtra a listagem do painel direito. A listagem mantém pesquisa, ordenação,
+status, visibilidade, exclusão e edição. O botão de edição abre um modal local
+com o formulário de manutenção e mantém o operador nessa mesma View.
+
+As contagens e a listagem usam `GET /api/groups?includeInactive=1` e
+`GET /api/products?includeInactive=1`, sem endpoint ou migração adicional.
+Alterações nessa tela usam os endpoints existentes e não exigem reinício do
+serviço `PDV-API`.
 
 A tela **Configurações > Configurações Gerais** persiste regras operacionais na
 tabela `general_settings`. O booleano `allowNegativeStock`, exibido como
 **Permitir estoque negativo**, é criado somente quando o usuário salva a
 configuração. A leitura e a alteração são feitas pela API em
 `GET /api/general-settings` e `PUT /api/general-settings`.
+Os rótulos dessas preferências permanecem em linguagem natural, sem
+normalização automática para maiúsculas.
 
 O construtor exibe a árvore completa para facilitar a manutenção, mas não
-transforma automaticamente uma barra contextual em submenu visual dentro do
-menu principal. O terceiro nível continua sendo renderizado pela barra
-contextual específica da tela, preservando a convenção do PDV.
+permite criar novos menus principais, itens ou submenus. A manutenção fica
+restrita à edição, ativação, atalhos e ordenação da estrutura existente. Ele
+também não transforma automaticamente uma barra contextual em submenu visual
+dentro do menu principal. Itens como **Produtos** e **Views** permanecem
+entradas diretas do menu principal; seus filhos são telas relacionadas
+renderizadas na barra contextual específica da tela.
 
 Na barra contextual, filhos ativos com rota são tratados como telas de cadastro
 relacionadas ao item pai, independentemente de serem registrados como `item`,
@@ -993,13 +1164,13 @@ que reutilizem o mesmo prompt:
 Substituições textuais amplas geraram identificadores híbridos, como
 `idProductProduct`, referências antigas a `id`, `name` e `price`, e campos de
 uma entidade aplicados em outra. O workaround é revisar cada contrato por
-entidade, começando pelo `schema.sql`, depois consultas SQL, serviço, rotas,
+entidade, começando pelo `database/schema.sql`, depois consultas SQL, serviço, rotas,
 frontend e testes. Não aplicar substituições globais sem validar o contexto da
 tabela.
 
 ### Schema diferente do banco em execução
 
-O `schema.sql` já estava no padrão final, mas o MariaDB ainda tinha nomes do
+O `database/schema.sql` já estava no padrão final, mas o MariaDB ainda tinha nomes do
 padrão intermediário. O workaround foi inspecionar `SHOW COLUMNS` antes da
 migração e executar apenas `ALTER TABLE ... RENAME COLUMN` para colunas
 existentes. Essa estratégia preservou dados, tipos, índices e foreign keys.

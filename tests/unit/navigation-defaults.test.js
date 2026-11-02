@@ -6,9 +6,11 @@ import {
   isNavigationKey,
   mergeNavigationDefaults,
   normalizeNavigationKey
-} from "../src/shared/navigation-defaults.js";
-import { selectContextualNavigationItems } from "../src/ui/contextual-navigation.js";
-import { resolveNavigationHandler } from "../src/ui/navigation-routing.js";
+} from "../../src/shared/navigation-defaults.js";
+import { selectContextualNavigationItems } from "../../src/ui/contextual-navigation.js";
+import { resolveNavigationHandler } from "../../src/ui/navigation-routing.js";
+import { renderMainMenu } from "../../src/ui/main-menu.js";
+import { getNavigationBuilderDividerIdsBeforeChildren } from "../../src/shared/navigation-builder-order.js";
 
 test("normaliza chaves de navegação independentemente da caixa", () => {
   assert.equal(normalizeNavigationKey("Cadastros"), "cadastros");
@@ -18,6 +20,83 @@ test("normaliza chaves de navegação independentemente da caixa", () => {
 
 test("mantém o contrato sem criar navegação artificial", () => {
   assert.equal(isNavigationKey("registrations", "cadastros"), false);
+});
+
+test("preserva menus persistidos personalizados inativos no construtor", () => {
+  const navigation = mergeNavigationDefaults({
+    menus: [
+      {
+        idNavigationMenu: 91,
+        keyNavigationMenu: "custom-menu",
+        labelNavigationMenu: "Menu personalizado",
+        orderNavigationMenu: 4,
+        isActiveNavigationMenu: 0
+      }
+    ],
+    items: []
+  });
+
+  assert.deepEqual(
+    navigation.menus.find((menu) => menu.keyNavigationMenu === "custom-menu"),
+    {
+      idNavigationMenu: 91,
+      keyNavigationMenu: "custom-menu",
+      labelNavigationMenu: "Menu personalizado",
+      orderNavigationMenu: 4,
+      isActiveNavigationMenu: 0
+    }
+  );
+});
+
+test("preserva o estado inativo dos menus padrão no construtor", () => {
+  const navigation = mergeNavigationDefaults({
+    menus: [
+      {
+        idNavigationMenu: 1,
+        keyNavigationMenu: "cadastros",
+        labelNavigationMenu: "Cadastros",
+        orderNavigationMenu: 2,
+        isActiveNavigationMenu: 0
+      }
+    ],
+    items: []
+  });
+
+  assert.equal(
+    navigation.menus.find((menu) => menu.keyNavigationMenu === "cadastros")?.isActiveNavigationMenu,
+    0
+  );
+});
+
+test("posiciona divisor após o item e antes das categorias filhas no construtor", () => {
+  const dividerIds = getNavigationBuilderDividerIdsBeforeChildren([
+    {
+      idNavigationItem: 10,
+      idParentNavigationItem: null,
+      typeNavigationItem: "item",
+      orderNavigationItem: 1
+    },
+    {
+      idNavigationItem: 11,
+      idParentNavigationItem: 10,
+      typeNavigationItem: "bar",
+      orderNavigationItem: 1
+    },
+    {
+      idNavigationItem: 12,
+      idParentNavigationItem: null,
+      typeNavigationItem: "divider",
+      orderNavigationItem: 2
+    },
+    {
+      idNavigationItem: 13,
+      idParentNavigationItem: null,
+      typeNavigationItem: "item",
+      orderNavigationItem: 3
+    }
+  ]);
+
+  assert.deepEqual([...dividerIds], ["12"]);
 });
 
 test("seleciona filhos ativos com rota independentemente do tipo", () => {
@@ -143,6 +222,16 @@ test("mantém o handler global de saída quando a tela não o declara localmente
   assert.equal(resolveNavigationHandler({}, "exit"), exitHandler);
 });
 
+test("resolve Frente de Caixa pelo handler fixo do menu", () => {
+  const salesHandler = () => "sales";
+  global.window = {
+    __PDV_NAVIGATION__: { items: [] },
+    __PDV_NAVIGATION_HANDLERS__: { sales: salesHandler }
+  };
+
+  assert.equal(resolveNavigationHandler({}, "sales"), salesHandler);
+});
+
 test("recria a rota essencial de Status da API quando a navegação persistida a perde", () => {
   const navigation = ensureApiStatusNavigation({
     menus: [{ idNavigationMenu: 1, keyNavigationMenu: "tools", labelNavigationMenu: "Ferramentas" }],
@@ -215,6 +304,87 @@ test("mantém Sair como último menu ativo e não permite que ele desapareça", 
   assert.equal(ordered.at(-1), exit);
 });
 
+test("mantém Frente de Caixa como primeiro menu fixo e ativo", () => {
+  const navigation = mergeNavigationDefaults({
+    menus: [
+      { idNavigationMenu: 7, keyNavigationMenu: "sales", labelNavigationMenu: "Outro nome", orderNavigationMenu: 99, isActiveNavigationMenu: 0 }
+    ],
+    items: []
+  });
+  const ordered = [...navigation.menus].sort((left, right) =>
+    Number(left.orderNavigationMenu) - Number(right.orderNavigationMenu)
+  );
+  const sales = navigation.menus.find((menu) => menu.keyNavigationMenu === "sales");
+  assert.equal(sales.labelNavigationMenu, "Frente de Caixa");
+  assert.equal(sales.isActiveNavigationMenu, 1);
+  assert.equal(sales.orderNavigationMenu, 0);
+  assert.equal(ordered[0], sales);
+});
+
+test("inclui Views no menu Ferramentas", () => {
+  const views = DEFAULT_NAVIGATION.items.find((item) => item.keyNavigationItem === "views");
+
+  assert.deepEqual(
+    {
+      menuKey: views?.menuKey,
+      label: views?.labelNavigationItem,
+      route: views?.routeNavigationItem,
+      type: views?.typeNavigationItem
+    },
+    {
+      menuKey: "tools",
+      label: "Views",
+      route: null,
+      type: "item"
+    }
+  );
+  assert.deepEqual(
+    DEFAULT_NAVIGATION.items
+      .filter((item) => item.parentKey === "views")
+      .map(({ keyNavigationItem, labelNavigationItem, routeNavigationItem, orderNavigationItem }) =>
+        ({ keyNavigationItem, labelNavigationItem, routeNavigationItem, orderNavigationItem })),
+    [
+      { keyNavigationItem: "groups-products", labelNavigationItem: "Grupos x Produtos", routeNavigationItem: "groups-products", orderNavigationItem: 1 },
+      { keyNavigationItem: "no-cost", labelNavigationItem: "Sem Custo", routeNavigationItem: "no-cost", orderNavigationItem: 2 },
+      { keyNavigationItem: "no-physical-state", labelNavigationItem: "Sem Estado Físico", routeNavigationItem: "no-physical-state", orderNavigationItem: 3 }
+    ]
+  );
+});
+
+test("inclui Ficha Técnica com os cadastros culinários", () => {
+  const ficha = DEFAULT_NAVIGATION.items.find((item) => item.keyNavigationItem === "technical-sheet");
+  assert.equal(ficha?.routeNavigationItem, "culinary-units");
+  assert.equal(ficha?.typeNavigationItem, "item");
+  assert.deepEqual(
+    DEFAULT_NAVIGATION.items
+      .filter((item) => item.parentKey === "technical-sheet")
+      .map(({ keyNavigationItem, routeNavigationItem }) => ({ keyNavigationItem, routeNavigationItem })),
+    [
+      { keyNavigationItem: "culinary-units", routeNavigationItem: "culinary-units" },
+      { keyNavigationItem: "physical-states", routeNavigationItem: "physical-states" },
+      { keyNavigationItem: "culinary-conversions", routeNavigationItem: "culinary-conversions" }
+    ]
+  );
+});
+
+test("renderiza Views como item direto e clicável", () => {
+  global.window = {
+    __PDV_NAVIGATION__: mergeNavigationDefaults({ menus: [], items: [] })
+  };
+
+  const menu = renderMainMenu();
+  assert.match(menu, /<button type="button" data-main-menu="views">Views<\/button>/);
+});
+
+test("renderiza Frente de Caixa antes dos menus agrupados", () => {
+  global.window = {
+    __PDV_NAVIGATION__: mergeNavigationDefaults({ menus: [], items: [] })
+  };
+
+  const menu = renderMainMenu();
+  assert.match(menu, /^\s*<nav[\s\S]*?<button type="button" data-main-menu="sales">Frente de Caixa<\/button>/);
+});
+
 test("remove itens persistidos duplicados dos itens padrão", () => {
   const navigation = mergeNavigationDefaults({
     menus: [{ idNavigationMenu: 7, keyNavigationMenu: "settings", labelNavigationMenu: "Configurações" }],
@@ -227,6 +397,23 @@ test("remove itens persistidos duplicados dos itens padrão", () => {
   const builderItems = navigation.items.filter((item) => item.keyNavigationItem === "navigation-builder");
   assert.equal(builderItems.length, 1);
   assert.equal(builderItems[0].idNavigationItem, 8);
+});
+
+test("remove cópia do Construtor de navegação persistida em Ferramentas", () => {
+  const navigation = mergeNavigationDefaults({
+    menus: [
+      { idNavigationMenu: 7, keyNavigationMenu: "settings", labelNavigationMenu: "Configurações" },
+      { idNavigationMenu: 8, keyNavigationMenu: "tools", labelNavigationMenu: "Ferramentas" }
+    ],
+    items: [
+      { idNavigationItem: 10, idNavigationMenu: 7, keyNavigationItem: "navigation-builder", routeNavigationItem: "navigation-builder" },
+      { idNavigationItem: 11, idNavigationMenu: 8, keyNavigationItem: "navigation-builder", labelNavigationItem: "Construtor de menu", routeNavigationItem: "navigation-builder" }
+    ]
+  });
+
+  const builderItems = navigation.items.filter((item) => item.keyNavigationItem === "navigation-builder");
+  assert.equal(builderItems.length, 1);
+  assert.equal(builderItems[0].idNavigationMenu, 7);
 });
 
 test("preserva item personalizado que reutiliza rota padrão", () => {

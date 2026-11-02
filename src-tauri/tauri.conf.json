@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "PDV Zanzibar",
-  "version": "0.5.7",
+  "version": "0.8.11",
   "identifier": "com.ianbarbosa2004.pdv",
   "build": {
     "frontendDist": "../dist",
@@ -34,6 +34,15 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "windows": {
+      "allowDowngrades": false,
+      "nsis": {
+        "installMode": "perMachine"
+      },
+      "wix": {
+        "upgradeCode": "b7ae7388-17ff-5008-a042-60036fbb382e"
+      }
+    },
     "android": {
       "debugApplicationIdSuffix": ".debug"
     }

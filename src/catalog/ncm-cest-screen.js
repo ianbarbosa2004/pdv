@@ -1,7 +1,7 @@
 import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { bindProductNavigation, renderProductNavigation } from "./product-navigation.js";
-import { getApiUrl } from "../shared/api.js";
+import { apiFetch, getApiUrl } from "../shared/api.js";
 
 const escapeHtml = (value) =>
   String(value ?? "")
@@ -203,8 +203,8 @@ export function createNcmCestScreen({
     render();
     try {
       const [ncmResponse, cestResponse] = await Promise.all([
-        fetch(`${getApiUrl()}/api/ncm-cest/ncms`),
-        fetch(`${getApiUrl()}/api/ncm-cest/cests`)
+        apiFetch(`${getApiUrl()}/api/ncm-cest/ncms`),
+        apiFetch(`${getApiUrl()}/api/ncm-cest/cests`)
       ]);
       const [ncmPayload, cestPayload] = await Promise.all([
         ncmResponse.json(),

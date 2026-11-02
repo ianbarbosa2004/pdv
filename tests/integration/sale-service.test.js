@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createSale, SaleValidationError } from "../src/server/sale-service.js";
+import { createSale, SaleValidationError } from "../../src/server/sale-service.js";
 
 test("rejeita venda sem itens antes de acessar o banco", async () => {
   await assert.rejects(

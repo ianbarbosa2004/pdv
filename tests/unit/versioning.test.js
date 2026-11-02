@@ -29,16 +29,16 @@ test("classifies a compatible fix as patch", () => {
 test("classifies a new capability as minor", () => {
   assert.equal(classifyVersionLevel({
     paths: ["src/ui/feedback.js"],
-    diff: "+export const clearRenderedFeedback = (root) => root.remove();"
+    diff: "+// MINOR CHANGE: add a new public feedback capability"
   }), "minor");
 });
 
-test("classifies a newly added source file as minor", () => {
+test("classifies a newly added source file conservatively as patch", () => {
   assert.equal(classifyVersionLevel({
     paths: ["src/ui/new-control.js"],
     addedPaths: ["src/ui/new-control.js"],
     diff: ""
-  }), "minor");
+  }), "patch");
 });
 
 test("requires an explicit breaking marker for major", () => {

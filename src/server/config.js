@@ -7,6 +7,11 @@ export function getConfig(env = process.env) {
   return {
     apiHost: env.PDV_API_HOST || "127.0.0.1",
     apiPort: positiveInteger(env.PDV_API_PORT, 3000),
+    apiToken: String(env.PDV_API_TOKEN || "").trim(),
+    apiAllowedOrigins: String(
+      env.PDV_API_ALLOWED_ORIGINS
+      || "http://localhost:5173,http://127.0.0.1:5173,tauri://localhost,http://tauri.localhost"
+    ).split(",").map((origin) => origin.trim()).filter(Boolean),
     ncmSourceUrl: env.PDV_NCM_SOURCE_URL || "",
     cestSourceUrl: env.PDV_CEST_SOURCE_URL || "",
     backupDirectory: env.PDV_BACKUP_DIR || "",

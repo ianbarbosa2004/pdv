@@ -2,7 +2,7 @@ export const createFeedbackTimer = () => {
   let token = 0;
   let timer = null;
 
-  return (callback, delay = 4000) => {
+  return (callback, delay = 2500) => {
     token += 1;
     const currentToken = token;
     if (timer !== null) window.clearTimeout(timer);
@@ -14,7 +14,17 @@ export const createFeedbackTimer = () => {
 
 export const renderSuccessFeedback = (message, escapeHtml) =>
   message
-    ? `<div class="success-message page-feedback" data-success-feedback role="status" aria-live="polite">${escapeHtml(message)}</div>`
+    ? `
+      <div class="page-feedback" data-success-feedback role="status" aria-live="polite">
+        <div class="feedback-modal-panel">
+          <div class="feedback-modal-icon" aria-hidden="true">✓</div>
+          <div class="feedback-modal-content">
+            <strong class="feedback-modal-title">Concluído</strong>
+            <span class="feedback-modal-message">${escapeHtml(message)}</span>
+          </div>
+        </div>
+      </div>
+    `
     : "";
 
 export const clearRenderedFeedback = (root) => {

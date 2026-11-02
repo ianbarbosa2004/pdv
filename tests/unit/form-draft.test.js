@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { renderPreservingFormDraft } from "../../src/ui/form-draft.js";
-import { clearRenderedFeedback } from "../../src/ui/feedback.js";
+import { clearRenderedFeedback, renderSuccessFeedback } from "../../src/ui/feedback.js";
 
 const field = (name, type, value, checked = false) => ({
   name,
@@ -53,4 +53,14 @@ test("clears feedback without rebuilding the form", () => {
   clearRenderedFeedback(root);
 
   assert.equal(removed, true);
+});
+
+test("renders success feedback as a fixed modal without changing page layout", () => {
+  const feedback = renderSuccessFeedback("Produto salvo.", (value) => value);
+
+  assert.match(feedback, /data-success-feedback/);
+  assert.match(feedback, /class="feedback-modal-panel"/);
+  assert.match(feedback, /Concluído/);
+  assert.match(feedback, /Produto salvo\./);
+  assert.doesNotMatch(feedback, /success-message page-feedback/);
 });
