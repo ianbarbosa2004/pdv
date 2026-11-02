@@ -29,7 +29,7 @@ o MariaDB por meio do pacote `mysql2`, compatível com o protocolo do MariaDB.
 
 ## Configuração do banco
 
-Importe `schema.sql` pelo phpMyAdmin ou pelo cliente `mariadb`. O script cria o
+Importe `database/schema.sql` pelo phpMyAdmin ou pelo cliente `mariadb`. O script cria o
 banco `pdv` e as tabelas iniciais. Não há cargas automáticas de menus,
 cadastros, empresa, formas de pagamento ou configurações.
 
@@ -60,6 +60,8 @@ Configuração mínima:
 ```text
 PDV_API_HOST=0.0.0.0
 PDV_API_PORT=3000
+PDV_API_TOKEN=(token forte compartilhado somente com os terminais autorizados)
+PDV_API_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,tauri://localhost,http://tauri.localhost
 PDV_DB_HOST=127.0.0.1
 PDV_DB_PORT=3306
 PDV_DB_NAME=pdv
@@ -77,18 +79,45 @@ npm.cmd ci
 npm.cmd run api
 ```
 
+O token configurado em `PDV_API_TOKEN` é obrigatório para todas as rotas da
+API. Para desenvolvimento com Vite, defina também `VITE_PDV_API_TOKEN`.
+Distribuições Tauri devem receber o mesmo segredo localmente:
+
+```powershell
+npm.cmd run release:client -- --api-url=http://IP_DO_SERVIDOR:3000 --api-token=TOKEN_LOCAL
+```
+
+Não publique o token em repositórios, logs, screenshots ou arquivos de
+metadata. O servidor deve permanecer em `127.0.0.1` quando não houver
+necessidade de acesso remoto; se usar `0.0.0.0`, proteja a rede e restrinja
+`PDV_API_ALLOWED_ORIGINS` às origens realmente utilizadas.
+
 O executável Tauri usa `http://127.0.0.1:3000` por padrão quando é executado
 no próprio servidor da loja. Para gerar um executável de um terminal que deve
 acessar outro computador, informe o endereço da API no build:
 
 ```powershell
-npm.cmd run release:client -- --api-url=http://IP_DO_SERVIDOR:3000
+npm.cmd run release:client -- --api-url=http://IP_DO_SERVIDOR:3000 --api-token=TOKEN_LOCAL
 ```
 
 Esse comando gera os bundles MSI e NSIS/EXE em `dist\releases`, copia os
 instaladores atuais com nomes curtos, como
 `pdv-zanzibar.msi` e `pdv-zanzibar.exe`, e grava
 `pdv-zanzibar-metadata.json` com o endereço da API e a origem dos ícones.
+O MSI e o NSIS são gerados com instalação por máquina e identidade de upgrade
+estável. Para atualizar sem desinstalação manual, use o mesmo formato que já
+está instalado; uma instalação antiga por usuário pode exigir remoção única
+antes da migração para o novo escopo.
+
+Para preparar as tabelas de unidades culinárias no banco do servidor, execute:
+
+```powershell
+npm.cmd run migrate:culinary-units
+```
+
+A migração usa as credenciais do `.env`, é idempotente e não exige reiniciar a
+API. O comando deve ser executado no servidor que hospeda o MariaDB, antes de
+qualquer funcionalidade que consuma essas tabelas.
 A execução não altera a versão interna do aplicativo nem inclui esse número nos
 nomes dos arquivos publicados. Para regenerar os ícones após trocar
 `src-tauri/icons/icon.png`, acrescente `--refresh-icons`:

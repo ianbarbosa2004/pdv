@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
-import { getApiUrl } from "../shared/api.js";
+import { apiFetch, getApiUrl  } from "../shared/api.js";
 
 const escapeHtml = (value) =>
   String(value ?? "")
@@ -38,7 +38,7 @@ export function createSettingsScreen({
   const scheduleMessageClear = createFeedbackTimer();
 
   const request = async (path, options) => {
-    const response = await fetch(`${getApiUrl()}${path}`, {
+    const response = await apiFetch(`${getApiUrl()}${path}`, {
       headers: { "Content-Type": "application/json" },
       ...options
     });
@@ -58,9 +58,6 @@ export function createSettingsScreen({
       <div class="classic-toolbar">
         <button class="classic-tool-button" data-back type="button">← Frente de caixa</button>
         <strong>Configurações do sistema</strong>
-      </div>
-      <div class="classic-toolbar-secondary">
-        <button class="classic-tool-button" data-navigation-builder type="button">Construtor de menu</button>
       </div>
       <section class="settings-content">
         ${renderSuccessFeedback(message, escapeHtml)}
@@ -139,7 +136,6 @@ export function createSettingsScreen({
 
   const bind = () => {
     root.querySelector("[data-back]")?.addEventListener("click", onBack);
-    root.querySelector("[data-navigation-builder]")?.addEventListener("click", onNavigationBuilder);
     root.querySelectorAll("[data-classes]").forEach((button) => button.addEventListener("click", onClasses));
     root.querySelectorAll("[data-groups]").forEach((button) => button.addEventListener("click", onGroups));
     root.querySelectorAll("[data-products]").forEach((button) => button.addEventListener("click", onProducts));

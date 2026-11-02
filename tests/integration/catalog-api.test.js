@@ -19,7 +19,8 @@ const startApi = () => {
         PDV_DB_PORT: "3306",
         PDV_DB_NAME: "pdv",
         PDV_DB_USER: "pdv_app",
-        PDV_DB_PASSWORD: "test"
+        PDV_DB_PASSWORD: "test",
+        PDV_API_TOKEN: "test-api-token"
       },
       stdio: ["ignore", "pipe", "pipe"]
     }
@@ -34,7 +35,7 @@ const waitForApi = async (child) => {
       throw new Error("A API encerrou antes de ficar disponível.");
     }
     try {
-      await fetch(`${baseUrl}/api/health`);
+      await fetch(`${baseUrl}/api/health`, { headers: { Authorization: "Bearer test-api-token" } });
       return;
     } catch {
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -43,7 +44,7 @@ const waitForApi = async (child) => {
   throw new Error("A API não ficou disponível a tempo.");
 };
 
-test("libera CORS e expõe rotas de edição e exclusão dos cadastros", async (t) => {
+test("protege a API e libera CORS somente para a origem configurada", async (t) => {
   const api = startApi();
   t.after(() => api.kill());
 
@@ -60,6 +61,18 @@ test("libera CORS e expõe rotas de edição e exclusão dos cadastros", async (
   assert.equal(preflight.status, 204);
   assert.match(preflight.headers.get("access-control-allow-methods"), /PUT/);
   assert.match(preflight.headers.get("access-control-allow-methods"), /DELETE/);
+
+  const unauthenticated = await fetch(`${baseUrl}/api/classes`);
+  assert.equal(unauthenticated.status, 401);
+
+  for (const path of ["/api/navigation/menus", "/api/navigation/items"]) {
+    const response = await fetch(`${baseUrl}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer test-api-token" },
+      body: "{}"
+    });
+    assert.equal(response.status, 405, `${path} não deve permitir novas criações`);
+  }
 
   for (const [method, path] of [
     ["PUT", "/api/classes"],
@@ -85,7 +98,7 @@ test("libera CORS e expõe rotas de edição e exclusão dos cadastros", async (
   ]) {
     const response = await fetch(`${baseUrl}${path}`, {
       method,
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Authorization: "Bearer test-api-token" },
       body: "{}"
     });
     assert.equal(response.status, 400, `${method} ${path} deve validar o payload`);

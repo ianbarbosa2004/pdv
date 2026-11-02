@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseCestPayload, parseNcmPayload } from "../src/server/ncm-cest-update.js";
+import { parseCestPayload, parseNcmPayload } from "../../src/server/ncm-cest-update.js";
 
 test("interpreta somente códigos NCM de oito dígitos da fonte oficial", () => {
   const result = parseNcmPayload({

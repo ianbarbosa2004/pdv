@@ -4,7 +4,7 @@ import { bindFormRowPreview } from "../ui/form-row-preview.js";
 import { renderPreservingFormDraft } from "../ui/form-draft.js";
 import { bindProductNavigation, renderProductNavigation } from "./product-navigation.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
-import { getApiUrl } from "../shared/api.js";
+import { apiFetch, getApiUrl } from "../shared/api.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
 
 const escapeHtml = (value) =>
@@ -263,8 +263,8 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onP
     render();
     try {
       const [classResponse, groupResponse] = await Promise.all([
-        fetch(`${getApiUrl()}/api/classes?includeInactive=1`),
-        fetch(`${getApiUrl()}/api/groups?includeInactive=1`)
+        apiFetch(`${getApiUrl()}/api/classes?includeInactive=1`),
+        apiFetch(`${getApiUrl()}/api/groups?includeInactive=1`)
       ]);
       const classPayload = await classResponse.json();
       const groupPayload = await groupResponse.json();
@@ -291,7 +291,7 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onP
     message = "";
     render();
     try {
-      const response = await fetch(`${getApiUrl()}/api/groups`, {
+      const response = await apiFetch(`${getApiUrl()}/api/groups`, {
         method: idGroup ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(idGroup ? { ...body, idGroup } : body)
@@ -322,7 +322,7 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onP
     });
     if (!confirmed) return;
     try {
-      const response = await fetch(`${getApiUrl()}/api/groups`, {
+      const response = await apiFetch(`${getApiUrl()}/api/groups`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ idGroup })
@@ -345,7 +345,7 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onP
 
   const updateGroupStatus = async (idGroup, isActiveGroup) => {
     try {
-      const response = await fetch(`${getApiUrl()}/api/groups/status`, {
+      const response = await apiFetch(`${getApiUrl()}/api/groups/status`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ idGroup, isActiveGroup })
@@ -366,7 +366,7 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onP
 
   const updateGroupPdvVisibility = async (idGroup, showsInPdvGroup) => {
     try {
-      const response = await fetch(`${getApiUrl()}/api/groups/pdv-status`, {
+      const response = await apiFetch(`${getApiUrl()}/api/groups/pdv-status`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ idGroup, showsInPdvGroup })

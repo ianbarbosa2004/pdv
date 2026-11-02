@@ -1,5 +1,5 @@
 import mysql from "mysql2/promise";
-import { getConfig } from "../src/server/config.js";
+import { getConfig } from "../../src/server/config.js";
 
 const textColumns = [
   ["classes", ["descriptionClass"]],
@@ -17,7 +17,6 @@ const textColumns = [
   ]],
   ["customers", ["nameCustomer", "addressCustomer", "notesCustomer"]],
   ["consumers", ["nameConsumer", "nicknameConsumer", "notesConsumer"]],
-  ["general_settings", ["labelGeneralSetting"]],
   ["fiscal_operations", [
     "descriptionFiscalOperation", "operationNatureFiscalOperation",
     "icmsExemptionReasonFiscalOperation", "legalBasisFiscalOperation"

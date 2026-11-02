@@ -4,7 +4,7 @@ import {
   formatMaskedNumber,
   normalizeMaskedNumber
 } from "../ui/number-mask.js";
-import { getApiUrl, saveConfiguredApiUrl } from "../shared/api.js";
+import { apiFetch, getApiUrl, saveConfiguredApiUrl  } from "../shared/api.js";
 
 const formatCurrency = (value) =>
   new Intl.NumberFormat("pt-BR", {
@@ -13,7 +13,7 @@ const formatCurrency = (value) =>
   }).format(value);
 
 const loadProducts = async () => {
-  const response = await fetch(`${getApiUrl()}/api/products`);
+  const response = await apiFetch(`${getApiUrl()}/api/products`);
   if (!response.ok) {
     throw new Error(`Falha ao carregar produtos (${response.status}).`);
   }
@@ -453,7 +453,7 @@ export function createSaleScreen({ onBackoffice, initialApiError = false, onApiC
     paymentLoading = true;
     paymentError = "";
     try {
-      const response = await fetch(`${getApiUrl()}/api/payment-methods`);
+      const response = await apiFetch(`${getApiUrl()}/api/payment-methods`);
       if (!response.ok) {
         throw new Error(`Falha ao carregar formas de pagamento (${response.status}).`);
       }
@@ -462,7 +462,7 @@ export function createSaleScreen({ onBackoffice, initialApiError = false, onApiC
         throw new Error("A API retornou formas de pagamento inválidas.");
       }
       paymentMethods = payload.paymentMethods;
-      const customerResponse = await fetch(`${getApiUrl()}/api/customers`);
+      const customerResponse = await apiFetch(`${getApiUrl()}/api/customers`);
       const customerPayload = await customerResponse.json();
       customers = customerResponse.ok && Array.isArray(customerPayload.customers) ? customerPayload.customers : [];
     } catch (error) {
@@ -496,7 +496,7 @@ export function createSaleScreen({ onBackoffice, initialApiError = false, onApiC
     paymentError = "";
     render();
     try {
-      const response = await fetch(`${getApiUrl()}/api/sales`, {
+      const response = await apiFetch(`${getApiUrl()}/api/sales`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

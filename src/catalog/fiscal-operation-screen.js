@@ -4,7 +4,7 @@ import { bindFormRowPreview } from "../ui/form-row-preview.js";
 import { renderPreservingFormDraft } from "../ui/form-draft.js";
 import { bindFiscalNavigation, renderFiscalNavigation } from "./fiscal-navigation.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
-import { getApiUrl } from "../shared/api.js";
+import { apiFetch, getApiUrl } from "../shared/api.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
 
 const escapeHtml = (value) =>
@@ -237,8 +237,8 @@ export function createFiscalOperationScreen({
     loading = true; render();
     try {
       const [operationResponse, ...catalogResponses] = await Promise.all([
-        fetch(`${getApiUrl()}/api/fiscal-operations?includeInactive=1`),
-        ...Object.values(catalogKeys).map((catalog) => fetch(`${getApiUrl()}/api/fiscal-catalogs?catalog=${encodeURIComponent(catalog)}`))
+        apiFetch(`${getApiUrl()}/api/fiscal-operations?includeInactive=1`),
+        ...Object.values(catalogKeys).map((catalog) => apiFetch(`${getApiUrl()}/api/fiscal-catalogs?catalog=${encodeURIComponent(catalog)}`))
       ]);
       const operationPayload = await operationResponse.json();
       if (!operationResponse.ok) throw new Error(operationPayload.error || "Não foi possível carregar as operações fiscais.");
@@ -263,7 +263,7 @@ export function createFiscalOperationScreen({
       fcpStUseReductionBaseFiscalOperation: Boolean(form.fcpStUseReductionBaseFiscalOperation)
     };
     try {
-      const response = await fetch(`${getApiUrl()}/api/fiscal-operations`, { method: editing ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const response = await apiFetch(`${getApiUrl()}/api/fiscal-operations`, { method: editing ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Não foi possível salvar a operação fiscal.");
       editing = null;
@@ -285,7 +285,7 @@ export function createFiscalOperationScreen({
     });
     if (!confirmed) return;
     try {
-      const response = await fetch(`${getApiUrl()}/api/fiscal-operations`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idFiscalOperation }) });
+      const response = await apiFetch(`${getApiUrl()}/api/fiscal-operations`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idFiscalOperation }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Não foi possível excluir a operação fiscal.");
       message = "Operação fiscal excluída com sucesso.";

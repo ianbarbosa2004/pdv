@@ -4,7 +4,7 @@ import { bindFormRowPreview } from "../ui/form-row-preview.js";
 import { renderPreservingFormDraft } from "../ui/form-draft.js";
 import { bindProductNavigation, renderProductNavigation } from "./product-navigation.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
-import { getApiUrl } from "../shared/api.js";
+import { apiFetch, getApiUrl } from "../shared/api.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
 
 const escapeHtml = (value) =>
@@ -79,7 +79,7 @@ export function createProductReferenceScreen({
     loading = true;
     render();
     try {
-      const response = await fetch(`${getApiUrl()}${definition.endpoint}?includeInactive=1`);
+      const response = await apiFetch(`${getApiUrl()}${definition.endpoint}?includeInactive=1`);
       const payload = await response.json();
       if (!response.ok || !Array.isArray(payload[definition.collection])) {
         throw new Error(payload.error || `Não foi possível carregar ${definition.plural}.`);
@@ -105,7 +105,7 @@ export function createProductReferenceScreen({
         body.codeSpedProductType = "";
       }
       if (id !== null && id !== undefined) body[definition.id] = id;
-      const response = await fetch(`${getApiUrl()}${definition.endpoint}`, {
+      const response = await apiFetch(`${getApiUrl()}${definition.endpoint}`, {
         method: id ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body)
@@ -129,7 +129,7 @@ export function createProductReferenceScreen({
 
   const updateStatus = async (id, isActive) => {
     try {
-      const response = await fetch(`${getApiUrl()}${definition.endpoint}/status`, {
+      const response = await apiFetch(`${getApiUrl()}${definition.endpoint}/status`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ [definition.id]: id, isActive, kind })
@@ -151,7 +151,7 @@ export function createProductReferenceScreen({
     });
     if (!confirmed) return;
     try {
-      const response = await fetch(`${getApiUrl()}${definition.endpoint}`, {
+      const response = await apiFetch(`${getApiUrl()}${definition.endpoint}`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ [definition.id]: id })

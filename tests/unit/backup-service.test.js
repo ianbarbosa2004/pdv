@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { gunzipSync } from "node:zlib";
-import { createBackup, listBackups, readBackup } from "../../src/server/backup-service.js";
+import { gzipSync, gunzipSync } from "node:zlib";
+import { createBackup, listBackups, readBackup, restoreBackup } from "../../src/server/backup-service.js";
 
 test("creates and lists a compacted backup without exposing database credentials", async () => {
   const root = await mkdtemp(join(tmpdir(), "pdv-backup-"));
@@ -21,6 +21,34 @@ test("creates and lists a compacted backup without exposing database credentials
       applicationRoot: root,
       configuredDirectory,
       runtimeEnvironment: "development"
+    });
+
+    test("rejects backups with an incompatible database schema before deleting data", async () => {
+      const payload = {
+        backupVersion: 1,
+        databaseName: "pdv",
+        tables: {
+          example: [{ id: 1, unexpected: true }]
+        }
+      };
+      const pool = {
+        async query(sql) {
+          if (sql.includes("information_schema.TABLES")) return [[{ tableName: "example" }]];
+          if (sql.includes("information_schema.COLUMNS")) {
+            return [[{ tableName: "example", columnName: "id" }]];
+          }
+          throw new Error("A restauração não deveria alcançar comandos destrutivos.");
+        }
+      };
+
+      await assert.rejects(
+        restoreBackup({
+          pool,
+          compressed: gzipSync(JSON.stringify(payload)),
+          expectedDatabaseName: "pdv"
+        }),
+        /Colunas incompatíveis/
+      );
     });
     assert.match(backup.fileName, /^pdv-backup-\d{8}-\d{6}\.json\.gz$/);
     assert.equal(backup.tableCount, 1);

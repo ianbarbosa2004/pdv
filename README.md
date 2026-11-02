@@ -77,7 +77,7 @@ endpoint de venda confirmar uma transação completa no MariaDB.
 - Visual Studio Build Tools com MSVC e Windows SDK;
 - MariaDB Server;
 - `mysql2`;
-- phpMyAdmin para administração opcional do banco;
+- DBeaver para administração opcional do banco;
 - `node:test` para testes;
 - ESC/POS para impressão térmica.
 
@@ -118,15 +118,18 @@ Gere o build web:
 npm.cmd run build
 ```
 
-O comando `npm.cmd run build` não altera a versão. Quando uma alteração
-funcional exigir nova versão, incremente-a explicitamente com
-`npm.cmd run version:patch`, `npm.cmd run version:minor` ou
-`npm.cmd run version:major`; a versão é sincronizada em `package.json`,
+O comando `npm.cmd run build` aciona o versionamento automático antes de
+compilar. `npm.cmd run release:client` também o aciona antes de gerar o
+instalador. A classificação usa `patch` por padrão, `minor` somente com
+`MINOR CHANGE:` ou `MINOR_CHANGE:`, e `major` somente com `BREAKING CHANGE:`
+ou `BREAKING_CHANGE:`. A versão é sincronizada em `package.json`,
 `package-lock.json` e `src-tauri\tauri.conf.json`, e passa a ser usada no
-próximo artefato Tauri. Correções pontuais normalmente usam `patch`; `minor`
-fica reservado para nova capacidade compatível e `major` para quebra
-incompatível. `version:auto` e `version:increment` permanecem como aliases de
-`version:patch`, sem analisar novamente o diff pendente.
+próximo artefato Tauri. O mesmo conjunto de alterações pendentes não é
+incrementado novamente antes do commit.
+
+O memorial das alterações de cada versão está em
+[`docs/CHANGELOG.md`](docs/CHANGELOG.md). Consulte esse arquivo para saber o
+que mudou entre uma versão e outra.
 
 Compile o aplicativo desktop sem gerar instalador:
 
@@ -138,9 +141,17 @@ O executável de desenvolvimento compilado é gerado em
 `src-tauri\target\release\pdv.exe`. `dist/` e `src-tauri/target/` são artefatos
 gerados e não devem ser versionados.
 
+Para iniciar o Tauri em desenvolvimento no Windows sem abrir as janelas de
+terminal usadas pelo `npm` e pelo Cargo, execute `pdv.vbs` com o Windows
+Script Host. Esse launcher chama diretamente o CLI Tauri pelo Node, evitando
+uma camada extra do `npm` e reduzindo o tempo de entrada. O arquivo `pdv.cmd`
+continua disponível para diagnóstico quando for necessário acompanhar os logs
+no console. Em produção, abra o executável Tauri instalado; ele já é
+construído sem janela de console.
+
 ## Configuração do MariaDB
 
-Importe `schema.sql` pelo phpMyAdmin ou pelo cliente `mariadb`. O script cria o banco `pdv` e as tabelas iniciais. A instalação nova não recebe
+Importe `database/schema.sql` pelo phpMyAdmin ou pelo cliente `mariadb`. O script cria o banco `pdv` e as tabelas iniciais. A instalação nova não recebe
 cargas automáticas de menus, empresa, formas de pagamento, tipos, unidades,
 catálogos fiscais ou configurações; esses registros devem ser cadastrados
 explicitamente.
@@ -165,6 +176,8 @@ Preencha `.env` somente localmente:
 ```text
 PDV_API_HOST=0.0.0.0
 PDV_API_PORT=3000
+PDV_API_TOKEN=(token forte compartilhado somente com os terminais autorizados)
+PDV_API_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,tauri://localhost,http://tauri.localhost
 PDV_DB_HOST=127.0.0.1
 PDV_DB_PORT=3306
 PDV_DB_NAME=pdv
@@ -179,6 +192,11 @@ O arquivo `.env` é ignorado pelo Git. Nunca envie senha, chave de criptografia,
 certificado, token, XML assinado ou qualquer outro segredo pelo chat, Git,
 logs ou screenshots. `PDV_CERTIFICATE_ENCRYPTION_KEY` é necessária para
 armazenar certificados A1 e executar os testes NFC-e.
+
+A API exige `PDV_API_TOKEN` em todas as rotas `/api`. O cliente de
+desenvolvimento deve usar `VITE_PDV_API_TOKEN`; em uma distribuição Tauri,
+informe o mesmo segredo localmente com `--api-token` ou
+`VITE_PDV_API_TOKEN`. Não registre esse token no metadata da release.
 
 ### Dump para migração ao MariaDB
 
@@ -256,12 +274,18 @@ src/
 src-tauri/
   src/                     # Camada nativa do aplicativo desktop
   tauri.conf.json          # Configuração do Tauri
-schema.sql                 # Schema inicial do MariaDB
-tests/                     # Testes automatizados
+database/
+  schema.sql               # Schema inicial do MariaDB
+scripts/
+  migrations/              # Migrações idempotentes do banco
+tests/
+  unit/                    # Regras isoladas e modelos
+  integration/             # API, banco e contratos HTTP
 docs/                      # Documentação operacional
 ```
 
-Convenção: novos testes devem ser criados em `tests/` e novas documentações
+Convenção: novos testes devem ser criados em `tests/unit/` ou
+`tests/integration/`, conforme o nível do contrato. Novas documentações
 operacionais ou decisões técnicas devem ser criadas em `docs/`. Consulte
 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) antes de adicionar arquivos
 auxiliares ao projeto.

@@ -2,7 +2,7 @@ import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { bindFormRowPreview } from "../ui/form-row-preview.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
-import { getApiUrl } from "../shared/api.js";
+import { apiFetch, getApiUrl } from "../shared/api.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
 import {
   bindNumberMasks,
@@ -100,7 +100,7 @@ export function createCustomerConsumerScreen({
   const load = async ({ captureDraft = true } = {}) => {
     loading = true; render({ captureDraft });
     try {
-      const response = await fetch(`${getApiUrl()}/api/${endpoint}?includeInactive=1`);
+      const response = await apiFetch(`${getApiUrl()}/api/${endpoint}?includeInactive=1`);
       const payload = await response.json();
       if (!response.ok || !Array.isArray(payload[endpoint])) throw new Error(payload.error || `Não foi possível carregar ${title.toLocaleLowerCase("pt-BR")}.`);
       items = payload[endpoint]; error = "";
@@ -201,7 +201,7 @@ export function createCustomerConsumerScreen({
     }
     submitting = true; error = ""; message = ""; render();
     try {
-      const response = await fetch(`${getApiUrl()}/api/${endpoint}`, { method: id ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(id ? { ...body, [isCustomer ? "idCustomer" : "idConsumer"]: id } : body) });
+      const response = await apiFetch(`${getApiUrl()}/api/${endpoint}`, { method: id ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(id ? { ...body, [isCustomer ? "idCustomer" : "idConsumer"]: id } : body) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || `Não foi possível salvar ${singular}.`);
       message = id ? `${singular[0].toUpperCase()}${singular.slice(1)} alterado com sucesso.` : `${singular[0].toUpperCase()}${singular.slice(1)} cadastrado com sucesso.`;
@@ -214,7 +214,7 @@ export function createCustomerConsumerScreen({
   const updateStatus = async (id, isActive) => {
     try {
       const statusField = isCustomer ? "isActiveCustomer" : "isActiveConsumer";
-      const response = await fetch(`${getApiUrl()}/api/${endpoint}/status`, {
+      const response = await apiFetch(`${getApiUrl()}/api/${endpoint}/status`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ [isCustomer ? "idCustomer" : "idConsumer"]: id, [statusField]: isActive })
@@ -237,7 +237,7 @@ export function createCustomerConsumerScreen({
     });
     if (!confirmed) return;
     try {
-      const response = await fetch(`${getApiUrl()}/api/${endpoint}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ [isCustomer ? "idCustomer" : "idConsumer"]: id }) });
+      const response = await apiFetch(`${getApiUrl()}/api/${endpoint}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ [isCustomer ? "idCustomer" : "idConsumer"]: id }) });
       const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "Não foi possível excluir.");
       message = `${singular[0].toUpperCase()}${singular.slice(1)} excluído com sucesso.`; await load();
     } catch (removeError) { error = removeError instanceof Error ? removeError.message : "Falha ao excluir."; render(); }

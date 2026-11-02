@@ -12,7 +12,7 @@ Estas instruções complementam `README.md` e os documentos em `docs/`.
 - Regras compartilhadas ficam em `src/shared`; integração do navegador fica em
   `src/`; API e banco ficam em `src/server/`; a camada nativa fica em
   `src-tauri/`.
-- `schema.sql` é o schema inicial e deve evoluir por migrações revisadas.
+- `database/schema.sql` é o schema inicial e deve evoluir por migrações revisadas.
 
 ### Fluxo de dados
 

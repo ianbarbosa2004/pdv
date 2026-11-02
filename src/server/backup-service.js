@@ -143,20 +143,49 @@ export const readBackup = async ({ applicationRoot, configuredDirectory, runtime
   return readFile(join(directory, fileName));
 };
 
-export const restoreBackup = async ({ pool, compressed }) => {
+export const restoreBackup = async ({ pool, compressed, expectedDatabaseName = "pdv" }) => {
   let payload;
   try {
     payload = JSON.parse(gunzipSync(compressed).toString("utf8"));
   } catch {
     throw new Error("O arquivo não é um backup PDV compactado válido.");
   }
-  if (payload?.backupVersion !== BACKUP_VERSION || !payload.tables || typeof payload.tables !== "object") {
+  if (payload?.backupVersion !== BACKUP_VERSION
+    || payload.databaseName !== expectedDatabaseName
+    || !payload.tables
+    || typeof payload.tables !== "object"
+    || Array.isArray(payload.tables)) {
     throw new Error("A versão do backup não é compatível com esta instalação.");
   }
   const tableNames = await listTableNames(pool);
   const backupTables = Object.keys(payload.tables);
-  if (backupTables.some((tableName) => !tableNames.includes(tableName))) {
+  if (backupTables.length !== tableNames.length || tableNames.some((tableName) => !backupTables.includes(tableName))
+    || backupTables.some((tableName) => !tableNames.includes(tableName))) {
     throw new Error("O backup contém tabelas incompatíveis com este banco.");
+  }
+  const [columnRows] = await pool.query(
+    `SELECT TABLE_NAME AS tableName, COLUMN_NAME AS columnName
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+     ORDER BY TABLE_NAME, ORDINAL_POSITION`
+  );
+  const columnsByTable = new Map();
+  for (const row of columnRows) {
+    if (!columnsByTable.has(row.tableName)) columnsByTable.set(row.tableName, []);
+    columnsByTable.get(row.tableName).push(row.columnName);
+  }
+  for (const tableName of backupTables) {
+    const rows = payload.tables[tableName];
+    if (!Array.isArray(rows)) throw new Error(`Dados inválidos para a tabela ${tableName}.`);
+    const expectedColumns = columnsByTable.get(tableName) || [];
+    for (const row of rows) {
+      if (!row || typeof row !== "object" || Array.isArray(row)
+        || Object.keys(row).length !== expectedColumns.length
+        || expectedColumns.some((column) => !Object.prototype.hasOwnProperty.call(row, column))
+        || Object.keys(row).some((column) => !expectedColumns.includes(column))) {
+        throw new Error(`Colunas incompatíveis na tabela ${tableName}.`);
+      }
+    }
   }
   const connection = await pool.getConnection();
   try {
@@ -165,9 +194,9 @@ export const restoreBackup = async ({ pool, compressed }) => {
     for (const tableName of tableNames) {
       await connection.query(`DELETE FROM ${quoteIdentifier(tableName)}`);
     }
-    for (const tableName of backupTables) {
+    for (const tableName of tableNames) {
       const rows = payload.tables[tableName];
-      if (!Array.isArray(rows) || !rows.length) continue;
+      if (!rows.length) continue;
       const columns = Object.keys(rows[0]);
       const placeholders = `(${columns.map(() => "?").join(",")})`;
       const values = rows.flatMap((row) => columns.map((column) => row[column]));

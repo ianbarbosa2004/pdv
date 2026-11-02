@@ -8,7 +8,7 @@ import {
   normalizeMaskedNumber
 } from "../ui/number-mask.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
-import { getApiUrl } from "../shared/api.js";
+import { apiFetch, getApiUrl } from "../shared/api.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
 
 const escapeHtml = (value) =>
@@ -64,7 +64,8 @@ export function createCatalogScreen({
   onCompany,
   onNfce,
   onFinancial,
-  onPaymentMethods
+  onPaymentMethods,
+  initialProductId = null
 }) {
   const root = document.createElement("main");
   let groups = [];
@@ -72,6 +73,7 @@ export function createCatalogScreen({
   let fiscalOperations = [];
   let productTypes = [];
   let units = [];
+  let physicalStates = [];
   let allowNegativeStock = false;
   let loading = true;
   let error = "";
@@ -90,6 +92,7 @@ export function createCatalogScreen({
     idGroup: "",
     idFiscalOperationSaleProduct: "",
     idProductTypeProduct: "",
+    idPhysicalStateProduct: "0",
     idUnitProduct: "",
     priceProduct: "0,00",
     costPriceProduct: "0,00",
@@ -157,6 +160,7 @@ export function createCatalogScreen({
       idGroup: String(formData.get("idGroup") ?? ""),
       idFiscalOperationSaleProduct: String(formData.get("idFiscalOperationSaleProduct") ?? ""),
       idProductTypeProduct: String(formData.get("idProductTypeProduct") ?? ""),
+      idPhysicalStateProduct: String(formData.get("idPhysicalStateProduct") ?? "0"),
       idUnitProduct: String(formData.get("idUnitProduct") ?? ""),
       priceProduct: String(formData.get("priceProduct") ?? ""),
       costPriceProduct: String(formData.get("costPriceProduct") ?? ""),
@@ -173,6 +177,11 @@ export function createCatalogScreen({
   const renderProductTypeOptions = (selectedValue) =>
     `<option value="">Selecione</option>${productTypes.map((type) =>
       `<option value="${type.idProductType}" ${String(selectedValue ?? "") === String(type.idProductType) ? "selected" : ""}>${escapeHtml(type.descriptionProductType)}</option>`
+    ).join("")}`;
+
+  const renderPhysicalStateOptions = (selectedValue) =>
+    `<option value="0">Selecione</option>${physicalStates.map((state) =>
+      `<option value="${state.idPhysicalState}" ${String(selectedValue ?? "0") === String(state.idPhysicalState) ? "selected" : ""}>${escapeHtml(state.namePhysicalState)}</option>`
     ).join("")}`;
 
   const renderUnitOptions = (selectedValue) =>
@@ -199,6 +208,8 @@ export function createCatalogScreen({
 
   const isNonSaleCatalog = ["MATÉRIA-PRIMA", "EMBALAGEM", "MATERIAL DE USO E CONSUMO"]
     .includes(productTypeDescription.toLocaleUpperCase("pt-BR"));
+  const isRawMaterialsCatalog =
+    productTypeDescription.toLocaleUpperCase("pt-BR") === "MATÉRIA-PRIMA";
 
   const renderPriceFields = (product, isEdit = false) => {
     const costValue = isEdit
@@ -234,6 +245,7 @@ export function createCatalogScreen({
       idProductTypeProduct: getScreenProductType()
         ? String(getScreenProductType().idProductType)
         : "",
+      idPhysicalStateProduct: "0",
       idUnitProduct: "",
       priceProduct: "0,00",
       costPriceProduct: "0,00",
@@ -312,6 +324,7 @@ export function createCatalogScreen({
             </label>
             <label class="form-field"><span>Unidade tributável</span><select name="idUnitProduct" required>${renderUnitOptions(newProductDraft.idUnitProduct)}</select></label>
           </div>
+          ${isRawMaterialsCatalog ? `<label class="form-field"><span>Estado físico</span><select name="idPhysicalStateProduct" required>${renderPhysicalStateOptions(newProductDraft.idPhysicalStateProduct)}</select></label>` : ""}
           <div class="classic-form-grid">
             ${renderNcmField(newNcmProduct)}
             <label class="form-field"><span>CEST</span><select name="cestProduct" ${cestOptions.length ? "" : "disabled"}>${renderCestOptions(newCestProduct)}</select></label>
@@ -416,6 +429,7 @@ export function createCatalogScreen({
                   </label>
                   <label class="form-field"><span>Unidade tributável</span><select name="idUnitProduct" required>${renderUnitOptions(editingProduct.idUnitProduct)}</select></label>
                 </div>
+                ${isRawMaterialsCatalog ? `<label class="form-field"><span>Estado físico</span><select name="idPhysicalStateProduct" required>${renderPhysicalStateOptions(editingProduct.idPhysicalStateProduct)}</select></label>` : ""}
                 <div class="classic-form-grid">
                   ${renderNcmField(editingProduct.ncmProduct)}
                   <label class="form-field"><span>CEST</span><select name="cestProduct" ${cestOptions.length ? "" : "disabled"}>${renderCestOptions(editingProduct.cestProduct)}</select></label>
@@ -661,7 +675,7 @@ export function createCatalogScreen({
     });
     if (!confirmed) return;
     try {
-      const response = await fetch(`${getApiUrl()}/api/products`, {
+      const response = await apiFetch(`${getApiUrl()}/api/products`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ idProduct: id })
@@ -686,19 +700,23 @@ export function createCatalogScreen({
     loading = true;
     render();
     try {
-      const [groupResponse, productResponse, operationResponse, typeResponse, unitResponse, generalSettingsResponse] = await Promise.all([
-        fetch(`${getApiUrl()}/api/groups?includeInactive=1`),
-        fetch(`${getApiUrl()}/api/products?includeInactive=1&productType=${encodeURIComponent(productTypeDescription)}`),
-        fetch(`${getApiUrl()}/api/fiscal-operations`),
-        fetch(`${getApiUrl()}/api/product-types`),
-        fetch(`${getApiUrl()}/api/units`),
-        fetch(`${getApiUrl()}/api/general-settings`)
+      const [groupResponse, productResponse, operationResponse, typeResponse, unitResponse, physicalStateResponse, generalSettingsResponse] = await Promise.all([
+        apiFetch(`${getApiUrl()}/api/groups?includeInactive=1`),
+        apiFetch(`${getApiUrl()}/api/products?includeInactive=1&productType=${encodeURIComponent(productTypeDescription)}`),
+        apiFetch(`${getApiUrl()}/api/fiscal-operations`),
+        apiFetch(`${getApiUrl()}/api/product-types`),
+        apiFetch(`${getApiUrl()}/api/units`),
+        isRawMaterialsCatalog
+          ? apiFetch(`${getApiUrl()}/api/physical-states`)
+          : Promise.resolve({ ok: true, json: async () => ({ physicalStates: [] }) }),
+        apiFetch(`${getApiUrl()}/api/general-settings`)
       ]);
       const groupPayload = await groupResponse.json();
       const productPayload = await productResponse.json();
       const operationPayload = await operationResponse.json();
       const typePayload = await typeResponse.json();
       const unitPayload = await unitResponse.json();
+      const physicalStatePayload = await physicalStateResponse.json();
       const generalSettingsPayload = await generalSettingsResponse.json();
       if (!groupResponse.ok || !Array.isArray(groupPayload.groups)) {
         throw new Error(groupPayload.error || "Não foi possível carregar os grupos.");
@@ -715,14 +733,21 @@ export function createCatalogScreen({
       if (!unitResponse.ok || !Array.isArray(unitPayload.units)) {
         throw new Error(unitPayload.error || "Não foi possível carregar as unidades.");
       }
+      if (!physicalStateResponse.ok || !Array.isArray(physicalStatePayload.physicalStates)) {
+        throw new Error(physicalStatePayload.error || "Não foi possível carregar os estados físicos.");
+      }
       if (!generalSettingsResponse.ok || !Array.isArray(generalSettingsPayload.settings)) {
         throw new Error(generalSettingsPayload.error || "Não foi possível carregar as configurações gerais.");
       }
       groups = groupPayload.groups;
       products = productPayload.products;
+      if (initialProductId && !editingProduct) {
+        editingProduct = products.find(({ idProduct }) => String(idProduct) === String(initialProductId)) || null;
+      }
       fiscalOperations = operationPayload.fiscalOperations.filter(({ typeFiscalOperation }) => typeFiscalOperation === "exit");
       productTypes = typePayload.productTypes;
       units = unitPayload.units;
+      physicalStates = physicalStatePayload.physicalStates;
       allowNegativeStock = Boolean(
         generalSettingsPayload.settings.find(({ keyGeneralSetting }) => keyGeneralSetting === "allowNegativeStock")
           ?.booleanValueGeneralSetting
@@ -737,7 +762,7 @@ export function createCatalogScreen({
       if (!newProductDraft.idFiscalOperationSaleProduct && getDefaultFiscalOperation()) {
         newProductDraft.idFiscalOperationSaleProduct = String(getDefaultFiscalOperation().idFiscalOperation);
       }
-      const ncmResponse = await fetch(`${getApiUrl()}/api/ncm-cest/ncms`);
+      const ncmResponse = await apiFetch(`${getApiUrl()}/api/ncm-cest/ncms`);
       const ncmPayload = await ncmResponse.json();
       if (!ncmResponse.ok || !Array.isArray(ncmPayload.ncms)) {
         throw new Error(ncmPayload.error || "Não foi possível carregar os NCMs.");
@@ -760,7 +785,7 @@ export function createCatalogScreen({
     }
     if (ncmCode) {
       try {
-        const response = await fetch(`${getApiUrl()}/api/ncm-cest/options?ncm=${encodeURIComponent(ncmCode)}`);
+        const response = await apiFetch(`${getApiUrl()}/api/ncm-cest/options?ncm=${encodeURIComponent(ncmCode)}`);
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error || "Não foi possível carregar os CESTs.");
         cestOptions = payload.cests;
@@ -777,7 +802,7 @@ export function createCatalogScreen({
     message = "";
     render();
     try {
-      const response = await fetch(`${getApiUrl()}/api/products`, {
+      const response = await apiFetch(`${getApiUrl()}/api/products`, {
         method: productId ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -788,6 +813,9 @@ export function createCatalogScreen({
           idGroup: Number(formData.get("idGroup")),
           idFiscalOperationSaleProduct: formData.get("idFiscalOperationSaleProduct") ? Number(formData.get("idFiscalOperationSaleProduct")) : null,
           idProductTypeProduct: formData.get("idProductTypeProduct") ? Number(formData.get("idProductTypeProduct")) : null,
+          idPhysicalStateProduct: isRawMaterialsCatalog && formData.get("idPhysicalStateProduct")
+            ? Number(formData.get("idPhysicalStateProduct"))
+            : 0,
           idUnitProduct: formData.get("idUnitProduct") ? Number(formData.get("idUnitProduct")) : null,
           ncmProduct: formData.get("ncmProduct") || null,
           cestProduct: formData.get("cestProduct") || null,
@@ -827,7 +855,7 @@ export function createCatalogScreen({
 
   const updateProductStatus = async (idProduct, isActiveProduct) => {
     try {
-      const response = await fetch(`${getApiUrl()}/api/products/status`, {
+      const response = await apiFetch(`${getApiUrl()}/api/products/status`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ idProduct, isActiveProduct })
@@ -848,7 +876,7 @@ export function createCatalogScreen({
 
   const updateProductPdvVisibility = async (idProduct, showsInPdvProduct) => {
     try {
-      const response = await fetch(`${getApiUrl()}/api/products/pdv-status`, {
+      const response = await apiFetch(`${getApiUrl()}/api/products/pdv-status`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ idProduct, showsInPdvProduct })

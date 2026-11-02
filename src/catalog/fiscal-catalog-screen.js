@@ -8,7 +8,7 @@ import {
   formatMaskedNumber,
   normalizeMaskedNumber
 } from "../ui/number-mask.js";
-import { getApiUrl } from "../shared/api.js";
+import { apiFetch, getApiUrl } from "../shared/api.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
 
 const catalogLabels = {
@@ -173,7 +173,7 @@ export function createFiscalCatalogScreen({
     loading = true;
     render();
     try {
-      const response = await fetch(`${getApiUrl()}/api/fiscal-catalogs?catalog=${encodeURIComponent(catalog)}&includeInactive=1`);
+      const response = await apiFetch(`${getApiUrl()}/api/fiscal-catalogs?catalog=${encodeURIComponent(catalog)}&includeInactive=1`);
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Não foi possível carregar o cadastro fiscal.");
       items = payload.items;
@@ -197,7 +197,7 @@ export function createFiscalCatalogScreen({
         valueFiscalCatalogItem: normalizeMaskedNumber(form.valueFiscalCatalogItem),
         ...(editing ? { idFiscalCatalogItem: editing.idFiscalCatalogItem } : {})
       };
-      const response = await fetch(`${getApiUrl()}/api/fiscal-catalogs`, {
+      const response = await apiFetch(`${getApiUrl()}/api/fiscal-catalogs`, {
         method: editing ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -223,7 +223,7 @@ export function createFiscalCatalogScreen({
     });
     if (!confirmed) return;
     try {
-      const response = await fetch(`${getApiUrl()}/api/fiscal-catalogs`, {
+      const response = await apiFetch(`${getApiUrl()}/api/fiscal-catalogs`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ idFiscalCatalogItem })

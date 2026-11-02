@@ -2,7 +2,7 @@ import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { invoke } from "@tauri-apps/api/core";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
-import { getApiUrl } from "../shared/api.js";
+import { apiFetch, getApiUrl  } from "../shared/api.js";
 
 const escapeHtml = (value) => String(value ?? "")
   .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
@@ -225,8 +225,8 @@ export function createThermalPrintScreen({
   const saveLayout = async () => {
     saving = true; error = ""; message = ""; render();
     try {
-      const current = await fetch(`${getApiUrl()}/api/printer-settings`).then(async (response) => { const payload = await response.json(); if (!response.ok) throw new Error(payload.error); return payload; });
-      const response = await fetch(`${getApiUrl()}/api/printer-settings`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ receiptPrinterName: current.receiptPrinterName || "", reportsPrinterName: current.reportsPrinterName || "", receiptLayout: layout }) });
+      const current = await apiFetch(`${getApiUrl()}/api/printer-settings`).then(async (response) => { const payload = await response.json(); if (!response.ok) throw new Error(payload.error); return payload; });
+      const response = await apiFetch(`${getApiUrl()}/api/printer-settings`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ receiptPrinterName: current.receiptPrinterName || "", reportsPrinterName: current.reportsPrinterName || "", receiptLayout: layout }) });
       const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "Não foi possível salvar a montagem.");
       message = "Montagem do cupom salva.";
       scheduleMessageClear(() => {
@@ -249,7 +249,7 @@ export function createThermalPrintScreen({
   };
   const load = async () => {
     try {
-      const response = await fetch(`${getApiUrl()}/api/printer-settings`); const payload = await response.json();
+      const response = await apiFetch(`${getApiUrl()}/api/printer-settings`); const payload = await response.json();
       if (!response.ok) throw new Error(payload.error); layout = normalizeLayout(payload.receiptLayout); receiptPrinterName = payload.receiptPrinterName || "";
       render();
     } catch (loadError) { error = loadError instanceof Error ? loadError.message : String(loadError); render(); }

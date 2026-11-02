@@ -4,7 +4,7 @@ import { bindFormRowPreview } from "../ui/form-row-preview.js";
 import { renderPreservingFormDraft } from "../ui/form-draft.js";
 import { bindProductNavigation, renderProductNavigation } from "./product-navigation.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
-import { getApiUrl } from "../shared/api.js";
+import { apiFetch, getApiUrl } from "../shared/api.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
 
 const escapeHtml = (value) =>
@@ -232,8 +232,8 @@ export function createClassScreen({ onBack, onClasses, onGroups, onProducts, onP
     render();
     try {
       const [classResponse, operationResponse] = await Promise.all([
-        fetch(`${getApiUrl()}/api/classes?includeInactive=1`),
-        fetch(`${getApiUrl()}/api/fiscal-operations`)
+        apiFetch(`${getApiUrl()}/api/classes?includeInactive=1`),
+        apiFetch(`${getApiUrl()}/api/fiscal-operations`)
       ]);
       const payload = await classResponse.json();
       const operationPayload = await operationResponse.json();
@@ -260,7 +260,7 @@ export function createClassScreen({ onBack, onClasses, onGroups, onProducts, onP
     message = "";
     render();
     try {
-      const response = await fetch(`${getApiUrl()}/api/classes`, {
+      const response = await apiFetch(`${getApiUrl()}/api/classes`, {
         method: idClass ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(idClass ? { ...body, idClass } : body)
@@ -291,7 +291,7 @@ export function createClassScreen({ onBack, onClasses, onGroups, onProducts, onP
     });
     if (!confirmed) return;
     try {
-      const response = await fetch(`${getApiUrl()}/api/classes`, {
+      const response = await apiFetch(`${getApiUrl()}/api/classes`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ idClass })
@@ -314,7 +314,7 @@ export function createClassScreen({ onBack, onClasses, onGroups, onProducts, onP
 
   const updateClassStatus = async (idClass, isActiveClass) => {
     try {
-      const response = await fetch(`${getApiUrl()}/api/classes/status`, {
+      const response = await apiFetch(`${getApiUrl()}/api/classes/status`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ idClass, isActiveClass })

@@ -12,7 +12,7 @@ import {
   normalizeMaskedNumber
 } from "../ui/number-mask.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
-import { getApiUrl } from "../shared/api.js";
+import { apiFetch, getApiUrl } from "../shared/api.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
 
 const escapeHtml = (value) =>
@@ -292,7 +292,7 @@ export function createPaymentMethodScreen({
     loading = true;
     render();
     try {
-      const response = await fetch(`${getApiUrl()}/api/payment-methods?includeInactive=1`);
+      const response = await apiFetch(`${getApiUrl()}/api/payment-methods?includeInactive=1`);
       const payload = await response.json();
       if (!response.ok || !Array.isArray(payload.paymentMethods)) {
         throw new Error(payload.error || "Não foi possível carregar as formas de pagamento.");
@@ -320,7 +320,7 @@ export function createPaymentMethodScreen({
         surchargeValuePaymentMethod: normalizeMaskedNumber(form.surchargeValuePaymentMethod),
         isActivePaymentMethod: form.isActivePaymentMethod ? 1 : 0
       };
-      const response = await fetch(`${getApiUrl()}/api/payment-methods`, {
+      const response = await apiFetch(`${getApiUrl()}/api/payment-methods`, {
         method: idPaymentMethod ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -351,7 +351,7 @@ export function createPaymentMethodScreen({
     });
     if (!confirmed) return;
     try {
-      const response = await fetch(`${getApiUrl()}/api/payment-methods`, {
+      const response = await apiFetch(`${getApiUrl()}/api/payment-methods`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ idPaymentMethod })
@@ -374,7 +374,7 @@ export function createPaymentMethodScreen({
 
   const updateStatus = async (idPaymentMethod, isActivePaymentMethod) => {
     try {
-      const response = await fetch(`${getApiUrl()}/api/payment-methods/status`, {
+      const response = await apiFetch(`${getApiUrl()}/api/payment-methods/status`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ idPaymentMethod, isActivePaymentMethod })

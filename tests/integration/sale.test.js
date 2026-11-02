@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { calculateSaleTotals } from "../src/shared/sale.js";
+import { calculateSaleTotals } from "../../src/shared/sale.js";
 
 test("calcula quantidade e total da venda", () => {
   const result = calculateSaleTotals([

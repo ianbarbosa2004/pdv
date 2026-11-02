@@ -27,6 +27,25 @@ const csvExample = [
   "PROD-001;789000000001;Café torrado;Mercearia;;;;0201.30.00;0603.10.00;19,90;12,50;10;sim;não;não;sim"
 ].join("\r\n");
 
+export const csvValueReference = [
+  ["SKU", "Obrigatório; texto livre, até 64 caracteres."],
+  ["Código PDV", "Opcional; texto livre, até 64 caracteres. Deve ser único quando informado."],
+  ["Nome", "Obrigatório; texto livre, até 180 caracteres."],
+  ["Grupo", "Obrigatório; use exatamente a descrição do grupo na referência de Grupos."],
+  ["Operação fiscal de venda", "Opcional; aceite a descrição da operação fiscal de saída ativa ou o CFOP correspondente, conforme a referência."],
+  ["Tipo de produto", "Opcional; aceite a descrição do tipo de produto ativo ou o Código SPED correspondente, conforme a referência."],
+  ["Unidade", "Opcional; aceite o código ou a descrição de uma unidade tributável ativa, conforme a referência."],
+  ["NCM", "Opcional; 8 dígitos. Pontuação pode ser usada, pois será removida na validação."],
+  ["CEST", "Opcional; 7 dígitos. Pontuação pode ser usada, pois será removida na validação."],
+  ["Preço de venda", "Obrigatório para produtos de venda; número não negativo com até 2 casas decimais. Aceita vírgula ou ponto."],
+  ["Preço de custo", "Opcional; número não negativo com até 2 casas decimais. Aceita vírgula ou ponto. Padrão: 0."],
+  ["Estoque", "Opcional; inteiro ou número com até 3 casas decimais quando o produto for fracionado. Aceita vírgula ou ponto. Padrão: 0."],
+  ["Controla estoque", "Opcional; verdadeiro: sim, s, true, 1, yes ou y. Falso: não, nao, n, false, 0 ou no. Padrão: sim."],
+  ["Produto fracionado", "Opcional; verdadeiro: sim, s, true, 1, yes ou y. Falso: não, nao, n, false, 0 ou no. Padrão: não."],
+  ["Imprime na cozinha", "Opcional; verdadeiro: sim, s, true, 1, yes ou y. Falso: não, nao, n, false, 0 ou no. Padrão: não."],
+  ["Exibe no PDV", "Opcional; verdadeiro: sim, s, true, 1, yes ou y. Falso: não, nao, n, false, 0 ou no. Padrão: sim."]
+];
+
 const markdownCell = (value) => String(value ?? "-").replaceAll("|", "\\|").replace(/\r?\n/g, " ");
 
 const buildReferenceMarkdown = ({
@@ -128,10 +147,10 @@ export function createCatalogImportScreen({
     render();
     try {
       const responses = await Promise.all([
-        fetch(`${getApiUrl()}/api/groups`),
-        fetch(`${getApiUrl()}/api/fiscal-operations`),
-        fetch(`${getApiUrl()}/api/product-types`),
-        fetch(`${getApiUrl()}/api/units`)
+        apiFetch(`${getApiUrl()}/api/groups`),
+        apiFetch(`${getApiUrl()}/api/fiscal-operations`),
+        apiFetch(`${getApiUrl()}/api/product-types`),
+        apiFetch(`${getApiUrl()}/api/units`)
       ]);
       const payloads = await Promise.all(responses.map((response) => response.json()));
       const [groupsPayload, fiscalPayload, productTypesPayload, unitsPayload] = payloads;
@@ -259,7 +278,15 @@ export function createCatalogImportScreen({
         <section class="classic-form-panel">
           <div class="classic-panel-header">Listas para preenchimento do CSV</div>
           <div class="classic-form-body">
-            <p class="form-help">Baixe as referências com os valores exatos que devem ser usados nas colunas Grupo, Operação fiscal de venda, Tipo de produto e Unidade.</p>
+            <p class="form-help">Consulte os valores aceitos para cada coluna. Para Grupo, Operação fiscal de venda, Tipo de produto e Unidade, use também as referências com os valores exatos cadastrados.</p>
+            <div class="csv-values-table-wrapper">
+              <table class="classic-table csv-values-table">
+                <thead><tr><th>Coluna</th><th>Valores aceitos</th></tr></thead>
+                <tbody>${csvValueReference.map(([field, description]) => `
+                  <tr><td><code>${escapeHtml(field)}</code></td><td>${escapeHtml(description)}</td></tr>
+                `).join("")}</tbody>
+              </table>
+            </div>
             ${referenceError ? `<p class="payment-error">${escapeHtml(referenceError)}</p>` : ""}
             ${referenceLoading
               ? "<p class=\"classic-empty\">Carregando listas auxiliares...</p>"
@@ -283,7 +310,16 @@ export function createCatalogImportScreen({
     bind();
   };
 
-  const selectFile = () => root.querySelector("[data-file-input]")?.click();
+  const selectFile = ({ clearSelection = false } = {}) => {
+    const input = root.querySelector("[data-file-input]");
+    if (!input) return;
+    if (clearSelection) {
+      selectedFile = null;
+      rows = [];
+      input.value = "";
+    }
+    input.click();
+  };
 
   const readSelectedFile = async () => {
     if (!selectedFile) throw new Error("Selecione um arquivo CSV antes de testar.");
@@ -291,7 +327,7 @@ export function createCatalogImportScreen({
   };
 
   const validateRowsWithApi = async () => {
-    const response = await fetch(`${getApiUrl()}/api/products/import`, {
+    const response = await apiFetch(`${getApiUrl()}/api/products/import`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ rows, validateOnly: true })
@@ -361,12 +397,11 @@ export function createCatalogImportScreen({
       });
     });
     root.querySelector("[data-test-file]")?.addEventListener("click", async () => {
-      if (!selectedFile) {
-        selectFile();
+      if (!selectedFile || !rows.length) {
+        selectFile({ clearSelection: true });
         return;
       }
       try {
-        await readSelectedFile();
         await validateRowsWithApi();
         error = "";
         message = `Arquivo válido: ${rows.length} produto(s) pronto(s) para importação.`;
@@ -383,7 +418,7 @@ export function createCatalogImportScreen({
       message = "";
       render();
       try {
-        const response = await fetch(`${getApiUrl()}/api/products/import`, {
+        const response = await apiFetch(`${getApiUrl()}/api/products/import`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ rows })

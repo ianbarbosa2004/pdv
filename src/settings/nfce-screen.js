@@ -2,7 +2,7 @@ import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { renderLucideIcons } from "../ui/icons.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { renderPreservingFormDraft } from "../ui/form-draft.js";
-import { getApiUrl } from "../shared/api.js";
+import { apiFetch, getApiUrl  } from "../shared/api.js";
 
 const escapeHtml = (value) =>
   String(value ?? "")
@@ -82,12 +82,12 @@ export function createNfceScreen({
               ${renderField("nfceInitialNumberCompany", "Próximo número NFC-e", "number", 999999999, true)}
             </div>
             <div class="classic-form-grid">
-              ${renderSecretField("nfceCscCompany", "CSC - produção", company.nfceCscCompany)}
-              ${renderSecretField("nfceTokenCompany", "ID Token - produção", company.nfceTokenCompany)}
+              ${renderSecretField("nfceCscCompany", "CSC - produção", "", false, true, hasSecret("hasNfceCscCompany"))}
+              ${renderSecretField("nfceTokenCompany", "ID Token - produção", "", false, true, hasSecret("hasNfceTokenCompany"))}
             </div>
             <div class="classic-form-grid">
-              ${renderSecretField("nfceHomologationCscCompany", "CSC - homologação", company.nfceHomologationCscCompany)}
-              ${renderSecretField("nfceHomologationTokenCompany", "ID Token - homologação", company.nfceHomologationTokenCompany)}
+              ${renderSecretField("nfceHomologationCscCompany", "CSC - homologação", "", false, true, hasSecret("hasNfceHomologationCscCompany"))}
+              ${renderSecretField("nfceHomologationTokenCompany", "ID Token - homologação", "", false, true, hasSecret("hasNfceHomologationTokenCompany"))}
             </div>
             <div class="classic-form-grid company-grid-three nfce-certificate-grid">
               <label class="form-field">
@@ -102,7 +102,7 @@ export function createNfceScreen({
                 <input name="nfceCertificateFileCompany" type="file" accept=".pfx,.p12,application/x-pkcs12" />
                 <small>${escapeHtml(company.nfceCertificateNameCompany || "Nenhum arquivo selecionado")}</small>
               </label>
-              ${renderSecretField("nfceCertificatePasswordCompany", "Senha do certificado", certificatePassword, true, false)}
+              ${renderSecretField("nfceCertificatePasswordCompany", "Senha do certificado", certificatePassword, true, false, hasSecret("hasCertificatePasswordCompany"))}
             </div>
             <div class="classic-form-grid company-grid-three nfce-certificate-meta-grid">
               ${renderField("nfceCertificateExpiresCompany", "Validade do certificado", "date", 10, false, { readonly: true, disabled: true })}
@@ -187,14 +187,16 @@ export function createNfceScreen({
     });
   };
 
-  const renderSecretField = (name, label, value, isCertificatePassword = false, showToggle = true) => `
+  const hasSecret = (fieldName) => Number(company[fieldName]) === 1;
+
+  const renderSecretField = (name, label, value, isCertificatePassword = false, showToggle = true, configured = false) => `
     <label class="form-field secret-field">
       <span>${label}</span>
       <div class="secret-input-control">
-        <input name="${name}" type="password" maxlength="255" autocomplete="new-password" value="${escapeHtml(value ?? "")}" />
+        <input name="${name}" type="password" maxlength="255" autocomplete="new-password" value="${escapeHtml(value ?? "")}" placeholder="${configured ? "Cadastrado - não exibido" : "Não cadastrado"}" />
         ${showToggle ? `<button class="icon-button" type="button" data-toggle-secret="${name}" title="Visualizar campo" aria-label="Mostrar campo"><i data-lucide="eye"></i></button>` : ""}
       </div>
-      ${isCertificatePassword ? "<small>Obrigatória para usar o arquivo A1 protegido.</small>" : ""}
+      <small>${configured ? "Valor armazenado com segurança. Deixe vazio para mantê-lo." : (isCertificatePassword ? "Obrigatória para usar o arquivo A1 protegido." : "Informe o valor para cadastrar.")}</small>
     </label>
   `;
 
@@ -222,7 +224,7 @@ export function createNfceScreen({
     loading = true;
     render();
     try {
-      const response = await fetch(`${getApiUrl()}/api/company/nfce`);
+      const response = await apiFetch(`${getApiUrl()}/api/company/nfce`);
       const payload = await response.json();
       if (!response.ok || !payload.nfce) throw new Error(payload.error || "Não foi possível carregar a configuração NFC-e.");
       company = payload.nfce;
@@ -253,7 +255,7 @@ export function createNfceScreen({
       } else if (certificatePassword) {
         payload.nfceCertificatePasswordCompany = certificatePassword;
       }
-      const response = await fetch(`${getApiUrl()}/api/company/nfce`, {
+      const response = await apiFetch(`${getApiUrl()}/api/company/nfce`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -283,7 +285,7 @@ export function createNfceScreen({
     testResult = null;
     render();
     try {
-      const response = await fetch(`${getApiUrl()}/api/company/nfce/test`, { method: "POST" });
+      const response = await apiFetch(`${getApiUrl()}/api/company/nfce/test`, { method: "POST" });
       const result = await response.json();
       if (!response.ok || !result.test) throw new Error(result.error || "Não foi possível testar a emissão NFC-e.");
       testResult = result.test;
@@ -309,7 +311,7 @@ export function createNfceScreen({
     diagnosticResult = null;
     render();
     try {
-      const response = await fetch(`${getApiUrl()}/api/company/nfce/diagnostic`, { method: "POST" });
+      const response = await apiFetch(`${getApiUrl()}/api/company/nfce/diagnostic`, { method: "POST" });
       const result = await response.json();
       if (!response.ok || !result.diagnostic) {
         throw new Error(result.error || "Não foi possível gerar o XML de diagnóstico.");

@@ -1,8 +1,11 @@
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { renderLucideIcons } from "../ui/icons.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
-import { getApiUrl } from "../shared/api.js";
+import { confirmAction } from "../ui/confirmation-modal.js";
+import { apiFetch, getApiUrl  } from "../shared/api.js";
 import { mergeNavigationDefaults } from "../shared/navigation-defaults.js";
+import { getNavigationBuilderDividerIdsBeforeChildren } from "../shared/navigation-builder-order.js";
+import { renderPreservingScroll as preserveScroll } from "../ui/scroll-preservation.js";
 
 const escapeHtml = (value) => String(value ?? "")
   .replaceAll("&", "&amp;")
@@ -11,18 +14,11 @@ const escapeHtml = (value) => String(value ?? "")
   .replaceAll('"', "&quot;")
   .replaceAll("'", "&#039;");
 
-const toSlug = (value) => String(value ?? "")
-  .normalize("NFD")
-  .replace(/[\u0300-\u036f]/g, "")
-  .toLowerCase()
-  .replace(/[^a-z0-9]+/g, "-")
-  .replace(/^-+|-+$/g, "")
-  .slice(0, 80);
-
 const itemTypes = [
   ["item", "Item de menu"],
   ["submenu", "Submenu"],
-  ["bar", "Barra contextual"]
+  ["bar", "Barra contextual"],
+  ["divider", "Divisor visual"]
 ];
 
 const protectedNavigationMenuKeys = new Set(["tools", "settings", "exit"]);
@@ -47,8 +43,6 @@ export function createNavigationBuilderScreen({
   let saving = false;
   let error = "";
   let message = "";
-  let selectedMenuId = "";
-  let selectedParentId = "";
   let editingItemId = "";
   let draggedEntry = null;
   let pointerDrag = null;
@@ -70,15 +64,8 @@ export function createNavigationBuilderScreen({
       orderNavigationItem: order
     });
   };
-  const renderPreservingScroll = () => {
-    const scrollX = window.scrollX;
-    const scrollY = window.scrollY;
-    render();
-    requestAnimationFrame(() => window.scrollTo(scrollX, scrollY));
-  };
-
   const request = async (path, options) => {
-    const response = await fetch(`${getApiUrl()}${path}`, {
+    const response = await apiFetch(`${getApiUrl()}${path}`, {
       headers: { "Content-Type": "application/json" },
       ...options
     });
@@ -113,7 +100,7 @@ export function createNavigationBuilderScreen({
     saving = true;
     error = "";
     message = "";
-    renderPreservingScroll();
+    preserveScroll(render);
     try {
     await request(path, { method, body: JSON.stringify(data) });
     await refresh();
@@ -200,13 +187,13 @@ export function createNavigationBuilderScreen({
     });
     message = "Ordem alterada. Clique em Salvar ordem para confirmar.";
     error = "";
-    renderPreservingScroll();
+    preserveScroll(render);
   };
 
   const moveItemToMenu = (draggedId, targetMenuId) => {
     const item = navigation.items.find((entry) => String(entry.idNavigationItem) === String(draggedId));
     const targetMenu = navigation.menus.find((menu) => String(menu.idNavigationMenu) === String(targetMenuId));
-    if (!item || !targetMenu || item.idParentNavigationItem || item.typeNavigationItem === "bar"
+    if (!item || !targetMenu || item.idParentNavigationItem || ["bar", "divider"].includes(item.typeNavigationItem)
       || String(item.idNavigationMenu) === String(targetMenu.idNavigationMenu)) return;
 
     const sourceItems = navigation.items
@@ -238,17 +225,15 @@ export function createNavigationBuilderScreen({
     });
     message = "Item movido. Clique em Salvar ordem para confirmar.";
     error = "";
-    renderPreservingScroll();
+    preserveScroll(render);
   };
 
   const saveOrder = async () => {
     if (!pendingOrderChanges.size && !pendingItemChanges.size) return;
-    const scrollX = window.scrollX;
-    const scrollY = window.scrollY;
     saving = true;
     error = "";
     message = "";
-    renderPreservingScroll();
+    preserveScroll(render);
     try {
       const requests = [];
       for (const [key, order] of pendingOrderChanges.entries()) {
@@ -291,8 +276,7 @@ export function createNavigationBuilderScreen({
       error = orderError instanceof Error ? orderError.message : String(orderError);
     } finally {
       saving = false;
-      renderPreservingScroll();
-      requestAnimationFrame(() => window.scrollTo(scrollX, scrollY));
+      preserveScroll(render);
     }
   };
 
@@ -304,10 +288,11 @@ export function createNavigationBuilderScreen({
       return getOrder(a, "menu") - getOrder(b, "menu");
     });
     const items = [...navigation.items].sort((a, b) => getOrder(a, "item") - getOrder(b, "item"));
-    const activeMenus = menus.filter((menu) => menu.isActiveNavigationMenu);
-    const parentOptions = items.filter((item) => item.isActiveNavigationItem && item.typeNavigationItem !== "bar");
-    const renderNavigationItem = (item, childrenByParent, menuKey) => {
+    const renderNavigationItem = (item, childrenByParent, menuKey, siblings, index, dividerIdsBeforeChildren) => {
       const children = childrenByParent.get(String(item.idNavigationItem)) || [];
+      const nextSibling = siblings[index + 1];
+      const renderDividerBeforeChildren = nextSibling
+        && dividerIdsBeforeChildren.has(String(nextSibling.idNavigationItem));
       const isItemActive = Number(item.isActiveNavigationItem) === 1;
       const showsInBackofficeHome = Number(item.showsInBackofficeHomeNavigationItem) === 1;
       const isProtected = protectedNavigationMenuKeys.has(menuKey);
@@ -342,20 +327,36 @@ export function createNavigationBuilderScreen({
             <span class="navigation-builder-meta">${escapeHtml(item.routeNavigationItem || "sem rota")} · ordem ${getOrder(item, "item")}</span>
           </div>
           <div class="navigation-builder-actions">
-            <button class="icon-button edit" data-edit-item="${item.idNavigationItem}" type="button" title="Editar item" aria-label="Editar item ${escapeHtml(item.labelNavigationItem)}"><i data-lucide="pencil"></i></button>
-            <button class="status-toggle ${showsInBackofficeHome ? "is-active" : "is-inactive"}" data-toggle-home="${item.idNavigationItem}" data-home-active="${showsInBackofficeHome ? "1" : "0"}" type="button" aria-pressed="${showsInBackofficeHome ? "true" : "false"}" aria-label="${showsInBackofficeHome ? "Ocultar" : "Mostrar"} atalho de ${escapeHtml(item.labelNavigationItem)}">
-              <span class="status-toggle-track"><span class="status-toggle-thumb"></span></span>
-              <span class="status-toggle-label">${showsInBackofficeHome ? "Atalho" : "Sem atalho"}</span>
-            </button>
-            <button class="status-toggle ${isItemActive ? "is-active" : "is-inactive"}" data-toggle-item="${item.idNavigationItem}" data-active="${isItemActive ? "1" : "0"}" type="button" ${isProtected && isItemActive ? "disabled title=\"Itens de Ferramentas e Configurações não podem ser desativados.\"" : `aria-pressed="${isItemActive ? "true" : "false"}" aria-label="${isItemActive ? "Desativar" : "Ativar"} item ${escapeHtml(item.labelNavigationItem)}"`}>
-              <span class="status-toggle-track"><span class="status-toggle-thumb"></span></span>
-              <span class="status-toggle-label">${isItemActive ? "Ativo" : "Inativo"}</span>
-            </button>
+            ${item.typeNavigationItem === "divider" ? `
+              <button class="icon-button delete" data-delete-divider="${item.idNavigationItem}" type="button" title="Excluir divisor" aria-label="Excluir divisor"><i data-lucide="trash-2"></i></button>
+            ` : `
+              <button class="icon-button edit" data-edit-item="${item.idNavigationItem}" type="button" title="Editar item" aria-label="Editar item ${escapeHtml(item.labelNavigationItem)}"><i data-lucide="pencil"></i></button>
+              ${item.typeNavigationItem === "item" ? `<button class="classic-button" data-add-divider-after="${item.idNavigationItem}" type="button">Adicionar divisor abaixo</button>` : ""}
+              <button class="status-toggle ${showsInBackofficeHome ? "is-active" : "is-inactive"}" data-toggle-home="${item.idNavigationItem}" data-home-active="${showsInBackofficeHome ? "1" : "0"}" type="button" aria-pressed="${showsInBackofficeHome ? "true" : "false"}" aria-label="${showsInBackofficeHome ? "Ocultar" : "Mostrar"} atalho de ${escapeHtml(item.labelNavigationItem)}">
+                <span class="status-toggle-track"><span class="status-toggle-thumb"></span></span>
+                <span class="status-toggle-label">${showsInBackofficeHome ? "Atalho" : "Sem atalho"}</span>
+              </button>
+              <button class="status-toggle ${isItemActive ? "is-active" : "is-inactive"}" data-toggle-item="${item.idNavigationItem}" data-active="${isItemActive ? "1" : "0"}" type="button" ${isProtected && isItemActive ? "disabled title=\"Itens de Ferramentas e Configurações não podem ser desativados.\"" : `aria-pressed="${isItemActive ? "true" : "false"}" aria-label="${isItemActive ? "Desativar" : "Ativar"} item ${escapeHtml(item.labelNavigationItem)}"`}>
+                <span class="status-toggle-track"><span class="status-toggle-thumb"></span></span>
+                <span class="status-toggle-label">${isItemActive ? "Ativo" : "Inativo"}</span>
+              </button>
+            `}
           </div>
         </div>
       `;
-      return `${row}${children.length ? `<div class="navigation-builder-children">${children.map((child) => renderNavigationItem(child, childrenByParent, menuKey)).join("")}</div>` : ""}`;
+      const dividerRow = renderDividerBeforeChildren
+        ? renderNavigationItem(nextSibling, childrenByParent, menuKey, siblings, index + 1, dividerIdsBeforeChildren)
+        : "";
+      const childrenMarkup = children.length
+        ? `<div class="navigation-builder-children">${renderNavigationItems(children, childrenByParent, menuKey, dividerIdsBeforeChildren)}</div>`
+        : "";
+      return `${row}${dividerRow}${childrenMarkup}`;
     };
+    const renderNavigationItems = (siblings, childrenByParent, menuKey, dividerIdsBeforeChildren) =>
+      siblings.map((item, index) => dividerIdsBeforeChildren.has(String(item.idNavigationItem))
+        ? ""
+        : renderNavigationItem(item, childrenByParent, menuKey, siblings, index, dividerIdsBeforeChildren)
+      ).join("");
     root.className = "catalog-screen";
     root.innerHTML = `
       <header class="classic-titlebar"><strong>PDV - Construtor de Menu</strong><span>Operador: Operador</span></header>
@@ -372,39 +373,6 @@ export function createNavigationBuilderScreen({
         </div>
         ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}
         ${renderSuccessFeedback(message, escapeHtml)}
-        <div class="navigation-builder-grid">
-          <form class="classic-form-panel" data-menu-form>
-            <div class="classic-panel-header">Novo menu principal</div>
-            <div class="classic-form-body">
-              <label class="form-field"><span>Chave técnica (slug)</span><input name="keyNavigationMenu" data-slug-target="menu" maxlength="80" pattern="[a-z0-9-]+" readonly required /></label>
-              <label class="form-field"><span>Nome exibido</span><input name="labelNavigationMenu" data-slug-source="menu" maxlength="120" required /></label>
-              <label class="form-field"><span>Ordem</span><input name="orderNavigationMenu" type="number" min="1" value="${menus.length + 1}" required /></label>
-            </div>
-            <div class="classic-form-actions"><button class="classic-button primary" type="submit" ${loading || saving ? "disabled" : ""}>Adicionar menu</button></div>
-          </form>
-          <form class="classic-form-panel" data-item-form>
-            <div class="classic-panel-header">Novo item ou submenu</div>
-            <div class="classic-form-body">
-              <label class="form-field"><span>Menu principal</span><select name="idNavigationMenu" required>${activeMenus.map((menu) => `<option value="${menu.idNavigationMenu}" ${String(selectedMenuId) === String(menu.idNavigationMenu) ? "selected" : ""}>${escapeHtml(menu.labelNavigationMenu)}</option>`).join("")}</select></label>
-              <label class="form-field"><span>Item pai (opcional)</span><select name="idParentNavigationItem"><option value="">Menu principal</option>${parentOptions.map((item) => `<option value="${item.idNavigationItem}" ${String(selectedParentId) === String(item.idNavigationItem) ? "selected" : ""}>${escapeHtml(item.labelNavigationItem)}</option>`).join("")}</select></label>
-              <label class="form-field"><span>Tipo</span><select name="typeNavigationItem">${itemTypes.map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}</select></label>
-              <label class="form-field"><span>Chave técnica (slug)</span><input name="keyNavigationItem" data-slug-target="item" maxlength="80" pattern="[a-z0-9-]+" readonly required /></label>
-              <label class="form-field"><span>Nome exibido</span><input name="labelNavigationItem" data-slug-source="item" maxlength="120" required /></label>
-              <label class="form-field"><span>Rota</span><input name="routeNavigationItem" maxlength="120" placeholder="ex.: products" /></label>
-              <label class="form-field"><span>Descrição do atalho</span><textarea name="descriptionNavigationItem" maxlength="240" rows="2" placeholder="Texto exibido abaixo do atalho"></textarea></label>
-              <label class="form-field"><span>Ordem</span><input name="orderNavigationItem" type="number" min="1" value="1" required /></label>
-              <div class="navigation-builder-shortcut-field">
-                <label class="navigation-builder-shortcut-switch">
-                  <input name="showsInBackofficeHomeNavigationItem" type="checkbox" />
-                  <span class="status-toggle-track"><span class="status-toggle-thumb"></span></span>
-                  <span class="status-toggle-label">Mostrar como atalho</span>
-                </label>
-                <small>Exibe este item como painel na tela inicial da Retaguarda.</small>
-              </div>
-            </div>
-            <div class="classic-form-actions"><button class="classic-button primary" type="submit" ${loading || saving ? "disabled" : ""}>Adicionar item</button></div>
-          </form>
-        </div>
         <section class="classic-grid-panel">
           <div class="classic-panel-header navigation-builder-panel-header">
             <span>Estrutura atual</span>
@@ -434,9 +402,13 @@ export function createNavigationBuilderScreen({
                   if (!childrenByParent.has(key)) childrenByParent.set(key, []);
                   childrenByParent.get(key).push(item);
                 }
-                return (childrenByParent.get("") || [])
-                  .map((item) => renderNavigationItem(item, childrenByParent, menu.keyNavigationMenu))
-                  .join("");
+                const dividerIdsBeforeChildren = getNavigationBuilderDividerIdsBeforeChildren(menuItems);
+                return renderNavigationItems(
+                  childrenByParent.get("") || [],
+                  childrenByParent,
+                  menu.keyNavigationMenu,
+                  dividerIdsBeforeChildren
+                );
               })()}
             </div>
           `).join("")}</div>
@@ -469,24 +441,25 @@ export function createNavigationBuilderScreen({
     }, true);
     root.querySelector("[data-back]")?.addEventListener("click", onBack);
     root.querySelector("[data-save-order]")?.addEventListener("click", () => void saveOrder());
-    root.querySelectorAll("[data-slug-source]").forEach((source) => {
-      source.addEventListener("input", () => {
-        const target = root.querySelector(`[data-slug-target="${source.dataset.slugSource}"]`);
-        if (target) target.value = toSlug(source.value);
+    root.querySelectorAll("[data-add-divider-after]").forEach((button) => button.addEventListener("click", () => {
+      const itemId = Number(button.dataset.addDividerAfter);
+      void save("/api/navigation/items", "POST", {
+        idAfterNavigationItem: itemId,
+        typeNavigationItem: "divider",
+        keyNavigationItem: `divider-${itemId}-${Date.now()}`
       });
-    });
-    root.querySelector("[data-menu-form]")?.addEventListener("submit", (event) => {
-      event.preventDefault();
-      void save("/api/navigation/menus", "POST", Object.fromEntries(new FormData(event.currentTarget)));
-    });
-    root.querySelector("[data-item-form]")?.addEventListener("submit", (event) => {
-      event.preventDefault();
-      const form = event.currentTarget;
-      const data = Object.fromEntries(new FormData(form));
-      data.idParentNavigationItem ||= null;
-      data.showsInBackofficeHomeNavigationItem = form.elements.showsInBackofficeHomeNavigationItem.checked ? 1 : 0;
-      void save("/api/navigation/items", "POST", data);
-    });
+    }));
+    root.querySelectorAll("[data-delete-divider]").forEach((button) => button.addEventListener("click", async () => {
+      const dividerId = Number(button.dataset.deleteDivider);
+      const confirmed = await confirmAction({
+        title: "Excluir divisor",
+        message: "Excluir este divisor visual?",
+        detail: "A exclusão não remove os itens do menu.",
+        confirmLabel: "Excluir divisor"
+      });
+      if (!confirmed) return;
+      await save("/api/navigation/items", "DELETE", { idNavigationItem: dividerId });
+    }));
     root.querySelectorAll("[data-toggle-home]").forEach((button) => button.addEventListener("click", () => {
       const entry = navigation.items.find((item) => String(item.idNavigationItem) === button.dataset.toggleHome);
       if (!entry) return;
