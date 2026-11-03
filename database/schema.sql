@@ -31,6 +31,14 @@ CREATE TABLE IF NOT EXISTS `groups` (
     ON DELETE RESTRICT
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS physical_states (
+  idPhysicalState INT AUTO_INCREMENT PRIMARY KEY,
+  codePhysicalState VARCHAR(30) NOT NULL UNIQUE,
+  namePhysicalState VARCHAR(50) NOT NULL,
+  descriptionPhysicalState VARCHAR(150) NULL,
+  isActivePhysicalState TINYINT(1) NOT NULL DEFAULT 1
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS products (
   idProduct BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   idGroup BIGINT UNSIGNED NOT NULL,
@@ -39,7 +47,7 @@ CREATE TABLE IF NOT EXISTS products (
   nameProduct VARCHAR(180) NOT NULL,
   idFiscalOperationSaleProduct BIGINT UNSIGNED NULL,
   idProductTypeProduct BIGINT UNSIGNED NULL,
-  idPhysicalStateProduct INT NOT NULL DEFAULT 0,
+  idPhysicalStateProduct INT NULL DEFAULT NULL,
   idUnitProduct BIGINT UNSIGNED NULL,
   ncmProduct CHAR(8) NULL,
   cestProduct CHAR(7) NULL,
@@ -48,7 +56,7 @@ CREATE TABLE IF NOT EXISTS products (
   stockQuantityProduct DECIMAL(12,3) NOT NULL DEFAULT 0,
   controlsStockProduct TINYINT(1) NOT NULL DEFAULT 1,
   isFractionalProduct TINYINT(1) NOT NULL DEFAULT 0,
-  printsKitchenProduct TINYINT(1) NOT NULL DEFAULT 0,
+  printsPlace VARCHAR(20) NOT NULL DEFAULT 'NÃO IMPRIMIR',
   showsInPdvProduct TINYINT(1) NOT NULL DEFAULT 1,
   isActiveProduct TINYINT(1) NOT NULL DEFAULT 1,
   createdAtProduct TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -59,8 +67,12 @@ CREATE TABLE IF NOT EXISTS products (
   KEY idxProductsNcmProduct (ncmProduct),
   KEY idxProductsCestProduct (cestProduct),
   KEY idxProductsIsActiveProductNameProduct (isActiveProduct, nameProduct),
+  KEY idxProductsPhysicalStateProduct (idPhysicalStateProduct),
   CONSTRAINT fkProductsGroup
     FOREIGN KEY (idGroup) REFERENCES `groups` (idGroup)
+    ON DELETE RESTRICT,
+  CONSTRAINT fkProductsPhysicalState
+    FOREIGN KEY (idPhysicalStateProduct) REFERENCES physical_states (idPhysicalState)
     ON DELETE RESTRICT
 ) ENGINE=InnoDB;
 
@@ -154,6 +166,72 @@ INSERT INTO payment_methods
 VALUES ('VALE', 'Caixa', 30, 1)
 ON DUPLICATE KEY UPDATE isActivePaymentMethod = 1;
 
+CREATE TABLE IF NOT EXISTS operators (
+  idOperator BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  usernameOperator VARCHAR(80) NOT NULL,
+  displayNameOperator VARCHAR(160) NOT NULL,
+  passwordHashOperator VARCHAR(255) NOT NULL,
+  roleOperator ENUM('operator', 'supervisor', 'admin') NOT NULL DEFAULT 'operator',
+  isActiveOperator TINYINT(1) NOT NULL DEFAULT 1,
+  createdAtOperator TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAtOperator TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (idOperator),
+  UNIQUE KEY uqOperatorsUsername (usernameOperator),
+  KEY idxOperatorsActiveRole (isActiveOperator, roleOperator)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS operator_sessions (
+  idOperatorSession BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  idOperator BIGINT UNSIGNED NOT NULL,
+  tokenHashOperatorSession CHAR(64) NOT NULL,
+  expiresAtOperatorSession DATETIME NOT NULL,
+  createdAtOperatorSession TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (idOperatorSession),
+  UNIQUE KEY uqOperatorSessionsTokenHash (tokenHashOperatorSession),
+  KEY idxOperatorSessionsExpiry (expiresAtOperatorSession),
+  CONSTRAINT fkOperatorSessionsOperator
+    FOREIGN KEY (idOperator) REFERENCES operators (idOperator)
+    ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS cash_registers (
+  idCashRegister TINYINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  nameCashRegister VARCHAR(80) NOT NULL,
+  isActiveCashRegister TINYINT(1) NOT NULL DEFAULT 1,
+  PRIMARY KEY (idCashRegister),
+  UNIQUE KEY uqCashRegistersName (nameCashRegister)
+) ENGINE=InnoDB;
+
+INSERT INTO cash_registers (nameCashRegister, isActiveCashRegister)
+VALUES ('Caixa principal', 1)
+ON DUPLICATE KEY UPDATE isActiveCashRegister = 1;
+
+CREATE TABLE IF NOT EXISTS cash_sessions (
+  idCashSession BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  idCashRegister TINYINT UNSIGNED NOT NULL,
+  idOperatorOpened BIGINT UNSIGNED NOT NULL,
+  openingAmountCashSession DECIMAL(12,2) NOT NULL,
+  expectedClosingAmountCashSession DECIMAL(12,2) NOT NULL,
+  closingAmountCashSession DECIMAL(12,2) NULL,
+  differenceCashSession DECIMAL(12,2) NULL,
+  closingJustificationCashSession VARCHAR(500) NULL,
+  statusCashSession ENUM('open', 'closed') NOT NULL DEFAULT 'open',
+  openedAtCashSession TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  closedAtCashSession TIMESTAMP NULL,
+  idOperatorClosed BIGINT UNSIGNED NULL,
+  PRIMARY KEY (idCashSession),
+  KEY idxCashSessionsRegisterStatus (idCashRegister, statusCashSession),
+  CONSTRAINT fkCashSessionsRegister
+    FOREIGN KEY (idCashRegister) REFERENCES cash_registers (idCashRegister)
+    ON DELETE RESTRICT,
+  CONSTRAINT fkCashSessionsOpenedOperator
+    FOREIGN KEY (idOperatorOpened) REFERENCES operators (idOperator)
+    ON DELETE RESTRICT,
+  CONSTRAINT fkCashSessionsClosedOperator
+    FOREIGN KEY (idOperatorClosed) REFERENCES operators (idOperator)
+    ON DELETE RESTRICT
+) ENGINE=InnoDB;
+
 CREATE TABLE IF NOT EXISTS suppliers (
   idSupplier BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   typeSupplier ENUM('juridica', 'fisica') NOT NULL DEFAULT 'juridica',
@@ -237,8 +315,9 @@ CREATE TABLE IF NOT EXISTS general_settings (
   idGeneralSetting BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   keyGeneralSetting VARCHAR(80) NOT NULL,
   labelGeneralSetting VARCHAR(160) NOT NULL,
-  typeGeneralSetting ENUM('boolean') NOT NULL DEFAULT 'boolean',
+  typeGeneralSetting ENUM('boolean', 'text', 'number', 'json') NOT NULL DEFAULT 'boolean',
   booleanValueGeneralSetting TINYINT(1) NOT NULL DEFAULT 0,
+  valueGeneralSetting TEXT NULL,
   updatedAtGeneralSetting TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (idGeneralSetting),
   UNIQUE KEY uqGeneralSettingsKey (keyGeneralSetting)
@@ -271,13 +350,13 @@ CREATE TABLE IF NOT EXISTS company_settings (
   nfceEnvironmentCompany ENUM('homologation', 'production') NOT NULL DEFAULT 'homologation',
   nfceSeriesCompany SMALLINT UNSIGNED NOT NULL DEFAULT 1,
   nfceInitialNumberCompany INT UNSIGNED NOT NULL DEFAULT 1,
+  nfceNextNumberCompany INT UNSIGNED NOT NULL DEFAULT 1,
   nfceContingencyCompany ENUM('none', 'offline') NOT NULL DEFAULT 'none',
   nfceCscCompany VARCHAR(255) NOT NULL DEFAULT '',
   nfceTokenCompany VARCHAR(255) NOT NULL DEFAULT '',
   nfceHomologationCscCompany VARCHAR(255) NOT NULL DEFAULT '',
   nfceHomologationTokenCompany VARCHAR(255) NOT NULL DEFAULT '',
-  nfceCertificateTypeCompany ENUM('A1', 'A3') NOT NULL DEFAULT 'A1',
-  nfceCertificatePathCompany VARCHAR(255) NOT NULL DEFAULT '',
+  nfceCertificateTypeCompany ENUM('A1') NOT NULL DEFAULT 'A1',
   nfceCertificateExpiresCompany DATE NULL,
   nfceCertificateSerialCompany VARCHAR(255) NOT NULL DEFAULT '',
   nfceCertificateNameCompany VARCHAR(255) NOT NULL DEFAULT '',
@@ -379,14 +458,55 @@ ON DUPLICATE KEY UPDATE
 CREATE TABLE IF NOT EXISTS sales (
   idSale BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   clientIdSale CHAR(36) NOT NULL,
+  idOperatorSale BIGINT UNSIGNED NOT NULL,
+  idCashSessionSale BIGINT UNSIGNED NOT NULL,
   statusSale ENUM('completed', 'cancelled') NOT NULL DEFAULT 'completed',
+  cancelledAtSale DATETIME NULL,
+  idOperatorCancelledSale BIGINT UNSIGNED NULL,
+  cancellationReasonSale VARCHAR(500) NULL,
   subtotalSale DECIMAL(12,2) NOT NULL,
   discountSale DECIMAL(12,2) NOT NULL DEFAULT 0,
   totalSale DECIMAL(12,2) NOT NULL,
   createdAtSale TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (idSale),
   UNIQUE KEY uqSalesClientIdSale (clientIdSale),
-  KEY idxSalesCreatedAtSale (createdAtSale)
+  KEY idxSalesCreatedAtSale (createdAtSale),
+  KEY idxSalesOperatorCashSession (idOperatorSale, idCashSessionSale),
+  CONSTRAINT fkSalesOperator
+    FOREIGN KEY (idOperatorSale) REFERENCES operators (idOperator)
+    ON DELETE RESTRICT,
+  CONSTRAINT fkSalesCashSession
+    FOREIGN KEY (idCashSessionSale) REFERENCES cash_sessions (idCashSession)
+    ON DELETE RESTRICT,
+  CONSTRAINT fkSalesCancelledOperator
+    FOREIGN KEY (idOperatorCancelledSale) REFERENCES operators (idOperator)
+    ON DELETE RESTRICT
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS sale_fiscal_documents (
+  idSaleFiscalDocument BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  idSale BIGINT UNSIGNED NOT NULL,
+  modelSaleFiscalDocument SMALLINT UNSIGNED NOT NULL DEFAULT 65,
+  environmentSaleFiscalDocument ENUM('homologation', 'production') NOT NULL,
+  seriesSaleFiscalDocument SMALLINT UNSIGNED NOT NULL,
+  numberSaleFiscalDocument INT UNSIGNED NOT NULL,
+  statusSaleFiscalDocument ENUM('pending', 'authorized', 'rejected', 'unknown') NOT NULL DEFAULT 'pending',
+  accessKeySaleFiscalDocument CHAR(44) NULL,
+  protocolSaleFiscalDocument VARCHAR(80) NULL,
+  cStatSaleFiscalDocument VARCHAR(10) NULL,
+  messageSaleFiscalDocument VARCHAR(500) NULL,
+  xmlSaleFiscalDocument MEDIUMTEXT NULL,
+  attemptsSaleFiscalDocument SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  lastAttemptAtSaleFiscalDocument DATETIME NULL,
+  createdAtSaleFiscalDocument TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAtSaleFiscalDocument TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (idSaleFiscalDocument),
+  UNIQUE KEY uqSaleFiscalDocumentSale (idSale),
+  UNIQUE KEY uqSaleFiscalDocumentNumber (environmentSaleFiscalDocument, seriesSaleFiscalDocument, numberSaleFiscalDocument),
+  KEY idxSaleFiscalDocumentStatus (statusSaleFiscalDocument, updatedAtSaleFiscalDocument),
+  CONSTRAINT fkSaleFiscalDocumentSale
+    FOREIGN KEY (idSale) REFERENCES sales (idSale)
+    ON DELETE RESTRICT
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS sale_items (
@@ -422,13 +542,28 @@ CREATE TABLE IF NOT EXISTS sale_payments (
     ON DELETE RESTRICT
 ) ENGINE=InnoDB;
 
-CREATE TABLE IF NOT EXISTS physical_states (
-  idPhysicalState INT AUTO_INCREMENT PRIMARY KEY,
-  codePhysicalState VARCHAR(30) NOT NULL UNIQUE,
-  namePhysicalState VARCHAR(50) NOT NULL,
-  descriptionPhysicalState VARCHAR(150) NULL,
-  isActivePhysicalState TINYINT(1) NOT NULL DEFAULT 1
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE IF NOT EXISTS cash_movements (
+  idCashMovement BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  idCashSession BIGINT UNSIGNED NOT NULL,
+  idOperator BIGINT UNSIGNED NOT NULL,
+  typeCashMovement ENUM('opening', 'sale', 'sale_cancellation', 'supply', 'withdrawal') NOT NULL,
+  amountCashMovement DECIMAL(12,2) NOT NULL,
+  descriptionCashMovement VARCHAR(500) NULL,
+  idSale BIGINT UNSIGNED NULL,
+  createdAtCashMovement TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (idCashMovement),
+  KEY idxCashMovementsSale (idSale),
+  KEY idxCashMovementsSessionCreated (idCashSession, createdAtCashMovement),
+  CONSTRAINT fkCashMovementsSession
+    FOREIGN KEY (idCashSession) REFERENCES cash_sessions (idCashSession)
+    ON DELETE RESTRICT,
+  CONSTRAINT fkCashMovementsOperator
+    FOREIGN KEY (idOperator) REFERENCES operators (idOperator)
+    ON DELETE RESTRICT,
+  CONSTRAINT fkCashMovementsSale
+    FOREIGN KEY (idSale) REFERENCES sales (idSale)
+    ON DELETE RESTRICT
+) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS culinary_units (
   idCulinaryUnit INT AUTO_INCREMENT PRIMARY KEY,

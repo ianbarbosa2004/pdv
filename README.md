@@ -34,8 +34,8 @@ A fundação inicial já está criada:
 - cadastros fiscais separados e persistidos para CFOP, CST/CSOSN, alíquotas de ICMS e demais listas das operações;
 - editor de montagem de cupons de 80 mm na Retaguarda, com campos ordenáveis,
   textos livres, divisores, preview e formatação por linha;
-- impressão de rede por TCP RAW/ESC-POS e impressão USB por GDI usando o driver
-  da impressora configurada para Cupom no Windows;
+- impressão direta por GDI usando o driver da impressora configurada para
+  Cupom no Windows;
 - seleção de fonte e tamanho em px por linha, com alinhamento e negrito
   aplicados também no caminho USB/GDI;
 - busca e filtro por categoria;
@@ -79,7 +79,7 @@ endpoint de venda confirmar uma transação completa no MariaDB.
 - `mysql2`;
 - DBeaver para administração opcional do banco;
 - `node:test` para testes;
-- ESC/POS para impressão térmica.
+- impressão térmica pelo driver do Windows e pelo diálogo do sistema.
 
 ## Requisitos de desenvolvimento
 
@@ -151,27 +151,21 @@ construído sem janela de console.
 
 ## Configuração do MariaDB
 
-Importe `database/schema.sql` pelo phpMyAdmin ou pelo cliente `mariadb`. O script cria o banco `pdv` e as tabelas iniciais. A instalação nova não recebe
-cargas automáticas de menus, empresa, formas de pagamento, tipos, unidades,
-catálogos fiscais ou configurações; esses registros devem ser cadastrados
-explicitamente.
-
-Crie um usuário exclusivo para a API, substituindo a senha demonstrativa por
-uma senha forte definida localmente:
-
-```sql
-CREATE USER 'pdv_app'@'localhost' IDENTIFIED BY 'SENHA_FORTE';
-GRANT SELECT, INSERT, UPDATE, DELETE ON pdv.* TO 'pdv_app'@'localhost';
-FLUSH PRIVILEGES;
-```
-
-Copie o arquivo de exemplo:
+Para uma instalação limpa do servidor Windows, execute o instalador
+automatizado. Ele cria o banco, o usuário da API, os segredos, o `.env`
+operacional, o serviço Windows e as permissões necessárias:
 
 ```powershell
-Copy-Item .env.example .env
+npm.cmd run install:windows-api
 ```
 
-Preencha `.env` somente localmente:
+Durante a execução, informe a senha administrativa do MariaDB no prompt
+oculto. Não é necessário copiar `.env`, gerar token ou executar SQL
+manualmente. A instalação nova não recebe cargas automáticas de menus,
+empresa, formas de pagamento, tipos, unidades, catálogos fiscais ou
+configurações; esses registros devem ser cadastrados explicitamente.
+
+Para desenvolvimento ou instalação manual, o `.env` deve conter:
 
 ```text
 PDV_API_HOST=0.0.0.0
@@ -182,6 +176,7 @@ PDV_DB_HOST=127.0.0.1
 PDV_DB_PORT=3306
 PDV_DB_NAME=pdv
 PDV_DB_USER=pdv_app
+# Somente para bootstrap/desenvolvimento; em produção Windows use o Credential Manager.
 PDV_DB_PASSWORD=(senha definida localmente)
 PDV_CERTIFICATE_ENCRYPTION_KEY=(chave base64 local de 32 bytes)
 PDV_NCM_SOURCE_URL=(opcional; fonte oficial de NCM)
@@ -196,7 +191,20 @@ armazenar certificados A1 e executar os testes NFC-e.
 A API exige `PDV_API_TOKEN` em todas as rotas `/api`. O cliente de
 desenvolvimento deve usar `VITE_PDV_API_TOKEN`; em uma distribuição Tauri,
 informe o mesmo segredo localmente com `--api-token` ou
-`VITE_PDV_API_TOKEN`. Não registre esse token no metadata da release.
+`VITE_PDV_API_TOKEN`. No terminal Windows, o token é protegido pelo DPAPI e
+não fica armazenado em texto claro no `offline-config.json`. Não registre esse
+token no metadata da release.
+
+O instalador automatizado provisiona a senha do MariaDB no Credential Manager.
+Os terminais nunca recebem `PDV_DB_PASSWORD`; recebem somente a URL da API e o
+token de API protegido pelo DPAPI.
+
+O `offline-config.json` pertence exclusivamente ao terminal Tauri e armazena
+preferências locais, atualmente `apiUrl` e `backupDirectory`. Ele não deve
+receber `PDV_DB_HOST`, `PDV_DB_PORT`, `PDV_DB_NAME`, `PDV_DB_USER`,
+`PDV_DB_PASSWORD`, `PDV_CERTIFICATE_ENCRYPTION_KEY`, URLs de fontes fiscais ou
+configurações da API. O token do terminal fica em `api-token.bin`, protegido
+pelo DPAPI, e não em texto claro nesse JSON.
 
 ### Dump para migração ao MariaDB
 
@@ -229,6 +237,11 @@ npm.cmd run api
 Sempre que houver alteração em `src/server/`, reinicie o processo da API antes
 de testar pelo frontend. A interface não deve ser validada contra uma instância
 antiga que permaneça ouvindo na porta `3000`.
+
+Em uma instalação publicada como serviço Windows, use `api.cmd` na raiz do
+checkout, em um terminal com privilégios de administrador, para parar e iniciar
+novamente o serviço `PDV-API`. O procedimento completo está em
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 Valide no servidor:
 
@@ -267,8 +280,12 @@ index.html                 # Entrada do frontend
 src/
   main.js                  # Bootstrap da interface
   styles.css               # Estilos da aplicação
+  backoffice/               # Tela inicial da Retaguarda
   sales/                   # Tela e fluxo inicial de venda
   catalog/                 # Telas administrativas de classes, grupos e produtos
+  settings/                # Configurações e Construtor de navegação
+  tools/                   # Ferramentas operacionais e Views
+  ui/                      # Componentes visuais e navegação compartilhada
   shared/                  # Regras compartilhadas de domínio
   server/                  # API, configuração e acesso ao MariaDB
 src-tauri/
@@ -471,13 +488,12 @@ O modelo contém linhas de campos, textos livres e divisores. Linhas de texto
 podem usar `Courier New`, `Arial`, `Consolas`, `Segoe UI`, `Tahoma` ou
 `Verdana`, com tamanhos entre 9 px e 28 px, alinhamento e negrito.
 
-No transporte USB, a tela usa exclusivamente a impressora definida em
+A tela usa exclusivamente a impressora definida em
 **Retaguarda > Configurações > Impressoras > Impressora padrão de Cupom**. O
-Tauri renderiza o cupom por GDI através do driver Windows; não envia ESC/POS
-para a fila USB. No transporte de rede, o Tauri envia ESC/POS por TCP RAW,
-normalmente na porta 9100. O caminho de impressão não confirma vendas: a venda
-deve estar persistida antes da impressão e uma falha de impressão não pode
-duplicar a operação.
+Tauri renderiza o cupom por GDI através do driver Windows. A pré-visualização
+usa o diálogo de impressão do sistema. O caminho de impressão não confirma
+vendas: a venda deve estar persistida antes da impressão e uma falha de
+impressão não pode duplicar a operação.
 
 ## Estado fiscal e NFC-e
 
@@ -501,19 +517,24 @@ de ser considerado pronto para produção.
 | `npm.cmd run api` | Inicia a API Node.js |
 | `npm.cmd run build` | Compila o frontend |
 | `npm.cmd test` | Executa os testes com `node:test` |
+| `npm.cmd run migrate:culinary-units` | Cria/atualiza referências culinárias |
 | `npm.cmd run migrate:uppercase` | Normaliza textos humanos existentes no MariaDB |
 | `npm.cmd run release:client -- --api-url=...` | Gera instaladores MSI/EXE com a API informada |
 | `npm.cmd exec tauri info` | Verifica o ambiente nativo |
 | `npm.cmd run tauri -- build --no-bundle` | Compila o aplicativo Tauri |
 
-Validação padrão:
+Validação mínima:
 
 ```powershell
 npm.cmd test
-npm.cmd run build
-node --check src/server/server.js
 git diff --check
 ```
+
+Execute `npm.cmd run build` quando a alteração envolver o bundle do frontend,
+configuração Vite/Tauri, versionamento ou quando uma validação de produção for
+necessária. Para alterações em JavaScript, use também `node --check` nos
+arquivos modificados. Não é necessário recompilar o projeto inteiro a cada
+alteração.
 
 `app.js` e `server.js` não existem na raiz deste repositório; o frontend é
 iniciado por Vite e a API fica em `src/server/server.js`.
@@ -545,7 +566,10 @@ estratégia de recuperação e autorização explícita.
 - Push direto é permitido somente para `main`, quando autorizado.
 - Nunca use `--force`, `--force-with-lease` ou exclusão de branch.
 - Não faça commit, push, merge ou deploy por inferência.
-- O servidor ainda não possui script oficial de publicação.
+- A instalação limpa e a publicação inicial recomendadas usam
+  `scripts/install-windows-api.ps1`, ou `npm.cmd run install:windows-api`.
+  O script solicita apenas a senha administrativa do MariaDB e executa as
+  etapas restantes automaticamente.
 
 Consulte:
 
@@ -557,7 +581,9 @@ Consulte:
 - [Automação de consolidação documental](docs/AUTOMATIONS.md#consolidar-documentação-do-pdv)
 - [Prompt de continuidade](docs/CONTINUITY-PROMPT.md)
 - [Instalação e publicação](docs/DEPLOYMENT.md)
-- [Instalação do serviço Windows da API](scripts/install-windows-service.ps1)
+- [Instalação automatizada da API no Windows](scripts/install-windows-api.ps1)
+- [Instalação compatível do serviço Windows](scripts/install-windows-service.ps1)
+- [Publicação da API como serviço dedicado](scripts/publish-windows-api-service.ps1)
 
 O executável Tauri local consulta a API em `http://127.0.0.1:3000`. Para um
 terminal apontar para o servidor da loja durante a compilação, prefira:

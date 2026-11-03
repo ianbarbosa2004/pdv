@@ -158,7 +158,7 @@ export function createPaymentMethodScreen({
         <section class="classic-grid-panel">
           <div class="classic-panel-header classic-list-header">
             <span>Formas de pagamento</span>
-            <input class="classic-list-search" data-search dir="ltr" type="search" placeholder="Pesquisar..." aria-label="Pesquisar formas de pagamento" value="${escapeHtml(searchTerm)}" />
+            <input class="classic-list-search" name="paymentMethodSearch" data-search dir="ltr" type="search" placeholder="Pesquisar..." aria-label="Pesquisar formas de pagamento" value="${escapeHtml(searchTerm)}" />
           </div>
           <div class="classic-grid-wrapper">
             ${loading

@@ -1,3 +1,5 @@
+import keytar from "keytar";
+
 const positiveInteger = (value, fallback) => {
   const parsed = Number.parseInt(value ?? "", 10);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
@@ -25,4 +27,20 @@ export function getConfig(env = process.env) {
     },
     certificateEncryptionKey: env.PDV_CERTIFICATE_ENCRYPTION_KEY || ""
   };
+}
+
+const getCredentialAccount = (config, env) =>
+  env.PDV_DB_CREDENTIAL_ACCOUNT
+  || `${config.database.user}@${config.database.host}:${config.database.port}/${config.database.name}`;
+
+export async function loadRuntimeConfig(env = process.env) {
+  const config = getConfig(env);
+  if (process.platform !== "win32") return config;
+  const service = env.PDV_DB_CREDENTIAL_SERVICE || "pdv-mariadb";
+  const account = getCredentialAccount(config, env);
+  const storedPassword = await keytar.getPassword(service, account);
+  if (storedPassword) {
+    config.database.password = storedPassword;
+  }
+  return config;
 }

@@ -44,7 +44,6 @@ const emptyCompany = {
   nfceHomologationCscCompany: "",
   nfceHomologationTokenCompany: "",
   nfceCertificateTypeCompany: "A1",
-  nfceCertificatePathCompany: "",
   nfceCertificateExpiresCompany: "",
   nfceCertificateSerialCompany: "",
   logoMimeCompany: "",

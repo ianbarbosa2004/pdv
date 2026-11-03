@@ -9,7 +9,6 @@
     "core:default",
     "core:window:allow-close",
     "core:window:allow-destroy",
-    "core:event:allow-listen",
-    "http:default"
+    "core:event:allow-listen"
   ]
 }

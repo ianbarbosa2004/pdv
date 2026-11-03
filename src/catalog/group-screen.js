@@ -88,7 +88,7 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onP
         <section class="classic-grid-panel">
           <div class="classic-panel-header classic-list-header">
             <span>Grupos</span>
-            <input class="classic-list-search" data-search type="search" placeholder="Pesquisar..." aria-label="Pesquisar grupos" value="${escapeHtml(searchTerm)}" />
+            <input class="classic-list-search" name="groupSearch" data-search type="search" placeholder="Pesquisar..." aria-label="Pesquisar grupos" value="${escapeHtml(searchTerm)}" />
           </div>
           <div class="classic-grid-wrapper">
             ${loading

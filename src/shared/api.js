@@ -7,6 +7,13 @@ const isTauriWindow = () =>
   window.location.protocol === "tauri:";
 
 const normalizeApiUrl = (value) => String(value ?? "").trim().replace(/\/+$/, "");
+const validateApiUrl = (value) => {
+  const normalized = normalizeApiUrl(value);
+  if (!/^https?:\/\/[^/\s]+(?::\d{1,5})?(?:\/[^/\s]*)?$/i.test(normalized)) {
+    throw new Error("Informe um endereço válido, como http://192.168.0.10:3000.");
+  }
+  return normalized;
+};
 
 let offlineConfig = {};
 
@@ -27,26 +34,8 @@ export const getConfiguredApiUrl = () =>
   normalizeApiUrl(offlineConfig.apiUrl) ||
   normalizeApiUrl(import.meta.env.VITE_PDV_API_URL);
 
-export const getConfiguredBackupDirectory = () =>
-  String(offlineConfig.backupDirectory ?? "").trim();
-
-export const saveConfiguredBackupDirectory = async (value) => {
-  const normalized = String(value ?? "").trim();
-  if (normalized.length > 500) {
-    throw new Error("O diretório de backup excede o limite permitido.");
-  }
-  offlineConfig = { ...offlineConfig, backupDirectory: normalized };
-  if (isTauriWindow()) {
-    await invoke("save_offline_config", { config: offlineConfig });
-  }
-  return normalized;
-};
-
 export const saveConfiguredApiUrl = async (value) => {
-  const normalized = normalizeApiUrl(value);
-  if (!/^https?:\/\/[^/\s]+(?::\d{1,5})?(?:\/[^/\s]*)?$/i.test(normalized)) {
-    throw new Error("Informe um endereço válido, como http://192.168.0.10:3000.");
-  }
+  const normalized = validateApiUrl(value);
   offlineConfig = { ...offlineConfig, apiUrl: normalized };
   if (isTauriWindow()) {
     await invoke("save_offline_config", { config: offlineConfig });
@@ -54,6 +43,8 @@ export const saveConfiguredApiUrl = async (value) => {
   window.__PDV_API_URL__ = normalized;
   return normalized;
 };
+
+export const validateConfiguredApiUrl = validateApiUrl;
 
 export const clearConfiguredApiUrl = async () => {
   if (isTauriWindow()) {
@@ -84,9 +75,32 @@ export const getApiUrl = () => {
 export const getApiToken = () =>
   String(window.__PDV_API_TOKEN__ || import.meta.env.VITE_PDV_API_TOKEN || offlineConfig.apiToken || "").trim();
 
+export const getOperatorSessionToken = () =>
+  String(window.__PDV_OPERATOR_SESSION__ || offlineConfig.operatorSessionToken || "").trim();
+
+export const saveOperatorSessionToken = async (token) => {
+  const normalized = String(token ?? "").trim();
+  offlineConfig = { ...offlineConfig, operatorSessionToken: normalized };
+  if (isTauriWindow()) {
+    await invoke("save_offline_config", { config: offlineConfig });
+  }
+  window.__PDV_OPERATOR_SESSION__ = normalized;
+};
+
+export const clearOperatorSessionToken = async () => {
+  delete offlineConfig.operatorSessionToken;
+  if (isTauriWindow()) {
+    await invoke("save_offline_config", { config: offlineConfig });
+  }
+  delete window.__PDV_OPERATOR_SESSION__;
+  delete window.__PDV_OPERATOR__;
+};
+
 export const apiFetch = (url, options = {}) => {
   const headers = new Headers(options.headers || {});
   const token = getApiToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
+  const operatorSession = getOperatorSessionToken();
+  if (operatorSession) headers.set("X-Operator-Session", operatorSession);
   return fetch(url, { ...options, headers });
 };

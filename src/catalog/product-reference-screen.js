@@ -199,7 +199,7 @@ export function createProductReferenceScreen({
           </div>
         </form>
         <section class="classic-grid-panel">
-          <div class="classic-panel-header classic-list-header"><span>${definition.title}</span><input class="classic-list-search" data-search type="search" placeholder="Pesquisar..." aria-label="Pesquisar ${definition.plural}" value="${escapeHtml(searchTerm)}" /></div>
+          <div class="classic-panel-header classic-list-header"><span>${definition.title}</span><input class="classic-list-search" name="productReferenceSearch" data-search type="search" placeholder="Pesquisar..." aria-label="Pesquisar ${definition.plural}" value="${escapeHtml(searchTerm)}" /></div>
           <div class="classic-grid-wrapper">
             ${loading ? `<p class="classic-empty">Carregando ${definition.plural}...</p>` : visibleItems.length ? `
               <table class="classic-table">

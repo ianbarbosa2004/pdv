@@ -1,8 +1,4 @@
-import { apiFetch, getApiUrl,
-  getConfiguredBackupDirectory,
-  saveConfiguredBackupDirectory
- } from "../shared/api.js";
-import { invoke } from "@tauri-apps/api/core";
+import { apiFetch, getApiUrl } from "../shared/api.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
@@ -53,15 +49,11 @@ export function createBackupScreen({
 }) {
   const root = document.createElement("main");
   let backups = [];
-  let backupDirectory = "";
-  let configuredBackupDirectory = getConfiguredBackupDirectory();
   let loading = true;
   let submitting = false;
   let error = "";
   let message = "";
   const scheduleMessageClear = createFeedbackTimer();
-  const isTauriWindow = () => Boolean(window.__TAURI_INTERNALS__);
-
   const request = async (path, options = {}) => {
     const requestOptions = {
       ...options,
@@ -78,10 +70,9 @@ export function createBackupScreen({
     render();
     try {
       const payload = await request(
-        `/api/backups?directory=${encodeURIComponent(configuredBackupDirectory)}`
+        "/api/backups"
       );
       backups = payload.backups || [];
-      backupDirectory = payload.directory || "";
       error = "";
     } catch (loadError) {
       error = loadError instanceof Error ? loadError.message : String(loadError);
@@ -99,7 +90,7 @@ export function createBackupScreen({
     try {
       const { backup } = await request("/api/backups", {
         method: "POST",
-        body: JSON.stringify({ backupDirectory: configuredBackupDirectory })
+        body: JSON.stringify({})
       });
       message = `Backup criado: ${backup.fileName} (${formatSize(backup.size)}).`;
       await load();
@@ -131,7 +122,6 @@ export function createBackupScreen({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           backupBase64: toBase64(await file.arrayBuffer()),
-          backupDirectory: configuredBackupDirectory
         })
       });
       message = `Backup restaurado: ${result.result.rowCount} registro(s) em ${result.result.tableCount} tabela(s).`;
@@ -144,32 +134,26 @@ export function createBackupScreen({
     }
   };
 
-  const pickDirectory = async () => {
-    if (!isTauriWindow()) {
-      error = "A seleção de pastas está disponível na aplicação instalada.";
-      render();
-      return;
-    }
-    try {
-      const selectedDirectory = await invoke("pick_backup_directory");
-      if (!selectedDirectory) return;
-      configuredBackupDirectory = String(selectedDirectory);
-      const input = root.querySelector("[data-backup-directory]");
-      if (input) input.value = configuredBackupDirectory;
-      error = "";
-    } catch (pickError) {
-      error = pickError instanceof Error ? pickError.message : String(pickError);
-      render();
-    }
-  };
-
-  const downloadBackup = (fileName) => {
-    const anchor = document.createElement("a");
-    anchor.href = `${getApiUrl()}/api/backups/download/${encodeURIComponent(fileName)}?directory=${encodeURIComponent(configuredBackupDirectory)}`;
-    anchor.download = fileName;
-    anchor.click();
-    message = `Download iniciado: ${fileName}.`;
+  const downloadBackup = async (fileName) => {
+    message = "";
     error = "";
+    try {
+      const response = await apiFetch(`${getApiUrl()}/api/backups/download/${encodeURIComponent(fileName)}`);
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || "Não foi possível baixar o backup.");
+      }
+      const objectUrl = URL.createObjectURL(await response.blob());
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = fileName;
+      anchor.click();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+      message = `Download iniciado: ${fileName}.`;
+      error = "";
+    } catch (downloadError) {
+      error = downloadError instanceof Error ? downloadError.message : String(downloadError);
+    }
     render();
     scheduleMessageClear(() => { message = ""; clearRenderedFeedback(root); });
   };
@@ -190,7 +174,7 @@ export function createBackupScreen({
           <div class="classic-panel-header">Operações de backup</div>
           <div class="classic-form-body">
             <p class="classic-empty">Os arquivos são gravados no servidor da API, sem expor as credenciais do MariaDB ao terminal.</p>
-            ${backupDirectory ? `<p class="api-service-note"><strong>Destino atual</strong><br><code>${escapeHtml(backupDirectory)}</code></p>` : ""}
+            <p class="api-service-note"><strong>Destino controlado pelo servidor</strong><br>O terminal não escolhe nem recebe o caminho físico dos backups.</p>
             ${renderSuccessFeedback(message, escapeHtml)}
             ${error ? `<p class="error-message">${escapeHtml(error)}</p>` : ""}
             <div class="classic-form-actions backup-primary-actions">
@@ -199,18 +183,7 @@ export function createBackupScreen({
               <input id="backup-file" data-restore type="file" accept=".gz,application/gzip" hidden ${submitting ? "disabled" : ""}>
               <button class="classic-button" data-refresh type="button" ${loading || submitting ? "disabled" : ""}>Atualizar lista</button>
             </div>
-            <div class="backup-directory-actions">
-              <label class="backup-directory-label" for="backup-directory">Pasta dos backups no servidor da API</label>
-              <div class="backup-directory-picker">
-                <input id="backup-directory" class="classic-input" data-backup-directory value="${escapeHtml(configuredBackupDirectory)}" placeholder="Padrão automático do servidor" readonly>
-                <button class="classic-button folder-picker-button" data-pick-directory type="button" ${submitting ? "disabled" : ""} title="Procurar pasta" aria-label="Procurar pasta">
-                  <span aria-hidden="true">🖥</span>
-                  <span>Procurar</span>
-                </button>
-                <button class="classic-button" data-save-directory type="button" ${submitting ? "disabled" : ""}>Salvar destino</button>
-              </div>
-              <small>Escolha uma pasta que exista no computador que hospeda a API.</small>
-            </div>
+            <p class="classic-empty">O destino é configurado no servidor pela variável <code>PDV_BACKUP_DIR</code> ou pelo diretório padrão da API.</p>
           </div>
         </section>
         <section class="classic-grid-panel backup-list-panel">
@@ -231,21 +204,7 @@ export function createBackupScreen({
     root.querySelector("[data-create]")?.addEventListener("click", () => void create());
     root.querySelector("[data-refresh]")?.addEventListener("click", () => void load());
     root.querySelectorAll("[data-download-backup]").forEach((button) => {
-      button.addEventListener("click", () => downloadBackup(button.dataset.downloadBackup));
-    });
-    root.querySelector("[data-pick-directory]")?.addEventListener("click", () => void pickDirectory());
-    root.querySelector("[data-save-directory]")?.addEventListener("click", async () => {
-      try {
-        configuredBackupDirectory = await saveConfiguredBackupDirectory(
-          root.querySelector("[data-backup-directory]")?.value
-        );
-        message = "Destino de backup salvo neste terminal.";
-        await load();
-        scheduleMessageClear(() => { message = ""; clearRenderedFeedback(root); });
-      } catch (saveError) {
-        error = saveError instanceof Error ? saveError.message : String(saveError);
-        render();
-      }
+      button.addEventListener("click", () => void downloadBackup(button.dataset.downloadBackup));
     });
     root.querySelector("[data-restore]")?.addEventListener("change", (event) => void restore(event.currentTarget.files?.[0]));
   };

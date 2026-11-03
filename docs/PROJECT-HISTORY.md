@@ -7,6 +7,98 @@ inicial do produto até o estado atual do workspace. Ele complementa o
 
 ## 0. Estado mais recente
 
+### Consolidação funcional e versionamento — 2026-11-03
+
+As alterações acumuladas em 2 e 3 de novembro consolidam uma nova capacidade
+compatível e justificam a versão **0.9.0**: autenticação e sessão de operadores,
+abertura e fechamento de caixa, cancelamento auditado, integração NFC-e em
+homologação, cadastro/importação de produtos e destino de impressão, além das
+regras de baixa e disponibilidade de estoque.
+
+Na regra de estoque, `controlsStockProduct` é lido antes da validação e da
+baixa. A configuração `allowNegativeStock` também é aplicada à consulta
+padrão de produtos usada pela Frente de Caixa: quando ativa, produtos
+controlados com estoque zero ou negativo permanecem visíveis; quando inativa,
+eles só aparecem com estoque positivo. Produtos sem controle de estoque
+continuam disponíveis. Consultas administrativas com `includeInactive=1`
+preservam o catálogo completo.
+
+O campo de destino de impressão foi consolidado como `printsPlace`, com
+migração idempotente do campo booleano legado, valores fechados e padrão
+`NÃO IMPRIMIR`. A importação CSV aceita também Status, com referências
+operacionais geradas pela interface. A validação final desta etapa alcançou
+90 testes aprovados, verificação de sintaxe JavaScript e `git diff --check`.
+Não foi executado build, publicação ou reinício do serviço; alterações em
+`src/server/` exigem publicar a API e reiniciar `PDV-API`, enquanto alterações
+somente de frontend exigem novo bundle nos terminais.
+
+As verificações idempotentes de banco foram extraídas de `server.js` para o
+módulo profundo `src/server/schema-manager.js`, cuja interface recebe apenas
+`pool` e `config` e devolve as operações de preparação usadas pelas rotas e
+pelo startup. A preparação NCM/CEST foi concentrada em
+`src/server/ncm-cest-update.js`; a inicialização e a atualização dos catálogos
+agora reutilizam a mesma definição das quatro tabelas, eliminando a duplicação
+de DDL entre o roteador e o atualizador fiscal.
+
+Na continuidade da auditoria, os scripts de serviço Windows foram revisados
+antes de qualquer execução operacional. `publish-windows-api-service.ps1` e
+`configure-windows-service-account.ps1` não criam mais arquivo SQL temporário:
+o SQL com a senha gerada é enviado por pipe ao cliente `mysql`. A criação ou
+atualização da conta `PDVApiSvc` usa explicitamente o objeto
+`SecureString` correspondente. Os scripts foram analisados pelo parser do
+PowerShell, mas a publicação real e a alteração do serviço permaneceram
+bloqueadas por falta de autorização explícita.
+
+Esta etapa foi validada com 58 testes, `node --check` nos módulos JavaScript,
+análise sintática dos scripts PowerShell e `git diff --check`. Não houve build
+completo, deploy, publicação ou reinício da API; alterações somente em scripts
+e documentação não exigem reinício.
+
+Na auditoria de desempenho, a busca da Frente de Caixa deixou de reconstruir
+o DOM completo a cada tecla. Somente o grid de produtos é atualizado, sem
+alterar o contrato da API, o carrinho ou o modal de pagamento. A paginação do
+catálogo permanece pendente de medição e decisão de contrato.
+
+A tela de cadastro de produtos também deixou de baixar o catálogo completo de
+NCMs durante a abertura. A lista fiscal agora é carregada ao abrir o modal de
+consulta, sem cache persistente e sem alteração do contrato da API.
+
+Na auditoria de interface e acessibilidade, o Lighthouse identificou
+contraste insuficiente em textos secundários da Frente de Caixa, incluindo
+textos auxiliares do carrinho. As cores foram ajustadas e os campos de pesquisa
+receberam `name` explícito, sem alteração do fluxo de venda ou do contrato da
+API.
+
+A medição de volume dos catálogos encontrou 75 produtos, 19 grupos, 10.508
+NCMs e 947 CESTs. Produtos e grupos permanecem pequenos o suficiente para
+filtragem local; NCM/CEST deve ser considerado para consulta server-side em
+etapa futura, pois a tela fiscal dedicada ainda carrega os catálogos completos.
+
+Essa etapa implementou a consulta server-side de NCM/CEST na tela dedicada,
+com `page`, `pageSize`, `search`, `total`, `pageCount` e preservação do formato
+completo legado sem parâmetros. O formulário de produtos continua usando a
+lista completa somente quando abre sua consulta sob demanda.
+
+O reinício posterior da API publicada confirmou `/api/health` HTTP 200 e banco
+conectado, mas as rotas paginadas retornaram 404 porque a aplicação em
+`C:\ProgramData\PDV\app` ainda é a versão anterior. A publicação da alteração
+permanece pendente de autorização explícita.
+
+Após novo bundle, instalação e reinício informados pelo operador, a inspeção
+confirmou que o arquivo publicado `src/server/server.js` ainda não contém
+`parseCatalogPagination`. O serviço está saudável, porém o conteúdo instalado
+continua anterior ao checkout.
+
+O serviço Windows da API foi separado do checkout de desenvolvimento. A
+instalação publicada mantém a aplicação em `C:\ProgramData\PDV\app`, o wrapper
+WinSW em `C:\ProgramData\PDV\service` e os logs em
+`C:\ProgramData\PDV\logs`. O serviço `PDV-API` executa com a conta local
+dedicada `.\PDVApiSvc`, que recebe somente as permissões necessárias para ler a
+aplicação e gravar logs. A senha do usuário `pdv_app` fica no Credential Manager
+do perfil da conta de serviço; o `.env` não deve conter essa senha após o
+provisionamento. O procedimento recomendado e a diferença em relação ao
+instalador legado `LocalService` estão em [`DEPLOYMENT.md`](DEPLOYMENT.md).
+
 O feedback de sucesso das telas administrativas é exibido em um overlay modal
 temporário, centralizado e fora do fluxo de layout. O helper compartilhado
 mantém o status acessível, remove o overlay após aproximadamente 2,5 segundos
@@ -63,13 +155,22 @@ incluindo logo e ícone, durante o carregamento. O painel introdutório de
 Operações Fiscais foi removido para deixar o formulário da empresa diretamente
 acessível.
 
-O versionamento deixou de ser alterado por builds. `npm.cmd run build` e
-`npm.cmd run release:client` usam a versão atual; incrementos exigem
-`version:patch`, `version:minor` ou `version:major`. Os instaladores finais
+O versionamento automático continua ligado ao hook `prebuild` e ao fluxo
+`prerelease:client`: `npm.cmd run build` e `npm.cmd run release:client`
+classificam e incrementam a versão quando há alteração pendente. Incrementos
+manuais continuam disponíveis com `version:patch`, `version:minor` ou
+`version:major`. Os instaladores finais
 usam os nomes fixos `pdv-zanzibar.msi`, `pdv-zanzibar.exe` e
 `pdv-zanzibar-metadata.json`, sem versão no nome do arquivo. O script de
 release seleciona somente os artefatos da versão corrente e só regenera ícones
 quando `--refresh-icons` é solicitado.
+
+As vendas protegem a idempotência comparando itens, desconto e pagamentos
+quando um `clientIdSale` já existe. Pagamentos mistos com Vale consomem somente
+o valor associado à forma Vale. A impressão direta usa o driver Windows/GDI,
+e o token da API persistido no terminal é protegido pelo DPAPI do Windows. A
+Frente de Caixa não apresenta caixa ou operador como ativos antes da
+implementação desses controles.
 
 O Status da API exibe separadamente a versão do aplicativo, a versão da API e
 o fingerprint do frontend. A API deriva sua versão do `package.json`, enquanto
@@ -307,10 +408,8 @@ Foi criada a bancada de impressão térmica para montar e persistir um modelo de
 cupom de 80 mm. O layout suporta campos dinâmicos, textos livres, divisores,
 ordenação, alinhamento, tamanho, negrito e fontes compatíveis.
 
-Os transportes implementados são:
-
-- rede TCP RAW/ESC-POS, normalmente na porta 9100;
-- USB por meio do driver Windows/GDI da impressora de Cupom configurada.
+O transporte direto usa o driver Windows/GDI da impressora de Cupom
+configurada. A pré-visualização usa o diálogo de impressão do sistema.
 
 A impressão ocorre localmente no terminal e somente depois da confirmação da
 venda. Uma falha de impressão deve ser informada sem duplicar nem desfazer
@@ -378,6 +477,30 @@ A tela inicial da Retaguarda monta atalhos a partir da navegação persistida.
 Descrições vazias usam o fallback textual correspondente à chave técnica.
 Itens marcados como atalho, mas sem handler resolvido, não são exibidos como
 cartões executáveis.
+
+Após o login, a seleção de ambiente passou a separar **Vendas**, **Caixa** e
+**Retaguarda**. A tela inicial da Retaguarda usa somente os itens marcados como
+atalho no Construtor e ordena os cartões pela mesma ordem persistida de menus e
+itens. O cabeçalho consulta o operador autenticado e o estado real do caixa;
+alertas não são simulados quando não existe fonte correspondente na API.
+
+Na continuação desse fluxo, a seleção passou a usar cards de módulos com ícones
+Lucide para Vendas, Caixa e Retaguarda. Os títulos das telas reutilizam o operador autenticado, e as barras
+contextuais não exibem links de retorno.
+Operações Fiscais mantém o item pai como primeiro item da barra contextual,
+seguido pelos cadastros fiscais.
+
+A seleção pós-login foi organizada em uma grade de módulos inspirada na
+referência visual fornecida. A grade mantém somente os três ambientes
+aprovados — Vendas, Caixa e Retaguarda — e deixa Trocar usuário como ação
+auxiliar fora da grade.
+
+Na auditoria da navegação persistida, **Operações Fiscais** foi separado em
+duas entradas: o item principal do menu permanece `item` na ordem 6, enquanto
+a entrada homônima da barra contextual é um filho `bar` na ordem 1. A
+sincronização de defaults cria a entrada contextual ausente sem renumerar
+itens existentes; a seleção da barra usa essa entrada sem duplicar o item
+principal.
 
 ## 11. Refinamentos de interface
 
@@ -458,8 +581,7 @@ atual:
   NFC-e mantém dados cadastrais separados, protege o certificado no servidor e
   limita diagnóstico e autorização ao fluxo previsto de homologação.
 - **Impressão:** o layout de cupom de 80 mm ganhou campos, texto, divisores,
-  formatação por linha, transporte TCP RAW/ESC-POS e USB/GDI pela impressora
-  configurada.
+  formatação por linha e impressão USB/GDI pela impressora configurada.
 - **Navegação e Retaguarda:** menus, itens, submenus, barras contextuais,
   atalhos, descrições, ordem e status passaram a ser administráveis; os menus
   técnicos permanecem protegidos.
@@ -470,7 +592,8 @@ atual:
   NCM/CEST e formatação NFC-e. O serviço Windows `PDV-API`, seus scripts de
   instalação/status/remoção e o procedimento de publicação estão documentados
   em `docs/DEPLOYMENT.md`. Continuam pendentes integração MariaDB controlada,
-  caixa, autenticação de operadores e emissão fiscal completa.
+  emissão fiscal completa, integração visual do cancelamento e política
+  definitiva de atualização dos terminais.
 
 Este documento descreve o estado funcional conhecido no workspace atual. Ele
 não substitui validação do Git, do banco ou do ambiente de execução. Antes de
@@ -482,13 +605,80 @@ artefato gerado entrou no escopo.
 
 Ainda não estão concluídos:
 
-- autenticação e autorização de operadores;
-- abertura, fechamento, sangria e suprimento de caixa;
-- emissão fiscal completa em produção;
+- emissão fiscal completa em produção, incluindo numeração transacional,
+  armazenamento de XML/chave e reconciliação;
 - cancelamento, inutilização e contingência NFC-e;
 - política definitiva de atualização dos terminais;
 - suíte de integração MariaDB em ambiente controlado;
-- definição completa de auditoria e cancelamento de vendas.
+- integração operacional publicada e validada com banco de teste controlado.
 
 As pendências não alteram a arquitetura atual nem autorizam procedimentos
 improvisados fora de `docs/DEPLOYMENT.md`.
+
+### Auditoria de operadores e caixa — 2026-11-02
+
+A implementação foi concluída em schema, API, interface e testes: existem
+operadores, sessões expiráveis, papéis, abertura/fechamento de caixa,
+suprimento, sangria e vínculo da venda com operador e sessão de caixa. O
+cancelamento auditado foi implementado posteriormente como uma fatia própria.
+
+Foi aprovada como opção pós-auditorias a detecção do papel servidor/terminal
+por capacidades informadas pela API, com controle de telas no frontend e
+autorização server-side. A futura implementação deverá evitar usar somente
+`127.0.0.1` ou uma configuração local como critério de segurança.
+
+Na auditoria de 2026-11-03, confirmou-se que essa capacidade ainda não existe:
+a API não diferencia o computador servidor dos terminais que acessam o mesmo
+endpoint com o token compartilhado. O resultado foi mantido como decisão
+consciente de não criar uma flag de frontend ou confiar em hostname/endereço
+local. A proteção de backup permanece válida porque o caminho físico é decidido
+somente no servidor.
+
+### Auditoria de NFC-e e certificado — 2026-11-03
+
+A inconsistência de certificado A3 foi encerrada: a interface e a API aceitam
+somente certificado A1 em arquivo PKCS#12 (`.pfx`/`.p12`), que é o único formato
+processado pelo backend. A3 não é apresentado como recurso disponível.
+
+A primeira etapa de integração foi definida para permitir a escolha por venda:
+`emitNfce: true` cria uma reserva numérica e um documento fiscal `pending`
+dentro da transação da venda; a chamada à SEF/MG ocorre após o commit e grava
+XML, chave, protocolo, cStat e mensagem quando disponíveis. Os estados são
+`authorized`, `rejected` e `unknown`; sem solicitação, a venda fica
+`completed` com estado fiscal `not_requested` e não consome numeração. Essa
+etapa continua restrita à homologação. Cancelamento/inutilização,
+contingência offline, reenvio e reconciliação posterior permanecem pendentes.
+
+### Primeira etapa de cancelamento auditado — 2026-11-03
+
+Foi implementada a primeira fatia vertical do cancelamento de vendas:
+
+- somente supervisor e admin podem cancelar;
+- o motivo é obrigatório e deve ter pelo menos cinco caracteres;
+- a venda não é apagada; recebe status cancelado, operador, horário e motivo;
+- o estoque controlado é reposto na mesma transação;
+- pagamentos da conta Caixa geram movimento `sale_cancellation` e reduzem o
+  valor esperado do caixa;
+- Vale aberto é marcado como cancelado;
+- venda já cancelada é tratada de forma idempotente;
+- falhas de persistência fazem rollback completo.
+
+A rota protegida é `POST /api/sales/:idSale/cancel`. A migração idempotente
+adiciona os campos de auditoria da venda, a chave estrangeira do operador que
+cancelou e o novo tipo de movimento de caixa. A interface ainda não apresenta
+o comando visual de cancelamento; a próxima fatia deve cobrir esse fluxo e
+seus testes de contrato HTTP.
+
+### Integração visual do cancelamento — 2026-11-03
+
+A Frente de Caixa passou a oferecer a consulta sob demanda de vendas recentes.
+O modal lista as últimas vendas, mostra o estado e o operador responsável e,
+para `supervisor`/`admin`, permite iniciar o cancelamento com confirmação e
+motivo em formulário próprio. O frontend não usa diálogos nativos.
+
+A API ganhou `GET /api/sales?limit=20`, limitado a cem registros, para
+alimentar essa consulta. O cancelamento continua usando a rota transacional
+`POST /api/sales/:idSale/cancel`. A validação automatizada passou a 77 testes.
+Ainda é necessário gerar e distribuir um novo bundle para validar a tela no
+terminal; a API publicada também precisa receber esta versão antes da
+validação integrada.

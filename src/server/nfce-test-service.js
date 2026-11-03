@@ -47,6 +47,25 @@ const fixed = (value, length) => String(value).padStart(length, "0");
 
 const normalizeSeries = (value) => String(Number.parseInt(String(value), 10) || 0);
 
+const normalizePaymentName = (value) =>
+  String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLocaleUpperCase("pt-BR");
+
+export const fiscalPaymentTypeCode = (name) => {
+  const normalizedName = normalizePaymentName(name);
+  if (normalizedName === "PIX" || normalizedName === "QR CODE") return "17";
+  if (normalizedName.includes("CARTAO") && normalizedName.includes("CREDITO")) return "03";
+  if (normalizedName.includes("CARTAO") && normalizedName.includes("DEBITO")) return "04";
+  if (normalizedName === "CHEQUE") return "02";
+  if (normalizedName === "VALE") return "05";
+  if (normalizedName === "BOLETO") return "15";
+  if (normalizedName === "DINHEIRO") return "01";
+  return "99";
+};
+
 const createHomologationTestNumber = () => {
   const number = Number(String(Date.now()).slice(-9));
   return number > 0 ? number : 1;
@@ -278,6 +297,85 @@ const buildNfeXml = ({ company, product, operation, number, accessKey }) => {
   return { xml: infNfe, total };
 };
 
+export const buildSaleNfeXml = ({ company, items, sale, payments, operation, number, accessKey }) => {
+  const document = onlyDigits(company.documentCompany);
+  const municipalityCode = onlyDigits(company.municipalityCodeCompany);
+  if (!/^\d{7}$/.test(municipalityCode)) {
+    throw new Error("Informe o código IBGE de sete dígitos do município da empresa.");
+  }
+  const cfop = onlyDigits(operation?.cfopFiscalOperation || "5102") || "5102";
+  const cst = String(operation?.taxSituationFiscalOperation || "102").replace(/\D/g, "") || "102";
+  const origin = String(operation?.originFiscalOperation || "0").replace(/\D/g, "").slice(0, 1) || "0";
+  const tp = cst.length === 3 ? `<CSOSN>${cst}</CSOSN>` : `<CST>${fixed(cst, 2)}</CST>`;
+  const itemXml = items.map((item, index) => {
+    const quantity = Number(item.quantitySaleItem).toFixed(3);
+    const unitPrice = Number(item.unitPriceSaleItem).toFixed(2);
+    const total = Number(item.lineTotalSaleItem).toFixed(2);
+    const ncm = onlyDigits(item.ncmProduct);
+    if (!/^\d{8}$/.test(ncm)) {
+      throw new Error(`O produto "${item.productNameSaleItem}" precisa de NCM com oito dígitos.`);
+    }
+    return `
+<det nItem="${index + 1}">
+  <prod>
+    <cProd>${escapeXml(item.skuProduct || item.idProduct)}</cProd>
+    <cEAN>SEM GTIN</cEAN>
+    <xProd>${escapeXml(index === 0 ? HOMOLOGATION_PRODUCT_DESCRIPTION : item.productNameSaleItem)}</xProd>
+    <NCM>${ncm}</NCM>
+    <CFOP>${cfop}</CFOP>
+    <uCom>UN</uCom>
+    <qCom>${quantity}</qCom>
+    <vUnCom>${unitPrice}</vUnCom>
+    <vProd>${total}</vProd>
+    <cEANTrib>SEM GTIN</cEANTrib>
+    <uTrib>UN</uTrib>
+    <qTrib>${quantity}</qTrib>
+    <vUnTrib>${unitPrice}</vUnTrib>
+    <indTot>1</indTot>
+  </prod>
+  <imposto>
+    <vTotTrib>0.00</vTotTrib>
+    <ICMS><ICMSSN102><orig>${origin}</orig>${tp}</ICMSSN102></ICMS>
+    <PIS><PISNT><CST>07</CST></PISNT></PIS>
+    <COFINS><COFINSNT><CST>07</CST></COFINSNT></COFINS>
+  </imposto>
+</det>`;
+  }).join("");
+  const paymentXml = payments.map((payment) =>
+    `<detPag><tPag>${fiscalPaymentTypeCode(payment.namePaymentMethod)}</tPag><vPag>${(Number(payment.amountSalePayment) / 100).toFixed(2)}</vPag></detPag>`
+  ).join("");
+  const total = Number(sale.totalSale).toFixed(2);
+  const subtotal = Number(sale.subtotalSale).toFixed(2);
+  const discount = Number(sale.discountSale).toFixed(2);
+  return `
+<infNFe xmlns="${NFE_NS}" Id="NFe${accessKey}" versao="4.00">
+  <ide>
+    <cUF>31</cUF><cNF>${accessKey.slice(-9, -1)}</cNF>
+    <natOp>${escapeXml(operation?.operationNatureFiscalOperation || "Venda de mercadoria")}</natOp>
+    <mod>65</mod><serie>${normalizeSeries(company.nfceSeriesCompany)}</serie><nNF>${number}</nNF>
+    <dhEmi>${formatNfeDateTime()}</dhEmi><tpNF>1</tpNF><idDest>1</idDest><cMunFG>${municipalityCode}</cMunFG>
+    <tpImp>4</tpImp><tpEmis>1</tpEmis><cDV>${accessKey.slice(-1)}</cDV><tpAmb>2</tpAmb>
+    <finNFe>1</finNFe><indFinal>1</indFinal><indPres>1</indPres><procEmi>0</procEmi><verProc>PDV-HML</verProc>
+  </ide>
+  <emit>
+    <CNPJ>${document}</CNPJ><xNome>${escapeXml(company.corporateNameCompany || company.tradeNameCompany)}</xNome>
+    <xFant>${escapeXml(company.tradeNameCompany || company.corporateNameCompany)}</xFant>
+    <enderEmit><xLgr>${escapeXml(company.addressCompany)}</xLgr><nro>${escapeXml(company.addressNumberCompany || "S/N")}</nro>
+      <xBairro>${escapeXml(company.neighborhoodCompany || "Centro")}</xBairro><cMun>${municipalityCode}</cMun>
+      <xMun>${escapeXml(company.cityCompany)}</xMun><UF>MG</UF><CEP>${onlyDigits(company.zipCodeCompany)}</CEP>
+      <cPais>1058</cPais><xPais>Brasil</xPais></enderEmit>
+    ${company.stateRegistrationCompany ? `<IE>${onlyDigits(company.stateRegistrationCompany)}</IE>` : ""}<CRT>1</CRT>
+  </emit>${itemXml}
+  <total><ICMSTot><vBC>0.00</vBC><vICMS>0.00</vICMS><vICMSDeson>0.00</vICMSDeson>
+    <vFCP>0.00</vFCP><vBCST>0.00</vBCST><vST>0.00</vST><vFCPST>0.00</vFCPST><vFCPSTRet>0.00</vFCPSTRet>
+    <vProd>${subtotal}</vProd><vFrete>0.00</vFrete><vSeg>0.00</vSeg><vDesc>${discount}</vDesc><vII>0.00</vII>
+    <vIPI>0.00</vIPI><vIPIDevol>0.00</vIPIDevol><vPIS>0.00</vPIS><vCOFINS>0.00</vCOFINS>
+    <vOutro>0.00</vOutro><vNF>${total}</vNF></ICMSTot></total>
+  <transp><modFrete>9</modFrete></transp><pag>${paymentXml}</pag>
+  <infAdic><infCpl>NOTA FISCAL EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL.</infCpl></infAdic>
+</infNFe>`.replace(/^\s+/gm, "").trim();
+};
+
 const requestAuthorization = ({ xml, qrCode, qrCodeUrl, pfx, password }) =>
   new Promise((resolve, reject) => {
     const body = `<soap12:Envelope xmlns:soap12="${SOAP_NS}">
@@ -368,7 +466,7 @@ export async function buildNfceDiagnostic({
   const qrHash = createHash("sha1")
     .update(`${accessKey}|2|${token}|${company.nfceHomologationCscCompany}`, "utf8")
     .digest("hex");
-  const qrCodeUrl = `https://portalsped.fazenda.mg.gov.br/portalnfce/sistema/qrcode.xhtml?p=${accessKey}|2|2|${token}|${qrHash}`;
+  const qrCodeUrl = `https://hportalsped.fazenda.mg.gov.br/portalnfce/sistema/qrcode.xhtml?p=${accessKey}|2|2|${token}|${qrHash}`;
   const keyLookupUrl = "https://hportalsped.fazenda.mg.gov.br/portalnfce";
   const qrCode = qrCodeUrl;
   const supplementalXml = `<infNFeSupl><qrCode><![CDATA[${qrCode}]]></qrCode><urlChave>${escapeXml(keyLookupUrl)}</urlChave></infNFeSupl>`;
@@ -407,7 +505,7 @@ export async function runNfceHomologationTest({
   });
   return {
     environment: "homologation",
-    status: result.cStat === "100" ? "authorized" : "rejected",
+    status: result.cStat === "100" ? "authorized" : result.cStat ? "rejected" : "unknown",
     cStat: result.cStat,
     message: result.xMotivo,
     protocol: result.protocol,
@@ -415,5 +513,67 @@ export async function runNfceHomologationTest({
     number: diagnostic.number,
     total: diagnostic.total,
     product: diagnostic.product
+  };
+}
+
+export async function authorizeSaleNfce({
+  company,
+  items,
+  sale,
+  payments,
+  operation,
+  fiscalDocument,
+  certificateData,
+  certificatePassword
+}) {
+  if (company.nfceEnvironmentCompany !== "homologation") {
+    throw new Error("A emissão integrada só está habilitada em homologação.");
+  }
+  if (company.nfceCertificateTypeCompany !== "A1"
+    || !certificateData || !certificatePassword
+    || !company.nfceHomologationCscCompany || !company.nfceHomologationTokenCompany) {
+    throw new Error("Configure certificado A1, senha, CSC e token de homologação.");
+  }
+  const accessKey = buildAccessKey({
+    document: company.documentCompany,
+    series: fiscalDocument.series,
+    number: fiscalDocument.number
+  });
+  const privateKey = getPrivateKey(certificateData, certificatePassword);
+  const publicCert = getCertificatePem(certificateData, certificatePassword);
+  const xml = buildSaleNfeXml({
+    company,
+    items,
+    sale,
+    payments,
+    operation,
+    number: fiscalDocument.number,
+    accessKey
+  });
+  const signedXml = signNfe(xml, privateKey, publicCert);
+  const token = String(company.nfceHomologationTokenCompany)
+    .replace(/\D/g, "").replace(/^0+(?=\d)/, "") || "0";
+  const qrHash = createHash("sha1")
+    .update(`${accessKey}|2|${token}|${company.nfceHomologationCscCompany}`, "utf8")
+    .digest("hex");
+  const qrCode = `https://hportalsped.fazenda.mg.gov.br/portalnfce/sistema/qrcode.xhtml?p=${accessKey}|2|2|${token}|${qrHash}`;
+  const signedXmlWithQr = signedXml.replace(
+    "<Signature",
+    `<infNFeSupl><qrCode><![CDATA[${qrCode}]]></qrCode><urlChave>https://hportalsped.fazenda.mg.gov.br/portalnfce</urlChave></infNFeSupl><Signature`
+  );
+  const result = await requestAuthorization({
+    xml: signedXmlWithQr,
+    qrCode,
+    qrCodeUrl: qrCode,
+    pfx: Buffer.from(String(certificateData), "base64"),
+    password: certificatePassword
+  });
+  return {
+    status: result.cStat === "100" ? "authorized" : result.cStat ? "rejected" : "unknown",
+    cStat: result.cStat,
+    message: result.xMotivo,
+    protocol: result.protocol,
+    accessKey: result.accessKey || accessKey,
+    xml: signedXmlWithQr
   };
 }

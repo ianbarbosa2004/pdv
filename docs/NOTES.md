@@ -24,7 +24,7 @@ restaurante, trabalharemos sobre os pilares fundamentais do setor.
   controle de suprimentos, sangrias e conciliação por forma de pagamento
   (dinheiro, PIX, cartão de crédito/débito).
 
-### 3. Produção e impressão ESC/POS
+### 3. Produção e impressão térmica
 
 - **Roteamento de pedidos:** envio de itens lançados diretamente para as
   impressoras de produção, como Bar e Cozinha.
@@ -41,3 +41,11 @@ restaurante, trabalharemos sobre os pilares fundamentais do setor.
   matéria-prima por peso/unidade.
 - **Catálogos fiscais:** manutenção de tabelas NCM, CEST, CFOP e operações
   fiscais padrão de saída/entrada.
+
+- **A3:** não é suportado; a interface e a API aceitam somente certificado A1 em arquivo PKCS#12.
+
+- **Numeração NFC-e:** a emissão integrada opcional usa `nfceNextNumberCompany` para reservar número na venda e grava o documento em `sale_fiscal_documents`; o teste isolado continua usando número temporário.
+
+- **Contingência:** `nfceContingencyCompany` continua preparatória; não há emissão offline, envio posterior ou reconciliação.
+
+- **Recomendação:** não habilitar A3 nem contingência como recursos funcionais antes de implementar os fluxos correspondentes.

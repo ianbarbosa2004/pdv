@@ -10,21 +10,21 @@ const csvHeaders = [
   "skuProduct", "pdvCodeProduct", "nameProduct", "descriptionGroup",
   "descriptionFiscalOperation", "descriptionProductType", "codeUnit",
   "ncmProduct", "cestProduct", "priceProduct", "costPriceProduct", "stockQuantityProduct",
-  "controlsStockProduct", "isFractionalProduct", "printsKitchenProduct",
-  "showsInPdvProduct"
+  "controlsStockProduct", "isFractionalProduct", "printsPlace",
+  "isActiveProduct", "showsInPdvProduct"
 ];
 
 const csvHeaderLabels = [
   "SKU", "Código PDV", "Nome", "Grupo",
   "Operação fiscal de venda", "Tipo de produto", "Unidade",
   "NCM", "CEST", "Preço de venda", "Preço de custo", "Estoque",
-  "Controla estoque", "Produto fracionado", "Imprime na cozinha",
+  "Controla estoque", "Produto fracionado", "Local de impressão", "Status",
   "Exibe no PDV"
 ];
 
 const csvExample = [
   csvHeaderLabels.join(";"),
-  "PROD-001;789000000001;Café torrado;Mercearia;;;;0201.30.00;0603.10.00;19,90;12,50;10;sim;não;não;sim"
+  "PROD-001;789000000001;Café torrado;Mercearia;;;;0201.30.00;0603.10.00;19,90;12,50;10;sim;não;NÃO IMPRIMIR;ATIVO;sim"
 ].join("\r\n");
 
 export const csvValueReference = [
@@ -42,7 +42,8 @@ export const csvValueReference = [
   ["Estoque", "Opcional; inteiro ou número com até 3 casas decimais quando o produto for fracionado. Aceita vírgula ou ponto. Padrão: 0."],
   ["Controla estoque", "Opcional; verdadeiro: sim, s, true, 1, yes ou y. Falso: não, nao, n, false, 0 ou no. Padrão: sim."],
   ["Produto fracionado", "Opcional; verdadeiro: sim, s, true, 1, yes ou y. Falso: não, nao, n, false, 0 ou no. Padrão: não."],
-  ["Imprime na cozinha", "Opcional; verdadeiro: sim, s, true, 1, yes ou y. Falso: não, nao, n, false, 0 ou no. Padrão: não."],
+  ["Local de impressão", "Opcional; use exatamente NÃO IMPRIMIR, BAR, COPA ou COZINHA. Padrão: NÃO IMPRIMIR."],
+  ["Status", "Opcional; use ATIVO ou INATIVO (também aceita 1/0, sim/não). Padrão: ATIVO."],
   ["Exibe no PDV", "Opcional; verdadeiro: sim, s, true, 1, yes ou y. Falso: não, nao, n, false, 0 ou no. Padrão: sim."]
 ];
 
@@ -224,6 +225,34 @@ export function createCatalogImportScreen({
       fieldLabel: "código da unidade tributável",
       columns: ["Valor para o CSV", "Descrição"],
       rows: references.units.map((item) => [item.codeUnit, item.descriptionUnit])
+    },
+    {
+      key: "printPlaces",
+      title: "Locais de Impressão",
+      fileName: "referencia-locais-de-impressao.md",
+      intro: "Use um dos valores fixos aceitos no campo `printsPlace`.",
+      field: "printsPlace",
+      fieldLabel: "valor exato do local de impressão",
+      columns: ["Valor para o CSV", "Descrição"],
+      rows: [
+        ["NÃO IMPRIMIR", "Não enviar o produto para impressão."],
+        ["BAR", "Enviar o produto para impressão no bar."],
+        ["COPA", "Enviar o produto para impressão na copa."],
+        ["COZINHA", "Enviar o produto para impressão na cozinha."]
+      ]
+    },
+    {
+      key: "productStatuses",
+      title: "Status de Produtos",
+      fileName: "referencia-status-produtos.md",
+      intro: "Use um dos valores aceitos no campo `isActiveProduct`.",
+      field: "isActiveProduct",
+      fieldLabel: "status operacional do produto",
+      columns: ["Valor para o CSV", "Descrição"],
+      rows: [
+        ["ATIVO", "Produto disponível nas consultas e operações permitidas."],
+        ["INATIVO", "Produto preservado no cadastro, mas fora das consultas ativas."]
+      ]
     }
   ];
 
@@ -278,7 +307,7 @@ export function createCatalogImportScreen({
         <section class="classic-form-panel">
           <div class="classic-panel-header">Listas para preenchimento do CSV</div>
           <div class="classic-form-body">
-            <p class="form-help">Consulte os valores aceitos para cada coluna. Para Grupo, Operação fiscal de venda, Tipo de produto e Unidade, use também as referências com os valores exatos cadastrados.</p>
+            <p class="form-help">O modelo CSV inclui Local de impressão e Status. Use <strong>ATIVO</strong> ou <strong>INATIVO</strong> para o status e, para o local de impressão, escolha um dos valores aceitos. Para Grupo, Operação fiscal de venda, Tipo de produto e Unidade, use também as referências com os valores exatos cadastrados.</p>
             <div class="csv-values-table-wrapper">
               <table class="classic-table csv-values-table">
                 <thead><tr><th>Coluna</th><th>Valores aceitos</th></tr></thead>
