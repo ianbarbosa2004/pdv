@@ -68,6 +68,136 @@ test("preserva o estado inativo dos menus padrão no construtor", () => {
   );
 });
 
+test("preserva a ordem persistida e os divisores personalizados", () => {
+  const navigation = mergeNavigationDefaults({
+    menus: [{
+      idNavigationMenu: 1,
+      keyNavigationMenu: "cadastros",
+      labelNavigationMenu: "Cadastros",
+      orderNavigationMenu: 1,
+      isActiveNavigationMenu: 1
+    }],
+    items: [
+      {
+        idNavigationItem: 700,
+        idNavigationMenu: 1,
+        idParentNavigationItem: null,
+        typeNavigationItem: "item",
+        keyNavigationItem: "fiscal-operations",
+        labelNavigationItem: "Operações Fiscais",
+        routeNavigationItem: "fiscal-operations",
+        orderNavigationItem: 6,
+        isActiveNavigationItem: 1
+      },
+      {
+        idNavigationItem: 701,
+        idNavigationMenu: 1,
+        idParentNavigationItem: null,
+        typeNavigationItem: "divider",
+        keyNavigationItem: "custom-divider",
+        labelNavigationItem: "Divisor personalizado",
+        routeNavigationItem: null,
+        orderNavigationItem: 2,
+        isActiveNavigationItem: 1
+      }
+    ]
+  });
+
+  assert.equal(
+    navigation.items.find((item) => item.keyNavigationItem === "fiscal-operations")
+      ?.orderNavigationItem,
+    6
+  );
+  assert.deepEqual(
+    navigation.items.find((item) => item.keyNavigationItem === "custom-divider"),
+    {
+      idNavigationItem: 701,
+      idNavigationMenu: 1,
+      idParentNavigationItem: null,
+      typeNavigationItem: "divider",
+      keyNavigationItem: "custom-divider",
+      labelNavigationItem: "Divisor personalizado",
+      routeNavigationItem: null,
+      orderNavigationItem: 2,
+      isActiveNavigationItem: 1
+    }
+  );
+});
+
+test("separa o item do menu da barra contextual de Operações Fiscais", () => {
+  const menuItem = DEFAULT_NAVIGATION.items.find(
+    (item) => item.keyNavigationItem === "fiscal-operations"
+  );
+  const contextualItem = DEFAULT_NAVIGATION.items.find(
+    (item) => item.keyNavigationItem === "fiscal-operations-context"
+  );
+
+  assert.deepEqual(
+    {
+      typeNavigationItem: menuItem?.typeNavigationItem,
+      orderNavigationItem: menuItem?.orderNavigationItem,
+      parentKey: menuItem?.parentKey
+    },
+    { typeNavigationItem: "item", orderNavigationItem: 6, parentKey: null }
+  );
+  assert.deepEqual(
+    {
+      typeNavigationItem: contextualItem?.typeNavigationItem,
+      orderNavigationItem: contextualItem?.orderNavigationItem,
+      parentKey: contextualItem?.parentKey,
+      routeNavigationItem: contextualItem?.routeNavigationItem
+    },
+    {
+      typeNavigationItem: "bar",
+      orderNavigationItem: 1,
+      parentKey: "fiscal-operations",
+      routeNavigationItem: "fiscal-operations"
+    }
+  );
+});
+
+test("mescla Operações Fiscais como item principal e barra contextual distintos", () => {
+  const navigation = mergeNavigationDefaults({ menus: [], items: [] });
+  const fiscalItems = navigation.items.filter((item) =>
+    item.routeNavigationItem === "fiscal-operations"
+  );
+
+  assert.deepEqual(
+    fiscalItems.map((item) => ({
+      typeNavigationItem: item.typeNavigationItem,
+      orderNavigationItem: item.orderNavigationItem,
+      idParentNavigationItem: item.idParentNavigationItem
+    })),
+    [
+      {
+        typeNavigationItem: "item",
+        orderNavigationItem: 6,
+        idParentNavigationItem: null
+      },
+      {
+        typeNavigationItem: "bar",
+        orderNavigationItem: 1,
+        idParentNavigationItem: "default-item-cadastros-fiscal-operations-6"
+      }
+    ]
+  );
+});
+
+test("usa a barra contextual persistida sem duplicar o item pai", () => {
+  const navigation = mergeNavigationDefaults({ menus: [], items: [] });
+  const items = selectContextualNavigationItems(
+    navigation,
+    "fiscal-operations",
+    [["fiscal-operations", "Operações Fiscais"], ["cfops", "CFOP"]]
+  );
+
+  assert.deepEqual(items.slice(0, 2), [
+    ["fiscal-operations", "Operações Fiscais"],
+    ["cfops", "CFOP"]
+  ]);
+  assert.equal(items.filter(([, label]) => label === "Operações Fiscais").length, 1);
+});
+
 test("posiciona divisor após o item e antes das categorias filhas no construtor", () => {
   const dividerIds = getNavigationBuilderDividerIdsBeforeChildren([
     {

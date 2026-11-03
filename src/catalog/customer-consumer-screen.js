@@ -151,7 +151,7 @@ export function createCustomerConsumerScreen({
           <div class="classic-form-actions"><button class="classic-button primary" type="submit" ${submitting || loading ? "disabled" : ""}>${submitting ? "Salvando..." : `Salvar ${singular}`}</button><button class="classic-button" data-clear type="button">Limpar</button></div>
         </form>
         <section class="classic-grid-panel">
-          <div class="classic-panel-header classic-list-header"><span>${title}</span><input class="classic-list-search" data-search type="search" placeholder="Pesquisar..." aria-label="Pesquisar ${title.toLocaleLowerCase("pt-BR")}" value="${escapeHtml(searchTerm)}" /></div>
+          <div class="classic-panel-header classic-list-header"><span>${title}</span><input class="classic-list-search" name="customerConsumerSearch" data-search type="search" placeholder="Pesquisar..." aria-label="Pesquisar ${title.toLocaleLowerCase("pt-BR")}" value="${escapeHtml(searchTerm)}" /></div>
           <div class="classic-grid-wrapper">${loading ? `<p class="classic-empty">Carregando...</p>` : visible.length ? `<table class="classic-table"><thead><tr><th>Nome</th>${isCustomer ? "<th>CPF/CNPJ</th><th>Telefone</th>" : "<th>Apelido / Identificação</th><th>Telefone</th>"}<th>Status</th><th class="actions-column">Ações</th></tr></thead><tbody>${visible.map((item) => {
             const active = Boolean(isCustomer ? item.isActiveCustomer : item.isActiveConsumer);
             const linkedConsumer = !isCustomer && Boolean(item.idCustomer);

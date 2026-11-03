@@ -54,7 +54,7 @@ test("identifies products with zero cost", () => {
 test("filters only raw materials without a physical state", () => {
   assert.equal(isRawMaterialWithoutPhysicalState({
     descriptionProductType: "MATÉRIA-PRIMA",
-    idPhysicalStateProduct: 0
+    idPhysicalStateProduct: null
   }), true);
   assert.equal(isRawMaterialWithoutPhysicalState({
     descriptionProductType: "MATÉRIA-PRIMA",
@@ -62,6 +62,6 @@ test("filters only raw materials without a physical state", () => {
   }), false);
   assert.equal(isRawMaterialWithoutPhysicalState({
     descriptionProductType: "PRODUTO ACABADO",
-    idPhysicalStateProduct: 0
+    idPhysicalStateProduct: null
   }), false);
 });

@@ -2,7 +2,7 @@ import { createProductViewsScreen } from "./views-screen.js";
 
 export const isRawMaterialWithoutPhysicalState = (product) =>
   String(product?.descriptionProductType ?? "").trim().toLocaleUpperCase("pt-BR") === "MATÉRIA-PRIMA"
-  && Number(product?.idPhysicalStateProduct || 0) === 0;
+  && !product?.idPhysicalStateProduct;
 
 export const createNoPhysicalStateScreen = (options = {}) => createProductViewsScreen({
   ...options,

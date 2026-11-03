@@ -84,7 +84,7 @@ export function createClassScreen({ onBack, onClasses, onGroups, onProducts, onP
         <section class="classic-grid-panel">
           <div class="classic-panel-header classic-list-header">
             <span>Classes</span>
-            <input class="classic-list-search" data-search type="search" placeholder="Pesquisar..." aria-label="Pesquisar classes" value="${escapeHtml(searchTerm)}" />
+            <input class="classic-list-search" name="classSearch" data-search type="search" placeholder="Pesquisar..." aria-label="Pesquisar classes" value="${escapeHtml(searchTerm)}" />
           </div>
           <div class="classic-grid-wrapper">
             ${loading

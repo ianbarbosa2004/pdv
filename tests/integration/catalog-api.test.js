@@ -62,8 +62,14 @@ test("protege a API e libera CORS somente para a origem configurada", async (t) 
   assert.match(preflight.headers.get("access-control-allow-methods"), /PUT/);
   assert.match(preflight.headers.get("access-control-allow-methods"), /DELETE/);
 
-  const unauthenticated = await fetch(`${baseUrl}/api/classes`);
+  const unauthenticated = await fetch(`${baseUrl}/api/classes`, {
+    headers: { Origin: "http://127.0.0.1:5173" }
+  });
   assert.equal(unauthenticated.status, 401);
+  assert.equal(
+    unauthenticated.headers.get("access-control-allow-origin"),
+    "http://127.0.0.1:5173"
+  );
 
   for (const path of ["/api/navigation/menus", "/api/navigation/items"]) {
     const response = await fetch(`${baseUrl}${path}`, {

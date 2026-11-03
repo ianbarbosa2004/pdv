@@ -1,7 +1,7 @@
 const getFormSnapshot = (root) => [...root.querySelectorAll("form")].map((form) => {
   const fieldIndexes = new Map();
   const values = [...form.elements]
-    .filter((field) => field.name)
+    .filter((field) => field.name && !field.disabled && !field.readOnly)
     .map((field) => {
       const key = `${field.name}:${field.type}`;
       const fieldIndex = fieldIndexes.get(key) || 0;

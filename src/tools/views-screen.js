@@ -22,7 +22,7 @@ const parseMoney = (value) =>
   Number(String(value ?? "0").replace(/\./g, "").replace(",", ".")) || 0;
 
 const renderPhysicalStateOptions = (physicalStates, selectedId) =>
-  `<option value="0">Sem estado físico</option>${physicalStates.map((state) =>
+  `<option value="">Sem estado físico</option>${physicalStates.map((state) =>
     `<option value="${state.idPhysicalState}" ${String(state.idPhysicalState) === String(selectedId) ? "selected" : ""}>${escapeHtml(state.namePhysicalState)}</option>`
   ).join("")}`;
 
@@ -77,7 +77,11 @@ const renderEditor = (product, groups, physicalStates, submitting, error) => `
           <div class="classic-form-grid">
             <label class="form-field checkbox-field"><span>Controla estoque</span><input name="controlsStockProduct" type="checkbox" ${Number(product.controlsStockProduct) ? "checked" : ""} /></label>
             <label class="form-field checkbox-field"><span>Produto fracionado</span><input name="isFractionalProduct" type="checkbox" ${Number(product.isFractionalProduct) ? "checked" : ""} /></label>
-            <label class="form-field checkbox-field"><span>Imprime cozinha</span><input name="printsKitchenProduct" type="checkbox" ${Number(product.printsKitchenProduct) ? "checked" : ""} /></label>
+            <label class="form-field"><span>Local de impressão</span><select name="printsPlace">
+              ${["NÃO IMPRIMIR", "BAR", "COPA", "COZINHA"].map((place) =>
+                `<option value="${place}" ${String(product.printsPlace || "NÃO IMPRIMIR") === place ? "selected" : ""}>${place}</option>`
+              ).join("")}
+            </select></label>
             <label class="form-field checkbox-field"><span>Exibir no PDV</span><input name="showsInPdvProduct" type="checkbox" ${Number(product.showsInPdvProduct) ? "checked" : ""} /></label>
           </div>
           ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}
@@ -178,7 +182,7 @@ export function createProductViewsScreen({
           idGroup: Number(formData.get("idGroup")),
           idFiscalOperationSaleProduct: editingProduct.idFiscalOperationSaleProduct || null,
           idProductTypeProduct: editingProduct.idProductTypeProduct || null,
-          idPhysicalStateProduct: formData.get("idPhysicalStateProduct") || editingProduct.idPhysicalStateProduct || 0,
+          idPhysicalStateProduct: formData.get("idPhysicalStateProduct") || editingProduct.idPhysicalStateProduct || null,
           idUnitProduct: editingProduct.idUnitProduct || null,
           ncmProduct: editingProduct.ncmProduct || null,
           cestProduct: editingProduct.cestProduct || null,
@@ -187,7 +191,7 @@ export function createProductViewsScreen({
           stockQuantityProduct: formData.get("stockQuantityProduct"),
           controlsStockProduct: formData.get("controlsStockProduct") === "on",
           isFractionalProduct: formData.get("isFractionalProduct") === "on",
-          printsKitchenProduct: formData.get("printsKitchenProduct") === "on",
+          printsPlace: formData.get("printsPlace") || "NÃO IMPRIMIR",
           showsInPdvProduct: formData.get("showsInPdvProduct") === "on"
         })
       });

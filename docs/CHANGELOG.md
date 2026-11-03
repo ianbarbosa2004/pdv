@@ -2,9 +2,10 @@
 
 Este documento registra as mudanças funcionais e técnicas agrupadas por versão.
 O número da versão deve ser incrementado antes da compilação quando a alteração
-for distribuível. Builds não alteram a versão automaticamente.
+for distribuível. O hook `prebuild` e o fluxo `prerelease:client` podem acionar
+o versionamento automático quando o build é executado.
 
-## Próxima versão
+## 0.9.0 - 2026-11-03
 
 ### Correções de interface
 
@@ -14,6 +15,94 @@ for distribuível. Builds não alteram a versão automaticamente.
 - Corrigida a rolagem do Construtor de navegação após salvar alterações,
   incluindo a ação **Adicionar divisor abaixo**; a posição anterior da
   viewport é restaurada depois da atualização da árvore.
+
+### Correções de operação e segurança
+
+- Extraídas as rotinas idempotentes de preparação do banco para
+  `src/server/schema-manager.js`, reduzindo a concentração de
+  `src/server/server.js`.
+- Centralizada a DDL de NCM/CEST em `src/server/ncm-cest-update.js`, usada tanto
+  na inicialização quanto na atualização dos catálogos.
+- Corrigidos os scripts de publicação e configuração do serviço Windows:
+  a senha do `pdv_app` é enviada ao cliente `mysql` por pipe, sem arquivo SQL
+  persistente, e a conta `PDVApiSvc` recebe a senha gerada corretamente.
+- Atualizada a documentação operacional em `docs/DEVELOPMENT.md`,
+  `docs/DEPLOYMENT.md`, `docs/PROJECT-HISTORY.md` e
+  `docs/CONTINUITY-PROMPT.md`.
+- Validação desta etapa: 58 testes automatizados aprovados, `node --check`,
+  análise sintática dos scripts PowerShell e `git diff --check`.
+- Não foram executados build completo, publicação, deploy, alteração de conta
+  Windows ou reinício do serviço. Como a etapa atual alterou scripts e
+  documentação, a API não precisa ser reiniciada.
+- A busca da Frente de Caixa passou a atualizar somente o grid de produtos,
+  evitando reconstruir o carrinho, o resumo e o modal a cada tecla.
+- A carga do catálogo de NCMs no cadastro de produtos passou a ocorrer sob
+  demanda, somente ao abrir a consulta.
+- A auditoria de acessibilidade corrigiu contraste insuficiente na Frente de
+  Caixa, incluindo textos auxiliares do carrinho, e adicionou nomes explícitos
+  aos campos de pesquisa.
+- A medição de catálogos confirmou 75 produtos e 19 grupos, sem justificativa
+  atual para paginação. NCM/CEST ficou registrado como candidato a consulta
+  server-side por possuir 10.508 NCMs e 947 CESTs.
+- A tela dedicada de NCM/CEST passou a usar paginação e busca server-side,
+  preservando o retorno completo legado dos endpoints quando nenhum parâmetro
+  de paginação é informado.
+- Registro intermediário: a API publicada permaneceu saudável, mas as rotas
+  paginadas retornaram 404 enquanto `C:\ProgramData\PDV\app` ainda continha a
+  publicação anterior.
+- Registro intermediário: após um bundle inicial, a aplicação publicada ainda
+  não continha `parseCatalogPagination`; a API continuava saudável, mas
+  executava o conteúdo anterior.
+- Corrigidos os comandos de criação/atualização da conta `PDVApiSvc` nos
+  scripts de publicação Windows.
+- Publicação da API concluída e validada: serviço em execução, health com
+  banco conectado e rotas paginadas NCM/CEST respondendo HTTP 200.
+- Auditoria registrou como pendência estrutural a autenticação de operadores,
+  o controle de caixa e a auditoria/cancelamento de vendas; nenhuma regra foi
+  adicionada somente no frontend.
+- Corrigida a aceitação de diretórios de backup enviados pelo terminal; a API
+  agora usa somente o diretório configurado no servidor ou seu padrão.
+- Auditoria do fluxo de vendas confirmou validação server-side, transação
+  atômica, rollback, baixa de estoque e idempotência sem novo defeito.
+- Auditoria de impressão confirmou restrição à rede local, timeouts e
+  separação entre impressão e confirmação financeira.
+- Removido o fluxo ESC/POS: a impressão direta agora usa somente o driver
+  Windows/GDI configurado, e a pré-visualização usa o diálogo do sistema.
+- Removidas dependências obsoletas de CORS/plugin HTTP e do seletor de
+  diretório (`cors`, `@tauri-apps/plugin-http`, `rfd` e
+  `tauri-plugin-http`), junto das permissões e comandos nativos sem uso.
+- Auditoria de schema e migrações confirmou que o schema inicial e o
+  gerenciador runtime não possuem tabelas divergentes; migrações de dados
+  permanecem transacionais e documentadas.
+- Auditoria de empacotamento Windows confirmou que os scripts usam apenas
+  dependências declaradas, mantêm MSI/NSIS por máquina e sincronizam as versões
+  dos manifests.
+- Configurados os instaladores NSIS e WiX/MSI para português, sem seletor de
+  idioma durante a instalação.
+
+- A idempotência de vendas agora rejeita a reutilização de `clientIdSale` com
+  itens, desconto ou pagamentos diferentes.
+- Pagamentos mistos com Vale debitam somente o valor efetivamente pago nessa
+  forma, preservando os demais pagamentos.
+- A impressão térmica de rede aceita somente endereços locais e usa limites de
+  conexão e escrita para evitar bloqueios indefinidos.
+- O token da API salvo no terminal é protegido pelo armazenamento DPAPI do
+  Windows, enquanto a URL e demais preferências permanecem no arquivo local.
+- A Frente de Caixa informa explicitamente quando caixa e operador ainda não
+  estão configurados.
+- O cadastro de produtos passou a usar `printsPlace`, com os valores
+  `NÃO IMPRIMIR`, `BAR`, `COPA` e `COZINHA`, migração do campo legado e valor
+  padrão `NÃO IMPRIMIR`.
+- A importação CSV passou a aceitar Local de Impressão e Status, com validação
+  server-side, painel introdutório atualizado e referências para download.
+- Vendas só validam e baixam estoque quando `controlsStockProduct` está ativo.
+  Produtos sem controle de estoque não são bloqueados por estoque insuficiente.
+- A Frente de Caixa respeita `allowNegativeStock` na listagem: com a opção
+  ativada, produtos controlados com estoque zero ou negativo continuam
+  disponíveis; com a opção desativada, somente produtos com estoque positivo
+  são exibidos.
+- A suíte de testes foi consolidada com 90 casos aprovados, incluindo os
+  cenários de estoque e importação.
 
 ## 0.8.10 - 2026-11-01
 

@@ -8,13 +8,6 @@ const escapeHtml = (value) => String(value ?? "")
   .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
   .replaceAll('"', "&quot;").replaceAll("'", "&#039;");
 
-const cp850 = {
-  "á": 0xa0, "é": 0x82, "í": 0xa1, "ó": 0xa2, "ú": 0xa3, "â": 0x83,
-  "ê": 0x88, "ô": 0x93, "ã": 0xc6, "õ": 0xe4, "ç": 0x87, "Á": 0xb5,
-  "É": 0x90, "Í": 0xd6, "Ó": 0xe0, "Ú": 0xe9, "Â": 0xb6, "Ê": 0xd2,
-  "Ô": 0xe2, "Ã": 0xc7, "Õ": 0xe5, "Ç": 0x80, "ª": 0xa6, "º": 0xa7
-};
-
 const fields = [
   ["companyName", "Nome da empresa", "PDV COMERCIAL"],
   ["companyDocument", "CNPJ / CPF", "24.768.938/0001-14"],
@@ -63,9 +56,6 @@ export function createThermalPrintScreen({
   let message = "";
   let error = "";
   let saving = false;
-  let transport = "network";
-  let host = "192.168.1.100";
-  let port = "9100";
   let receiptPrinterName = "";
   let sending = false;
   const scheduleMessageClear = createFeedbackTimer();
@@ -133,18 +123,6 @@ export function createThermalPrintScreen({
     };
   });
 
-  const toBytes = (value) => Uint8Array.from([...value].map((character) => {
-    if (cp850[character]) return cp850[character];
-    const code = character.codePointAt(0);
-    return code <= 255 ? code : 0x3f;
-  }));
-  const toBase64 = (value) => {
-    let binary = "";
-    toBytes(value).forEach((byte) => { binary += String.fromCharCode(byte); });
-    return btoa(binary);
-  };
-  const buildEscPos = () => `\x1b\x40\x1b\x74\x02${buildPlainText()}\r\n\r\n\r\n`;
-
   const render = () => {
     const selected = normalizeLine(layout[selectedIndex] || layout[0]);
     root.className = "catalog-screen thermal-print-screen";
@@ -187,10 +165,9 @@ export function createThermalPrintScreen({
             <div class="thermal-paper"><div class="thermal-ticket">${layout.map(previewLine).join("")}</div></div>
           </section>
         </div>
-        <section class="classic-form-panel receipt-print-panel"><div class="classic-panel-header">Imprimir cupom montado</div><div class="classic-form-body receipt-transport-grid">
-          <label class="form-field"><span>Transporte</span><select data-transport><option value="network" ${transport === "network" ? "selected" : ""}>Rede TCP RAW</option><option value="usb" ${transport === "usb" ? "selected" : ""}>USB / impressora Windows</option></select></label>
-          ${transport === "network" ? `<label class="form-field"><span>IP ou nome</span><input data-host value="${escapeHtml(host)}"/></label><label class="form-field"><span>Porta</span><input data-port type="number" value="${escapeHtml(port)}"/></label>` : `<label class="form-field"><span>Impressora configurada para Cupom</span><input value="${escapeHtml(receiptPrinterName || "Nenhuma impressora configurada")}" readonly disabled/><small>Definida em Retaguarda → Configurações → Impressoras.</small></label>`}
-        </div><div class="classic-form-actions"><button class="classic-button primary" type="button" data-direct-print ${sending ? "disabled" : ""}>${sending ? "Enviando..." : "Imprimir cupom"}</button><button class="classic-button" type="button" data-browser-print>Pré-visualizar / imprimir</button><button class="classic-button" type="button" data-download>Baixar ESC/POS</button></div></section>
+        <section class="classic-form-panel receipt-print-panel"><div class="classic-panel-header">Imprimir cupom montado</div><div class="classic-form-body receipt-printer-grid">
+          <label class="form-field"><span>Impressora configurada para Cupom</span><input value="${escapeHtml(receiptPrinterName || "Nenhuma impressora configurada")}" readonly disabled/><small>Definida em Retaguarda → Configurações → Impressoras.</small></label>
+        </div><div class="classic-form-actions"><button class="classic-button primary" type="button" data-direct-print ${sending ? "disabled" : ""}>${sending ? "Enviando..." : "Imprimir cupom"}</button><button class="classic-button" type="button" data-browser-print>Pré-visualizar / imprimir</button></div></section>
       </section>`;
     renderLucideIcons(root);
     bindMainMenu(root, { products: onProducts, "fiscal-operations": onFiscalOperations, "thermal-print": onTools, "ncm-cest-update": onNcmCestUpdate, settings: onSettings, company: onCompany, nfce: onNfce, financial: onFinancial, "payment-methods": onPaymentMethods });
@@ -213,12 +190,8 @@ export function createThermalPrintScreen({
     root.querySelector("[data-reset-layout]")?.addEventListener("click", () => { layout = structuredClone(defaultLayout); selectedIndex = 0; render(); });
     root.querySelector("[data-save-layout]")?.addEventListener("click", () => void saveLayout());
     root.querySelectorAll("[data-format]").forEach((input) => input.addEventListener("change", () => { updateSelected(input.dataset.format, input.type === "checkbox" ? input.checked : input.value); render(); }));
-    root.querySelector("[data-transport]")?.addEventListener("change", (event) => { transport = event.currentTarget.value; render(); });
-    root.querySelector("[data-host]")?.addEventListener("change", (event) => { host = event.currentTarget.value; });
-    root.querySelector("[data-port]")?.addEventListener("change", (event) => { port = event.currentTarget.value; });
     root.querySelector("[data-direct-print]")?.addEventListener("click", () => void sendDirect());
     root.querySelector("[data-browser-print]")?.addEventListener("click", () => window.print());
-    root.querySelector("[data-download]")?.addEventListener("click", () => { const url = URL.createObjectURL(new Blob([toBytes(buildEscPos())], { type: "application/octet-stream" })); const anchor = document.createElement("a"); anchor.href = url; anchor.download = "cupom-80mm.bin"; anchor.click(); URL.revokeObjectURL(url); message = "Arquivo ESC/POS gerado."; render(); scheduleMessageClear(() => { message = ""; clearRenderedFeedback(root); }); });
   };
   const addLine = (line) => { layout.push(normalizeLine(line)); selectedIndex = layout.length - 1; render(); };
   const moveLine = (index, direction) => { const target = index + direction; if (target < 0 || target >= layout.length) return; [layout[index], layout[target]] = [layout[target], layout[index]]; selectedIndex = target; render(); };
@@ -239,8 +212,8 @@ export function createThermalPrintScreen({
     if (!window.__TAURI_INTERNALS__) { error = "A impressão direta exige o aplicativo Tauri."; message = ""; render(); return; }
     sending = true; message = ""; render();
     try {
-      if (transport === "usb" && !receiptPrinterName) throw new Error("Configure a impressora padrão de Cupom antes de imprimir.");
-      message = await invoke("send_raw_print", { request: { transport, printerName: transport === "usb" ? receiptPrinterName : null, host: transport === "network" ? host : null, port: transport === "network" ? Number(port) : null, dataBase64: toBase64(buildEscPos()), text: transport === "usb" ? buildPlainText() : null, lines: transport === "usb" ? buildPrintLines() : null } });
+      if (!receiptPrinterName) throw new Error("Configure a impressora padrão de Cupom antes de imprimir.");
+      message = await invoke("print_receipt", { request: { printerName: receiptPrinterName, text: buildPlainText(), lines: buildPrintLines() } });
       scheduleMessageClear(() => {
         message = "";
         clearRenderedFeedback(root);

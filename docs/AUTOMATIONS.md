@@ -69,8 +69,10 @@ push ou publicação sem autorização explícita.
 1. Identifique e preserve as alterações locais pertencentes ao PDV.
 2. Exclua do escopo `.env`, credenciais, dados reais, dumps, backups,
    `node_modules/`, `dist/` e `src-tauri/target/`.
-3. Execute `npm.cmd test`, `npm.cmd run build`, `node --check
-   src/server/server.js` e `git diff --check`.
+3. Execute `npm.cmd test` e `git diff --check`. Execute `npm.cmd run build`
+   somente quando a alteração envolver o bundle, Vite/Tauri, versionamento ou
+   uma validação de produção. Use `node --check` nos arquivos JavaScript
+   modificados.
 4. Crie um checkpoint com o trailer:
 
    ```text
@@ -101,8 +103,6 @@ Execute:
 
 ```powershell
 npm.cmd test
-npm.cmd run build
-node --check src/server/server.js
 git diff --check
 ```
 
@@ -124,8 +124,10 @@ Ela deve:
   NFC-e, impressão, navegação, Retaguarda, atalhos, interface, testes e
   pendências;
 - executar `git diff --check`;
-- executar testes, build e verificação de sintaxe quando contratos funcionais
-  forem refletidos ou houver dúvida sobre o estado do código;
+- executar testes e verificações de sintaxe quando contratos funcionais forem
+  refletidos ou houver dúvida sobre o estado do código; executar build somente
+  quando o bundle, Vite/Tauri, versionamento ou uma validação de produção
+  estiverem envolvidos;
 - criar commit somente quando houver mudanças documentais reais;
 - criar ou atualizar uma PR somente quando houver mudanças não publicadas e
   autorização aplicável;
@@ -157,8 +159,6 @@ Execute:
 
 ```powershell
 npm.cmd test
-npm.cmd run build
-node --check src/server/server.js
 git diff --check
 ```
 

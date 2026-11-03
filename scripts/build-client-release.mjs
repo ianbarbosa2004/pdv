@@ -6,6 +6,7 @@ import { spawn } from "node:child_process";
 
 const root = resolve(import.meta.dirname, "..");
 const releaseDir = join(root, "dist", "releases");
+const installedApiEnvPath = "C:\\ProgramData\\PDV\\app\\.env";
 const packageJson = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 const packageVersion = String(packageJson.version);
 
@@ -17,10 +18,23 @@ const parseArgs = (args) => Object.fromEntries(args
   }));
 
 const args = parseArgs(process.argv.slice(2));
+const readEnvValue = (content, name) => {
+  const line = String(content).split(/\r?\n/u).find((entry) => entry.trimStart().startsWith(`${name}=`));
+  return line ? line.slice(line.indexOf("=") + 1).trim().replace(/^"(.*)"$/u, "$1") : "";
+};
+const readInstalledApiToken = () => {
+  try {
+    return readEnvValue(readFileSync(installedApiEnvPath, "utf8"), "PDV_API_TOKEN");
+  } catch {
+    return "";
+  }
+};
 const apiUrl = String(
   args["api-url"] || process.env.PDV_API_URL || process.env.VITE_PDV_API_URL || "http://192.168.1.200:3000"
 ).replace(/\/+$/, "");
-const apiToken = String(args["api-token"] || process.env.VITE_PDV_API_TOKEN || "").trim();
+const apiToken = String(
+  args["api-token"] || readInstalledApiToken() || process.env.VITE_PDV_API_TOKEN || ""
+).trim();
 if (!apiToken) throw new Error("Informe --api-token ou VITE_PDV_API_TOKEN para proteger o cliente.");
 const refreshIcons = args["refresh-icons"] === true;
 

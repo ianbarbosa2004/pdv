@@ -17,7 +17,7 @@ O PDV usa:
 - API Node.js para comunicação na rede local;
 - MariaDB centralizado no computador servidor;
 - `mysql2` para acesso ao banco;
-- comandos ESC/POS para impressão térmica de 80 mm.
+- comandos Tauri para impressão térmica pelo driver do Windows.
 
 As ferramentas de IA devem respeitar essa arquitetura. Não introduza
 frameworks, bancos, integrações ou serviços externos sem uma decisão explícita
@@ -55,14 +55,16 @@ instalar, confirme compatibilidade, origem, versão e impacto no ambiente.
 
 ## Validação
 
-Depois de alterações de código, execute pelo menos:
+Depois de alterações de código, execute a validação mínima:
 
 ```powershell
 npm.cmd test
-npm.cmd run build
-node --check src/server/server.js
 git diff --check
 ```
+
+Execute `npm.cmd run build` somente quando a alteração envolver o bundle,
+configuração Vite/Tauri, versionamento ou uma validação de produção. Use
+`node --check` nos arquivos JavaScript modificados.
 
 Quando a alteração envolver Tauri, valide também:
 

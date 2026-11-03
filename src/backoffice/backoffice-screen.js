@@ -1,5 +1,7 @@
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { resolveNavigationHandler } from "../ui/navigation-routing.js";
+import { apiFetch, getApiUrl } from "../shared/api.js";
+import { renderLucideIcons } from "../ui/icons.js";
 
 const shortcutDescriptions = {
   classes: "Organize as classes de produtos.",
@@ -26,25 +28,12 @@ const escapeHtml = (value) => String(value ?? "")
   .replaceAll('"', "&quot;")
   .replaceAll("'", "&#039;");
 
-const shortcutOrder = [
-  "classes",
-  "groups",
-  "products",
-  "raw-materials",
-  "packaging",
-  "consumables",
-  "product-types",
-  "units",
-  "ncm-cest",
-  "fiscal-operations",
-  "financial",
-  "thermal-print",
-  "suppliers",
-  "settings"
-];
-
 const getBackofficeShortcuts = (handlers) => {
   const navigation = window.__PDV_NAVIGATION__;
+  const menus = new Map((navigation?.menus || []).map((menu) => [
+    String(menu.idNavigationMenu),
+    menu
+  ]));
   const items = Array.isArray(navigation?.items)
     ? navigation.items
       .filter((item) => item.isActiveNavigationItem !== 0
@@ -54,28 +43,21 @@ const getBackofficeShortcuts = (handlers) => {
         && item.showsInBackofficeHomeNavigationItem !== "0"
         && resolveNavigationHandler(handlers, item.keyNavigationItem))
       .sort((left, right) => {
-        const leftIndex = shortcutOrder.indexOf(left.keyNavigationItem);
-        const rightIndex = shortcutOrder.indexOf(right.keyNavigationItem);
-        if (leftIndex >= 0 || rightIndex >= 0) {
-          return (leftIndex < 0 ? shortcutOrder.length : leftIndex)
-            - (rightIndex < 0 ? shortcutOrder.length : rightIndex);
-        }
-        return Number(left.orderNavigationItem || 0) - Number(right.orderNavigationItem || 0);
+        const leftMenu = menus.get(String(left.idNavigationMenu));
+        const rightMenu = menus.get(String(right.idNavigationMenu));
+        const menuOrder = Number(leftMenu?.orderNavigationMenu || 0)
+          - Number(rightMenu?.orderNavigationMenu || 0);
+        if (menuOrder) return menuOrder;
+        const itemOrder = Number(left.orderNavigationItem || 0)
+          - Number(right.orderNavigationItem || 0);
+        if (itemOrder) return itemOrder;
+        return String(left.labelNavigationItem || "").localeCompare(
+          String(right.labelNavigationItem || ""),
+          "pt-BR"
+        );
       })
     : [];
-  if (Array.isArray(navigation?.items)) return items;
-  return shortcutOrder.map((keyNavigationItem) => ({
-    keyNavigationItem,
-    labelNavigationItem: {
-      classes: "Classes",
-      groups: "Grupos",
-      products: "Produtos",
-      "fiscal-operations": "Operações fiscais",
-      financial: "Financeiros",
-      "thermal-print": "Impressão térmica",
-      settings: "Impressoras"
-    }[keyNavigationItem]
-  })).filter((item) => handlers[item.keyNavigationItem]);
+  return items;
 };
 
 export function createBackofficeScreen({
@@ -133,12 +115,18 @@ export function createBackofficeScreen({
     consumers: onConsumers
   };
   const shortcuts = getBackofficeShortcuts(shortcutHandlers);
+  let operator = null;
+  let cashSession = null;
 
-  root.className = "catalog-screen";
-  root.innerHTML = `
+  const render = () => {
+    root.className = "catalog-screen";
+    root.innerHTML = `
     <header class="classic-titlebar">
       <strong>PDV - Retaguarda</strong>
-      <span>Operador: Operador</span>
+      <span>
+        Operador: ${escapeHtml(operator?.displayNameOperator || "Operador")}
+        · Caixa: ${cashSession ? "Aberto" : "Fechado"}
+      </span>
     </header>
     ${renderMainMenu()}
     <div class="classic-toolbar">
@@ -154,19 +142,17 @@ export function createBackofficeScreen({
       <div class="backoffice-shortcuts">
         ${shortcuts.map((shortcut) => `
           <button class="backoffice-shortcut" data-shortcut-key="${shortcut.keyNavigationItem}" type="button">
+            <span class="backoffice-shortcut-icon" aria-hidden="true"><i data-lucide="${shortcut.keyNavigationItem === "settings" ? "printer" : shortcut.keyNavigationItem === "financial" ? "wallet-cards" : shortcut.keyNavigationItem === "company" ? "building-2" : shortcut.keyNavigationItem === "nfce" ? "file-check-2" : "folder-cog"}"></i></span>
             <strong>${escapeHtml(shortcut.labelNavigationItem)}</strong>
             <span>${escapeHtml(shortcut.descriptionNavigationItem || shortcutDescriptions[shortcut.keyNavigationItem] || "Acesse este recurso da retaguarda.")}</span>
           </button>
         `).join("")}
-        ${shortcuts.some(({ keyNavigationItem }) => keyNavigationItem === "nfce-query") ? "" : `
-          <button class="backoffice-shortcut" data-shortcut-key="nfce-query" type="button">
-            <strong>Consulta de NFC-e</strong>
-            <span>${escapeHtml(shortcutDescriptions["nfce-query"])}</span>
-          </button>
-        `}
       </div>
     </section>
   `;
+    renderLucideIcons(root);
+  };
+  render();
 
   bindMainMenu(root, {
     products: onProducts,
@@ -184,6 +170,39 @@ export function createBackofficeScreen({
   root.querySelectorAll("[data-shortcut-key]").forEach((button) => {
     const handler = resolveNavigationHandler(shortcutHandlers, button.dataset.shortcutKey);
     if (handler) button.addEventListener("click", handler);
+  });
+
+  void Promise.all([
+    apiFetch(`${getApiUrl()}/api/operator/session`),
+    apiFetch(`${getApiUrl()}/api/cash/current`)
+  ]).then(async ([operatorResponse, cashResponse]) => {
+    const operatorPayload = await operatorResponse.json();
+    const cashPayload = await cashResponse.json();
+    if (!operatorResponse.ok || !cashResponse.ok) {
+      throw new Error("Não foi possível consultar o estado da Retaguarda.");
+    }
+    operator = operatorPayload.operator;
+    cashSession = cashPayload.cashSession;
+    render();
+    bindMainMenu(root, {
+      products: onProducts,
+      "fiscal-operations": onFiscalOperations,
+      financial: onFinancial,
+      "thermal-print": onThermalPrint,
+      "ncm-cest-update": onNcmCestUpdate,
+      settings: onSettings,
+      company: onCompany,
+      nfce: onNfce,
+      "nfce-query": onNfceQuery,
+      "payment-methods": onPaymentMethods
+    });
+    root.querySelector("[data-back]")?.addEventListener("click", onBack);
+    root.querySelectorAll("[data-shortcut-key]").forEach((button) => {
+      const handler = resolveNavigationHandler(shortcutHandlers, button.dataset.shortcutKey);
+      if (handler) button.addEventListener("click", handler);
+    });
+  }).catch((error) => {
+    console.error("Não foi possível carregar o estado da Retaguarda:", error);
   });
 
   return root;

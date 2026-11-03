@@ -47,7 +47,16 @@ export const DEFAULT_NAVIGATION = Object.freeze({
     item("cadastros", "culinary-units", "Unidades Culinárias", "culinary-units", 1, "technical-sheet", "bar"),
     item("cadastros", "physical-states", "Estados Físicos", "physical-states", 2, "technical-sheet", "bar"),
     item("cadastros", "culinary-conversions", "Conversões", "culinary-conversions", 3, "technical-sheet", "bar"),
-    item("cadastros", "fiscal-operations", "Operações Fiscais", "fiscal-operations", 2),
+    item("cadastros", "fiscal-operations", "Operações Fiscais", "fiscal-operations", 6),
+    item(
+      "cadastros",
+      "fiscal-operations-context",
+      "Operações Fiscais",
+      "fiscal-operations",
+      1,
+      "fiscal-operations",
+      "bar"
+    ),
     item("cadastros", "cfops", "CFOP", "cfops", 2, "fiscal-operations", "bar"),
     item("cadastros", "tax-situations", "CST / CSOSN", "tax-situations", 3, "fiscal-operations", "bar"),
     item("cadastros", "icms-rates", "Alíquotas ICMS", "icms-rates", 4, "fiscal-operations", "bar"),

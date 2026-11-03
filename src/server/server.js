@@ -1,12 +1,17 @@
 import { createServer } from "node:http";
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import forge from "node-forge";
 import { createPool } from "./database.js";
-import { getConfig } from "./config.js";
-import { createSale, SaleValidationError } from "./sale-service.js";
-import { parseImportBoolean } from "../shared/import-values.js";
-import { buildNfceDiagnostic, runNfceHomologationTest } from "./nfce-test-service.js";
+import { loadRuntimeConfig } from "./config.js";
+import { cancelSale, createSale, listRecentSales, SaleValidationError } from "./sale-service.js";
+import { parseImportBoolean, parseImportStatus } from "../shared/import-values.js";
+import {
+  authorizeSaleNfce,
+  buildNfceDiagnostic,
+  runNfceHomologationTest
+} from "./nfce-test-service.js";
 import {
   DEFAULT_NAVIGATION,
   isNavigationKey,
@@ -16,9 +21,10 @@ import {
 import {
   DEFAULT_CEST_SOURCE_URL,
   DEFAULT_NCM_SOURCE_URL,
-  ensureUpdateSchema,
+  validateOfficialSourceUrl,
   updateCatalog
 } from "./ncm-cest-update.js";
+import { normalizeCatalogPage, parseCatalogPagination } from "./catalog-pagination.js";
 import {
   createBackup,
   listBackups,
@@ -26,20 +32,62 @@ import {
   resolveBackupDirectory,
   restoreBackup
 } from "./backup-service.js";
+import { createSchemaManager } from "./schema-manager.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+  createOperatorSessionToken,
+  hashOperatorPassword,
+  hashOperatorSessionToken,
+  normalizeOperatorPassword,
+  normalizeOperatorUsername,
+  sessionExpiration,
+  verifyOperatorPassword,
+  isOperatorRole
+} from "./operator-service.js";
+import {
+  closeCashSession,
+  getOpenCashSession,
+  normalizeCashAmount,
+  openCashSession,
+  requireOperatorSession
+} from "./cash-service.js";
 
 const packageJson = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
 const applicationVersion = String(packageJson.version);
-const config = getConfig();
+const config = await loadRuntimeConfig();
 if (!config.apiToken) {
   throw new Error("PDV_API_TOKEN não configurado. A API não pode iniciar sem autenticação.");
 }
+if (!config.database.password) {
+  throw new Error("Senha do MariaDB não configurada no Credential Manager ou no ambiente de desenvolvimento.");
+}
 const pool = createPool(config);
+const {
+  ensureFiscalCatalogSchema,
+  ensurePrinterSettingsSchema,
+  ensureGeneralSettingsSchema,
+  loadGeneralSourceSettings,
+  ensureCustomerConsumerSchema,
+  migrateCustomerConsumerSchema,
+  getGeneralSettingBoolean,
+  ensureCompanySchema,
+  ensureSaleFiscalSchema,
+  ensureFiscalOperationSchema,
+  ensureNcmCestSchema,
+  ensureProductFiscalSchema,
+  ensureProductCatalogSchema,
+  ensureCulinarySchema,
+  ensureNavigationSchema,
+  ensureUppercaseTextData,
+  ensurePaymentMethodSchema,
+  ensureSupplierSchema,
+  ensureOperatorCashSchema
+} = createSchemaManager({ pool, config });
 const applicationRoot = join(import.meta.dirname, "../..");
-const backupOptions = (configuredDirectory = config.backupDirectory) => ({
+const backupOptions = () => ({
   applicationRoot,
-  configuredDirectory,
+  configuredDirectory: config.backupDirectory,
   runtimeEnvironment: config.runtimeEnvironment,
   databaseName: config.database.name
 });
@@ -88,6 +136,19 @@ const normalizeDateValue = (value) => {
   return formatCertificateDate(value);
 };
 
+const getOpenSslPath = () => {
+  const configured = String(process.env.PDV_OPENSSL_PATH || "").trim();
+  const candidates = [
+    configured,
+    "C:\\Program Files\\OpenSSL-Win64\\bin\\openssl.exe",
+    "C:\\Program Files\\OpenSSL\\bin\\openssl.exe",
+    "C:\\Program Files\\Git\\ucrt64\\bin\\openssl.exe",
+    "C:\\Program Files\\Git\\usr\\bin\\openssl.exe",
+    "openssl"
+  ].filter(Boolean);
+  return candidates.find((candidate) => candidate === "openssl" || existsSync(candidate)) || "openssl";
+};
+
 const readCertificateMetadata = (certificateData, password) => {
   try {
     const certificate = readCertificateWithOpenSsl(certificateData, password)
@@ -104,7 +165,7 @@ const readCertificateMetadata = (certificateData, password) => {
 
 const readCertificateWithOpenSsl = (certificateData, password) => {
   const result = spawnSync(
-    "openssl",
+    getOpenSslPath(),
     ["pkcs12", "-in", "-", "-passin", "env:PDV_PKCS12_PASSWORD", "-clcerts", "-nokeys"],
     {
       input: Buffer.from(String(certificateData), "base64"),
@@ -135,8 +196,14 @@ const json = (response, status, payload) => {
 };
 
 const isAllowedOrigin = (origin) => !origin || config.apiAllowedOrigins.includes(origin);
+const setCorsHeaders = (response, origin) => {
+  if (origin && isAllowedOrigin(origin)) {
+    response.setHeader("Access-Control-Allow-Origin", origin);
+    response.setHeader("Vary", "Origin");
+  }
+};
 
-const authenticateRequest = (request, response) => {
+const authenticateRequest = async (request, response) => {
   const origin = request.headers.origin;
   if (!isAllowedOrigin(origin)) {
     json(response, 403, { error: "Origem não autorizada." });
@@ -147,6 +214,28 @@ const authenticateRequest = (request, response) => {
   if (token !== config.apiToken) {
     json(response, 401, { error: "Autenticação obrigatória." });
     return false;
+  }
+  const operatorToken = request.url === "/api/operator/login"
+    ? ""
+    : String(request.headers["x-operator-session"] || "").trim();
+  if (operatorToken) {
+    const [sessions] = await pool.query(
+      `SELECT os.idOperatorSession, o.idOperator, o.usernameOperator,
+              o.displayNameOperator, o.roleOperator
+       FROM operator_sessions os
+       JOIN operators o ON o.idOperator = os.idOperator
+       WHERE os.tokenHashOperatorSession = ?
+         AND os.expiresAtOperatorSession > CURRENT_TIMESTAMP
+         AND o.isActiveOperator = 1
+       LIMIT 1`,
+      [hashOperatorSessionToken(operatorToken)]
+    );
+    if (!sessions.length) {
+      json(response, 401, { error: "Sessão do operador inválida ou expirada." });
+      return false;
+    }
+    request.operatorSession = sessions[0];
+    request.operatorSessionToken = operatorToken;
   }
   return true;
 };
@@ -291,6 +380,33 @@ const parseBooleanFlag = (value, fieldName, fallback = false) => {
   return value === true || value === 1 || value === "1" || value === "true" ? 1 : 0;
 };
 
+const PRINT_PLACES = ["NÃO IMPRIMIR", "BAR", "COPA", "COZINHA"];
+const DEFAULT_PRINT_PLACE = "NÃO IMPRIMIR";
+const CONFIGURABLE_PRINT_PLACE_TYPES = new Set([
+  "MERCADORIA PARA REVENDA",
+  "PRODUTO ACABADO",
+  "PRODUTOS ACABADOS"
+]);
+
+const parsePrintPlace = (value, fieldName = "Local de impressão", fallback = DEFAULT_PRINT_PLACE) => {
+  const normalized = value === undefined || value === null || value === ""
+    ? fallback
+    : String(value).trim().toLocaleUpperCase("pt-BR");
+  if (!PRINT_PLACES.includes(normalized)) throw new SaleValidationError(`${fieldName} inválido.`);
+  return normalized;
+};
+
+const resolvePrintPlace = (value, productTypeDescription, legacyValue) => {
+  if (!CONFIGURABLE_PRINT_PLACE_TYPES.has(uppercaseText(productTypeDescription))) {
+    return DEFAULT_PRINT_PLACE;
+  }
+  return parsePrintPlace(
+    value,
+    "Local de impressão",
+    legacyValue === true || legacyValue === 1 ? "COZINHA" : DEFAULT_PRINT_PLACE
+  );
+};
+
 const parseProductQuantity = (value, allowNegativeStock, isFractionalProduct) => {
   const rawValue = String(value).trim().replace(",", ".");
   const normalizedValue = /^-?\d+\.0+$/.test(rawValue)
@@ -363,1413 +479,6 @@ const normalizeCfopCode = (value) => {
 const stripCatalogCodeFromDescription = (value) =>
   String(value).replace(/^[^-\s]+\s*-\s*/, "").trim();
 
-const renumberFiscalCatalogIds = async (connection) => {
-  const [items] = await connection.query(
-    `SELECT idFiscalCatalogItem
-     FROM fiscal_catalog_items
-     ORDER BY idFiscalCatalogItem`
-  );
-  if (!items.length) return;
-
-  const temporaryOffset = 1000000000000;
-  for (const item of items) {
-    await connection.query(
-      `UPDATE fiscal_catalog_items
-       SET idFiscalCatalogItem = ?
-       WHERE idFiscalCatalogItem = ?`,
-      [temporaryOffset + Number(item.idFiscalCatalogItem), item.idFiscalCatalogItem]
-    );
-  }
-  for (const [index, item] of items.entries()) {
-    await connection.query(
-      `UPDATE fiscal_catalog_items
-       SET idFiscalCatalogItem = ?
-       WHERE idFiscalCatalogItem = ?`,
-      [index + 1, temporaryOffset + Number(item.idFiscalCatalogItem)]
-    );
-  }
-  await connection.query(
-    `ALTER TABLE fiscal_catalog_items AUTO_INCREMENT = ?`,
-    [items.length + 1]
-  );
-};
-
-const ensureFiscalCatalogSchema = async () => {
-  await pool.query(`CREATE TABLE IF NOT EXISTS fiscal_catalog_items (
-    idFiscalCatalogItem BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    catalogFiscalCatalogItem VARCHAR(50) NOT NULL,
-    codeFiscalCatalogItem VARCHAR(30) NOT NULL,
-    descriptionFiscalCatalogItem VARCHAR(255) NOT NULL,
-    valueFiscalCatalogItem DECIMAL(10,4) NULL,
-    isActiveFiscalCatalogItem TINYINT(1) NOT NULL DEFAULT 1,
-    createdAtFiscalCatalogItem TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updatedAtFiscalCatalogItem TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (idFiscalCatalogItem),
-    UNIQUE KEY uqFiscalCatalogItemsCatalogCode (catalogFiscalCatalogItem, codeFiscalCatalogItem),
-    KEY idxFiscalCatalogItemsCatalogActive (catalogFiscalCatalogItem, isActiveFiscalCatalogItem, descriptionFiscalCatalogItem)
-  ) ENGINE=InnoDB`);
-  await pool.query(
-    `INSERT INTO fiscal_catalog_items
-      (catalogFiscalCatalogItem, codeFiscalCatalogItem, descriptionFiscalCatalogItem, valueFiscalCatalogItem)
-     VALUES ('cfops', '5.101', 'VENDA DE PRODUÇÃO DO ESTABELECIMENTO', NULL)
-     ON DUPLICATE KEY UPDATE
-       descriptionFiscalCatalogItem = VALUES(descriptionFiscalCatalogItem),
-       isActiveFiscalCatalogItem = 1`
-  );
-};
-
-const ensurePrinterSettingsSchema = async () => {
-  await pool.query(`CREATE TABLE IF NOT EXISTS printer_settings (
-    idPrinterSetting TINYINT UNSIGNED NOT NULL,
-    receiptPrinterName VARCHAR(255) NULL,
-    reportsPrinterName VARCHAR(255) NULL,
-    receiptLayoutPrinterSetting JSON NULL,
-    updatedAtPrinterSetting TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (idPrinterSetting)
-  ) ENGINE=InnoDB`);
-  const [columns] = await pool.query(
-   `SELECT COLUMN_NAME FROM information_schema.columns
-    WHERE table_schema = DATABASE() AND table_name = 'printer_settings'`
-  );
-  if (!columns.some(({ COLUMN_NAME }) => COLUMN_NAME === "receiptLayoutPrinterSetting")) {
-   await pool.query("ALTER TABLE printer_settings ADD COLUMN receiptLayoutPrinterSetting JSON NULL");
-  }
-};
-
-const ensureGeneralSettingsSchema = async () => {
-  await pool.query(`CREATE TABLE IF NOT EXISTS general_settings (
-    idGeneralSetting BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    keyGeneralSetting VARCHAR(80) NOT NULL,
-    labelGeneralSetting VARCHAR(160) NOT NULL,
-    typeGeneralSetting ENUM('boolean') NOT NULL DEFAULT 'boolean',
-    booleanValueGeneralSetting TINYINT(1) NOT NULL DEFAULT 0,
-    updatedAtGeneralSetting TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (idGeneralSetting),
-    UNIQUE KEY uqGeneralSettingsKey (keyGeneralSetting)
-  ) ENGINE=InnoDB`);
-  await pool.query(
-   `UPDATE general_settings
-    SET labelGeneralSetting = 'Permitir estoque negativo'
-    WHERE keyGeneralSetting = 'allowNegativeStock'`
-  );
-};
-
-const ensureCustomerConsumerSchema = async () => {
-  await pool.query(`CREATE TABLE IF NOT EXISTS customers (
-    idCustomer BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    nameCustomer VARCHAR(180) NOT NULL,
-    documentCustomer VARCHAR(20) NULL,
-    phoneCustomer VARCHAR(25) NOT NULL DEFAULT '',
-    emailCustomer VARCHAR(180) NOT NULL DEFAULT '',
-    addressCustomer VARCHAR(180) NOT NULL DEFAULT '',
-    creditLimitCustomer DECIMAL(12,2) NOT NULL DEFAULT 0,
-    notesCustomer VARCHAR(400) NULL,
-    isActiveCustomer TINYINT(1) NOT NULL DEFAULT 1,
-    createdAtCustomer TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updatedAtCustomer TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (idCustomer),
-    UNIQUE KEY uqCustomersDocument (documentCustomer)
-  ) ENGINE=InnoDB`);
-  const [customerDocumentColumns] = await pool.query(
-    `SELECT IS_NULLABLE FROM information_schema.COLUMNS
-     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'customers'
-       AND COLUMN_NAME = 'documentCustomer'`
-  );
-  if (customerDocumentColumns[0]?.IS_NULLABLE !== "YES") {
-    await pool.query("UPDATE customers SET documentCustomer = NULL WHERE documentCustomer = ''");
-    await pool.query("ALTER TABLE customers MODIFY COLUMN documentCustomer VARCHAR(20) NULL");
-  }
-  await pool.query(`CREATE TABLE IF NOT EXISTS consumers (
-    idConsumer BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    idCustomer BIGINT UNSIGNED NULL,
-    nameConsumer VARCHAR(180) NOT NULL,
-    nicknameConsumer VARCHAR(120) NOT NULL DEFAULT '',
-    phoneConsumer VARCHAR(25) NOT NULL DEFAULT '',
-    notesConsumer VARCHAR(400) NULL,
-    isActiveConsumer TINYINT(1) NOT NULL DEFAULT 1,
-    createdAtConsumer TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updatedAtConsumer TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (idConsumer),
-    UNIQUE KEY uqConsumersCustomer (idCustomer),
-    KEY idxConsumersStatus (isActiveConsumer),
-    CONSTRAINT fkConsumersCustomer FOREIGN KEY (idCustomer) REFERENCES customers (idCustomer) ON DELETE SET NULL
-  ) ENGINE=InnoDB`);
-  await pool.query(`CREATE TABLE IF NOT EXISTS customer_vouchers (
-    idCustomerVoucher BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    idCustomer BIGINT UNSIGNED NOT NULL,
-    idSale BIGINT UNSIGNED NULL,
-    amountCustomerVoucher DECIMAL(12,2) NOT NULL,
-    dueDateCustomerVoucher DATE NULL,
-    statusCustomerVoucher ENUM('open', 'paid', 'cancelled') NOT NULL DEFAULT 'open',
-    createdAtCustomerVoucher TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (idCustomerVoucher),
-    KEY idxCustomerVouchersCustomer (idCustomer, statusCustomerVoucher),
-    CONSTRAINT fkCustomerVouchersCustomer FOREIGN KEY (idCustomer) REFERENCES customers (idCustomer) ON DELETE RESTRICT
-  ) ENGINE=InnoDB`);
-};
-
-const migrateCustomerConsumerSchema = async () => {
-  const [paymentTermColumns] = await pool.query(
-    `SELECT COLUMN_NAME FROM information_schema.COLUMNS
-     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'customers'
-       AND COLUMN_NAME = 'paymentTermCustomer'`
-  );
-  if (paymentTermColumns.length) {
-    await pool.query("ALTER TABLE customers DROP COLUMN paymentTermCustomer");
-  }
-};
-
-const getGeneralSettingBoolean = async (key) => {
-  await ensureGeneralSettingsSchema();
-  const [rows] = await pool.query(
-    `SELECT booleanValueGeneralSetting
-     FROM general_settings
-     WHERE keyGeneralSetting = ?
-     LIMIT 1`,
-    [key]
-  );
-  return Boolean(rows[0]?.booleanValueGeneralSetting);
-};
-
-const ensureCompanySchema = async () => {
-  await pool.query(`CREATE TABLE IF NOT EXISTS company_settings (
-    idCompanySetting TINYINT UNSIGNED NOT NULL,
-    companyTypeCompany ENUM('juridica', 'fisica') NOT NULL DEFAULT 'juridica',
-    documentCompany VARCHAR(20) NOT NULL DEFAULT '',
-    corporateNameCompany VARCHAR(180) NOT NULL DEFAULT '',
-    tradeNameCompany VARCHAR(120) NOT NULL DEFAULT '',
-    stateRegistrationCompany VARCHAR(30) NOT NULL DEFAULT '',
-    municipalRegistrationCompany VARCHAR(30) NOT NULL DEFAULT '',
-    cnaeCompany VARCHAR(20) NOT NULL DEFAULT '',
-    zipCodeCompany VARCHAR(9) NOT NULL DEFAULT '',
-    addressCompany VARCHAR(180) NOT NULL DEFAULT '',
-    addressNumberCompany VARCHAR(20) NOT NULL DEFAULT '',
-    addressComplementCompany VARCHAR(80) NOT NULL DEFAULT '',
-    neighborhoodCompany VARCHAR(100) NOT NULL DEFAULT '',
-    countryCompany VARCHAR(80) NOT NULL DEFAULT 'Brasil',
-    stateCompany CHAR(2) NOT NULL DEFAULT '',
-    cityCompany VARCHAR(100) NOT NULL DEFAULT '',
-    municipalityCodeCompany CHAR(7) NOT NULL DEFAULT '3148004',
-    phoneCompany VARCHAR(25) NOT NULL DEFAULT '',
-    mobileCompany VARCHAR(25) NOT NULL DEFAULT '',
-    websiteCompany VARCHAR(180) NOT NULL DEFAULT '',
-    emailCompany VARCHAR(180) NOT NULL DEFAULT '',
-    nfceStateCompany CHAR(2) NOT NULL DEFAULT 'MG',
-    nfceModelCompany SMALLINT UNSIGNED NOT NULL DEFAULT 65,
-    nfceEnvironmentCompany ENUM('homologation', 'production') NOT NULL DEFAULT 'homologation',
-    nfceSeriesCompany SMALLINT UNSIGNED NOT NULL DEFAULT 1,
-    nfceInitialNumberCompany INT UNSIGNED NOT NULL DEFAULT 1,
-    nfceContingencyCompany ENUM('none', 'offline') NOT NULL DEFAULT 'none',
-    nfceCscCompany VARCHAR(255) NOT NULL DEFAULT '',
-    nfceTokenCompany VARCHAR(255) NOT NULL DEFAULT '',
-    nfceHomologationCscCompany VARCHAR(255) NOT NULL DEFAULT '',
-    nfceHomologationTokenCompany VARCHAR(255) NOT NULL DEFAULT '',
-    nfceCertificateTypeCompany ENUM('A1', 'A3') NOT NULL DEFAULT 'A1',
-    nfceCertificatePathCompany VARCHAR(255) NOT NULL DEFAULT '',
-    nfceCertificateExpiresCompany DATE NULL,
-    nfceCertificateSerialCompany VARCHAR(255) NOT NULL DEFAULT '',
-    logoMimeCompany VARCHAR(50) NOT NULL DEFAULT '',
-    logoDataCompany MEDIUMTEXT NULL,
-    projectIconMimeCompany VARCHAR(50) NOT NULL DEFAULT '',
-    projectIconDataCompany MEDIUMTEXT NULL,
-    createdAtCompanySetting TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updatedAtCompanySetting TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (idCompanySetting)
-  ) ENGINE=InnoDB`);
-  const [columns] = await pool.query(
-    `SELECT COLUMN_NAME
-     FROM information_schema.COLUMNS
-     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'company_settings'
-       AND COLUMN_NAME IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
-    [config.database.name, "nfceStateCompany", "nfceModelCompany", "nfceEnvironmentCompany",
-      "nfceContingencyCompany", "nfceCertificateTypeCompany", "nfceCertificatePathCompany",
-      "nfceCertificateExpiresCompany", "nfceCertificateSerialCompany", "nfceCertificateNameCompany",
-      "nfceCertificateDataCompany", "nfceCertificatePasswordCompany", "logoMimeCompany", "logoDataCompany",
-      "projectIconMimeCompany", "projectIconDataCompany", "municipalityCodeCompany"]
-  );
-  const existing = new Set(columns.map(({ COLUMN_NAME }) => COLUMN_NAME));
-  const missingColumns = [
-    ["nfceStateCompany", "ALTER TABLE company_settings ADD COLUMN nfceStateCompany CHAR(2) NOT NULL DEFAULT 'MG'"],
-    ["nfceModelCompany", "ALTER TABLE company_settings ADD COLUMN nfceModelCompany SMALLINT UNSIGNED NOT NULL DEFAULT 65"],
-    ["nfceEnvironmentCompany", "ALTER TABLE company_settings ADD COLUMN nfceEnvironmentCompany ENUM('homologation', 'production') NOT NULL DEFAULT 'homologation'"],
-    ["nfceContingencyCompany", "ALTER TABLE company_settings ADD COLUMN nfceContingencyCompany ENUM('none', 'offline') NOT NULL DEFAULT 'none'"],
-    ["nfceCertificateTypeCompany", "ALTER TABLE company_settings ADD COLUMN nfceCertificateTypeCompany ENUM('A1', 'A3') NOT NULL DEFAULT 'A1'"],
-    ["nfceCertificatePathCompany", "ALTER TABLE company_settings ADD COLUMN nfceCertificatePathCompany VARCHAR(255) NOT NULL DEFAULT ''"],
-    ["nfceCertificateExpiresCompany", "ALTER TABLE company_settings ADD COLUMN nfceCertificateExpiresCompany DATE NULL"],
-    ["nfceCertificateNameCompany", "ALTER TABLE company_settings ADD COLUMN nfceCertificateNameCompany VARCHAR(255) NOT NULL DEFAULT ''"],
-    ["nfceCertificateDataCompany", "ALTER TABLE company_settings ADD COLUMN nfceCertificateDataCompany MEDIUMTEXT NULL"],
-    ["nfceCertificatePasswordCompany", "ALTER TABLE company_settings ADD COLUMN nfceCertificatePasswordCompany MEDIUMTEXT NULL"],
-    ["municipalityCodeCompany", "ALTER TABLE company_settings ADD COLUMN municipalityCodeCompany CHAR(7) NOT NULL DEFAULT '3148004'"]
-  ];
-  for (const [name, statement] of missingColumns) {
-    if (!existing.has(name)) await pool.query(statement);
-  }
-  await pool.query(
-    `INSERT INTO company_settings (idCompanySetting)
-     SELECT 1
-     WHERE NOT EXISTS (SELECT 1 FROM company_settings LIMIT 1)`
-  );
-  if (!existing.has("logoMimeCompany")) {
-    await pool.query(
-      "ALTER TABLE company_settings ADD COLUMN logoMimeCompany VARCHAR(50) NOT NULL DEFAULT '' AFTER nfceCertificateSerialCompany"
-    );
-  }
-  if (!existing.has("logoDataCompany")) {
-    await pool.query(
-      "ALTER TABLE company_settings ADD COLUMN logoDataCompany MEDIUMTEXT NULL AFTER logoMimeCompany"
-    );
-  }
-  if (!existing.has("projectIconMimeCompany")) {
-    await pool.query(
-      "ALTER TABLE company_settings ADD COLUMN projectIconMimeCompany VARCHAR(50) NOT NULL DEFAULT '' AFTER logoDataCompany"
-    );
-  }
-  if (!existing.has("projectIconDataCompany")) {
-    await pool.query(
-      "ALTER TABLE company_settings ADD COLUMN projectIconDataCompany MEDIUMTEXT NULL AFTER projectIconMimeCompany"
-    );
-  }
-};
-
-const ensureFiscalOperationSchema = async () => {
-  const [columns] = await pool.query(
-    `SELECT COLUMN_NAME
-     FROM information_schema.COLUMNS
-     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'fiscal_operations'
-       AND COLUMN_NAME IN (?, ?)`,
-    [
-      config.database.name,
-      "fcpUseReductionBaseFiscalOperation",
-      "fcpStUseReductionBaseFiscalOperation"
-    ]
-  );
-  const existing = new Set(columns.map(({ COLUMN_NAME }) => COLUMN_NAME));
-  if (!existing.has("fcpUseReductionBaseFiscalOperation")) {
-    await pool.query(
-      `ALTER TABLE fiscal_operations
-       ADD COLUMN fcpUseReductionBaseFiscalOperation TINYINT(1) NOT NULL DEFAULT 0
-       AFTER fcpEnabledFiscalOperation`
-    );
-  }
-  if (!existing.has("fcpStUseReductionBaseFiscalOperation")) {
-    await pool.query(
-      `ALTER TABLE fiscal_operations
-       ADD COLUMN fcpStUseReductionBaseFiscalOperation TINYINT(1) NOT NULL DEFAULT 0
-       AFTER fcpStEnabledFiscalOperation`
-    );
-  }
-};
-
-const ensureNcmCestSchema = async () => {
-  await pool.query(`CREATE TABLE IF NOT EXISTS ncm_catalog (
-    idNcm BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    codeNcm CHAR(8) NOT NULL,
-    descriptionNcm VARCHAR(255) NOT NULL,
-    isActiveNcm TINYINT(1) NOT NULL DEFAULT 1,
-    createdAtNcm TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updatedAtNcm TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (idNcm),
-    UNIQUE KEY uqNcmCode (codeNcm)
-  ) ENGINE=InnoDB`);
-  await pool.query(`CREATE TABLE IF NOT EXISTS cest_catalog (
-    idCest BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    codeCest CHAR(7) NOT NULL,
-    descriptionCest VARCHAR(255) NOT NULL,
-    segmentCest VARCHAR(160) NULL,
-    isActiveCest TINYINT(1) NOT NULL DEFAULT 1,
-    createdAtCest TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updatedAtCest TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (idCest),
-    UNIQUE KEY uqCestCode (codeCest)
-  ) ENGINE=InnoDB`);
-  await pool.query(`CREATE TABLE IF NOT EXISTS ncm_cest_relations (
-    idNcmCestRelation BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    idNcm BIGINT UNSIGNED NOT NULL,
-    idCest BIGINT UNSIGNED NOT NULL,
-    createdAtNcmCestRelation TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (idNcmCestRelation),
-    UNIQUE KEY uqNcmCestRelation (idNcm, idCest),
-    KEY idxNcmCestRelationsCest (idCest),
-    CONSTRAINT fkNcmCestRelationsNcm FOREIGN KEY (idNcm) REFERENCES ncm_catalog (idNcm) ON DELETE RESTRICT,
-    CONSTRAINT fkNcmCestRelationsCest FOREIGN KEY (idCest) REFERENCES cest_catalog (idCest) ON DELETE RESTRICT
-  ) ENGINE=InnoDB`);
-  await pool.query(
-    "ALTER TABLE ncm_catalog MODIFY COLUMN descriptionNcm TEXT NOT NULL"
-  );
-  await pool.query(
-    "ALTER TABLE cest_catalog MODIFY COLUMN descriptionCest TEXT NOT NULL"
-  );
-  await ensureUpdateSchema(pool);
-};
-
-const ensureProductFiscalSchema = async () => {
-  const [columns] = await pool.query(
-    `SELECT COLUMN_NAME
-     FROM information_schema.COLUMNS
-     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'products'
-       AND COLUMN_NAME IN (?, ?)`,
-    [config.database.name, "ncmProduct", "cestProduct"]
-  );
-  const existing = new Set(columns.map(({ COLUMN_NAME }) => COLUMN_NAME));
-  if (!existing.has("ncmProduct")) {
-    await pool.query("ALTER TABLE products ADD COLUMN ncmProduct CHAR(8) NULL AFTER nameProduct");
-  }
-  if (!existing.has("cestProduct")) {
-    await pool.query("ALTER TABLE products ADD COLUMN cestProduct CHAR(7) NULL AFTER ncmProduct");
-  }
-};
-
-const ensureProductCatalogSchema = async () => {
-  await pool.query(`CREATE TABLE IF NOT EXISTS product_types (
-    idProductType BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    codeSpedProductType VARCHAR(30) NULL,
-    descriptionProductType VARCHAR(120) NOT NULL,
-    isActiveProductType TINYINT(1) NOT NULL DEFAULT 1,
-    PRIMARY KEY (idProductType),
-    UNIQUE KEY uqProductTypesDescription (descriptionProductType)
-  ) ENGINE=InnoDB`);
-  const [productTypeColumns] = await pool.query(
-    `SELECT COLUMN_NAME
-     FROM information_schema.COLUMNS
-     WHERE TABLE_SCHEMA = DATABASE()
-       AND TABLE_NAME = 'product_types'`
-  );
-  if (!productTypeColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "codeSpedProductType")) {
-    await pool.query(
-      "ALTER TABLE product_types ADD COLUMN codeSpedProductType VARCHAR(30) NULL AFTER idProductType"
-    );
-  }
-  await pool.query(
-    `INSERT INTO product_types (descriptionProductType, isActiveProductType)
-     VALUES ('Produto Acabado', 1)
-     ON DUPLICATE KEY UPDATE isActiveProductType = 1`
-  );
-  await pool.query(`CREATE TABLE IF NOT EXISTS units (
-    idUnit BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    codeUnit CHAR(6) NOT NULL,
-    descriptionUnit VARCHAR(80) NOT NULL,
-    isActiveUnit TINYINT(1) NOT NULL DEFAULT 1,
-    PRIMARY KEY (idUnit),
-    UNIQUE KEY uqUnitsCode (codeUnit)
-  ) ENGINE=InnoDB`);
-  await ensureProductFiscalSchema();
-  await ensureFiscalOperationSchema();
-  const [migrationTypes] = await pool.query(
-    `SELECT
-       (SELECT idProductType
-        FROM product_types
-        WHERE descriptionProductType = 'MERCADORIA PARA REVENDA'
-        LIMIT 1) AS sourceProductType,
-       (SELECT idProductType
-        FROM product_types
-        WHERE descriptionProductType = 'PRODUTO ACABADO'
-        LIMIT 1) AS targetProductType,
-       (SELECT idFiscalOperation
-        FROM fiscal_operations
-        WHERE descriptionFiscalOperation = 'VENDA DE PRODUÇÃO'
-          AND typeFiscalOperation = 'exit'
-          AND isActiveFiscalOperation = 1
-        ORDER BY idFiscalOperation
-        LIMIT 1) AS targetFiscalOperation`
-  );
-  const migration = migrationTypes[0];
-  if (migration?.sourceProductType && migration?.targetProductType && migration?.targetFiscalOperation) {
-    await pool.query(
-      `UPDATE products
-       SET idProductTypeProduct = ?,
-           idFiscalOperationSaleProduct = ?
-       WHERE idProductTypeProduct = ?`,
-      [
-        migration.targetProductType,
-        migration.targetFiscalOperation,
-        migration.sourceProductType
-      ]
-    );
-  }
-  const [columns] = await pool.query(
-    `SELECT COLUMN_NAME
-     FROM information_schema.COLUMNS
-     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'products'`
-  );
-  const existing = new Set(columns.map(({ COLUMN_NAME }) => COLUMN_NAME));
-  if (!existing.has("pdvCodeProduct")) {
-    if (existing.has("barcodeProduct")) {
-      await pool.query("ALTER TABLE products CHANGE COLUMN barcodeProduct pdvCodeProduct VARCHAR(64) NULL");
-    } else {
-      await pool.query("ALTER TABLE products ADD COLUMN pdvCodeProduct VARCHAR(64) NULL AFTER skuProduct");
-    }
-  }
-  const additions = [
-    ["idFiscalOperationSaleProduct", "ALTER TABLE products ADD COLUMN idFiscalOperationSaleProduct BIGINT UNSIGNED NULL AFTER nameProduct"],
-    ["idProductTypeProduct", "ALTER TABLE products ADD COLUMN idProductTypeProduct BIGINT UNSIGNED NULL AFTER idFiscalOperationSaleProduct"],
-    ["idPhysicalStateProduct", "ALTER TABLE products ADD COLUMN idPhysicalStateProduct INT NOT NULL DEFAULT 0 AFTER idProductTypeProduct"],
-    ["idUnitProduct", "ALTER TABLE products ADD COLUMN idUnitProduct BIGINT UNSIGNED NULL AFTER idProductTypeProduct"],
-    ["controlsStockProduct", "ALTER TABLE products ADD COLUMN controlsStockProduct TINYINT(1) NOT NULL DEFAULT 1 AFTER stockQuantityProduct"],
-    ["isFractionalProduct", "ALTER TABLE products ADD COLUMN isFractionalProduct TINYINT(1) NOT NULL DEFAULT 0 AFTER controlsStockProduct"],
-    ["printsKitchenProduct", "ALTER TABLE products ADD COLUMN printsKitchenProduct TINYINT(1) NOT NULL DEFAULT 0 AFTER isFractionalProduct"],
-    ["showsInPdvProduct", "ALTER TABLE products ADD COLUMN showsInPdvProduct TINYINT(1) NOT NULL DEFAULT 1 AFTER printsKitchenProduct"],
-    ["costPriceProduct", "ALTER TABLE products ADD COLUMN costPriceProduct DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER priceProduct"]
-  ];
-  for (const [name, statement] of additions) {
-    if (!existing.has(name)) await pool.query(statement);
-  }
-  const [classColumns] = await pool.query(
-    `SELECT COLUMN_NAME
-     FROM information_schema.COLUMNS
-     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'classes'`
-  );
-  if (!classColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "idFiscalOperationClass")) {
-    await pool.query("ALTER TABLE classes ADD COLUMN idFiscalOperationClass BIGINT UNSIGNED NULL AFTER descriptionClass");
-  }
-  const [groupColumns] = await pool.query(
-    `SELECT COLUMN_NAME
-     FROM information_schema.COLUMNS
-     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'groups'`
-  );
-  if (!groupColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "showsInPdvGroup")) {
-    await pool.query("ALTER TABLE `groups` ADD COLUMN showsInPdvGroup TINYINT(1) NOT NULL DEFAULT 0 AFTER idClass");
-  }
-};
-
-let culinarySchemaPromise = null;
-
-const ensureCulinarySchema = () => culinarySchemaPromise ??= (async () => {
-  await pool.query(`CREATE TABLE IF NOT EXISTS culinary_units (
-    idCulinaryUnit INT AUTO_INCREMENT PRIMARY KEY,
-    codeCulinaryUnit VARCHAR(20) NOT NULL UNIQUE,
-    nameCulinaryUnit VARCHAR(50) NOT NULL,
-    baseUnitCulinaryUnit ENUM('g', 'ml', 'un') NOT NULL,
-    categoryCulinaryUnit ENUM('weight', 'volume', 'unit') NOT NULL,
-    descriptionCulinaryUnit VARCHAR(100) NULL,
-    isActiveCulinaryUnit TINYINT(1) NOT NULL DEFAULT 1
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
-  await pool.query(`CREATE TABLE IF NOT EXISTS physical_states (
-    idPhysicalState INT AUTO_INCREMENT PRIMARY KEY,
-    codePhysicalState VARCHAR(30) NOT NULL UNIQUE,
-    namePhysicalState VARCHAR(50) NOT NULL,
-    descriptionPhysicalState VARCHAR(150) NULL,
-    isActivePhysicalState TINYINT(1) NOT NULL DEFAULT 1
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
-  await pool.query(`CREATE TABLE IF NOT EXISTS culinary_unit_conversions (
-    idCulinaryUnitConversion INT AUTO_INCREMENT PRIMARY KEY,
-    idFromCulinaryUnitConversion INT NOT NULL,
-    idToCulinaryUnitConversion INT NOT NULL,
-    idPhysicalStateCulinaryUnitConversion INT NOT NULL,
-    factorCulinaryUnitConversion DECIMAL(10, 4) NOT NULL,
-    notesCulinaryUnitConversion VARCHAR(150) NULL,
-    UNIQUE KEY uqCulinaryUnitConversions (idFromCulinaryUnitConversion, idToCulinaryUnitConversion, idPhysicalStateCulinaryUnitConversion),
-    FOREIGN KEY (idFromCulinaryUnitConversion) REFERENCES culinary_units(idCulinaryUnit) ON DELETE CASCADE,
-    FOREIGN KEY (idToCulinaryUnitConversion) REFERENCES culinary_units(idCulinaryUnit) ON DELETE CASCADE,
-    FOREIGN KEY (idPhysicalStateCulinaryUnitConversion) REFERENCES physical_states(idPhysicalState) ON DELETE RESTRICT
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
-  for (const [table, column] of [
-    ["culinary_units", "isActiveCulinaryUnit"],
-    ["physical_states", "isActivePhysicalState"]
-  ]) {
-    const [columns] = await pool.query(
-      `SELECT COLUMN_NAME FROM information_schema.COLUMNS
-       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
-      [table, column]
-    );
-    if (!columns.length) {
-      await pool.query(`ALTER TABLE \`${table}\` ADD COLUMN ${column} TINYINT(1) NOT NULL DEFAULT 1`);
-    }
-  }
-  const culinaryUnits = [
-    ["g", "Grama", "g", "weight", "Massa/Peso base em gramas"],
-    ["ml", "Mililitro", "ml", "volume", "Volume base em mililitros"],
-    ["un", "Unidade", "un", "unit", "Contagem unitária"],
-    ["kg", "Quilograma", "g", "weight", "Massa equivalente a 1.000 gramas"],
-    ["l", "Litro", "ml", "volume", "Volume equivalente a 1.000 mililitros"],
-    ["gota", "Gota", "ml", "volume", "Gotas (extratos, adoçantes, bitters)"],
-    ["pitada", "Pitada (Pinch)", "g", "weight", "Pitada de condimentos sólidos/pós"],
-    ["colher_cafe", "Colher de Café", "ml", "volume", "Colher de café padrão (~2,5ml)"],
-    ["colher_cha", "Colher de Chá", "ml", "volume", "Colher de chá padrão (~5ml)"],
-    ["colher_sobremesa", "Colher de Sobremesa", "ml", "volume", "Colher de sobremesa padrão (~10ml)"],
-    ["colher_sopa", "Colher de Sopa", "ml", "volume", "Colher de sopa padrão (~15ml)"],
-    ["dose_jigger", "Dose / Jigger", "ml", "volume", "Dose padrão de bar (50ml)"],
-    ["xicara_cha", "Xícara de Chá", "ml", "volume", "Xícara de chá padrão (~240ml)"],
-    ["duzia", "Dúzia", "un", "unit", "Quantidade equivalente a 12 unidades"]
-  ];
-  for (const [code, name, baseUnit, category, description] of culinaryUnits) {
-    await pool.query(
-      `INSERT INTO culinary_units
-        (codeCulinaryUnit, nameCulinaryUnit, baseUnitCulinaryUnit, categoryCulinaryUnit, descriptionCulinaryUnit)
-       VALUES (?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         nameCulinaryUnit = VALUES(nameCulinaryUnit),
-         baseUnitCulinaryUnit = VALUES(baseUnitCulinaryUnit),
-         categoryCulinaryUnit = VALUES(categoryCulinaryUnit),
-         descriptionCulinaryUnit = VALUES(descriptionCulinaryUnit)`,
-      [code, name, baseUnit, category, description]
-    );
-  }
-  const physicalStates = [
-    ["liquid_light", "Líquido Fluído / Leve", "Água, sucos, destilados, azeite, vinagre"],
-    ["liquid_viscous", "Líquido Viscoso / Denso", "Leite condensado, mel, xaropes densos, melaço"],
-    ["powder_light", "Pó Fino / Leve", "Farinha de trigo, fermento, cacau em pó, amido de milho"],
-    ["powder_heavy", "Granulado / Pó Pesado", "Açúcar refinado, sal, café moído, grãos crus"],
-    ["pasty", "Pastoso / Emulsão", "Maionese, requeijão, manteiga, ketchup, catupiry"],
-    ["solid_chopped", "Sólido Picado / Cubos", "Bacon picado, alho picado, ervas e legumes em cubos"],
-    ["solid_whole", "Sólido Inteiro / Peça", "Ovos, frutas, legumes e peças inteiras"],
-    ["solid_sliced", "Sólido Fatiado", "Frutas, legumes, carnes e queijos fatiados"],
-    ["solid_grated", "Sólido Ralado / Triturado", "Queijos, coco, alho e outros ingredientes ralados ou triturados"],
-    ["frozen", "Congelado", "Polpas, legumes e outros alimentos mantidos congelados"]
-  ];
-  for (const [code, name, description] of physicalStates) {
-    await pool.query(
-      `INSERT INTO physical_states (codePhysicalState, namePhysicalState, descriptionPhysicalState)
-       VALUES (?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         namePhysicalState = VALUES(namePhysicalState),
-         descriptionPhysicalState = VALUES(descriptionPhysicalState)`,
-      [code, name, description]
-    );
-  }
-  await pool.query(
-    `INSERT INTO culinary_unit_conversions
-      (idFromCulinaryUnitConversion, idToCulinaryUnitConversion,
-       idPhysicalStateCulinaryUnitConversion, factorCulinaryUnitConversion,
-       notesCulinaryUnitConversion)
-     SELECT unit.idCulinaryUnit, unit.idCulinaryUnit, state.idPhysicalState, 1.0000, 'Unidade base'
-     FROM culinary_units unit
-     CROSS JOIN physical_states state
-     WHERE unit.codeCulinaryUnit IN ('g', 'ml', 'un')
-     ON DUPLICATE KEY UPDATE
-       factorCulinaryUnitConversion = VALUES(factorCulinaryUnitConversion),
-       notesCulinaryUnitConversion = VALUES(notesCulinaryUnitConversion)`
-  );
-  const approximateConversions = [
-    ["solid_whole", "Referência aproximada para sólidos inteiros fracionados"],
-    ["solid_sliced", "Referência aproximada para sólidos fatiados"],
-    ["solid_grated", "Referência aproximada para sólidos ralados ou triturados"],
-    ["frozen", "Referência aproximada para alimentos congelados"]
-  ];
-  for (const [stateCode, notes] of approximateConversions) {
-    await pool.query(
-      `INSERT INTO culinary_unit_conversions
-        (idFromCulinaryUnitConversion, idToCulinaryUnitConversion,
-         idPhysicalStateCulinaryUnitConversion, factorCulinaryUnitConversion,
-         notesCulinaryUnitConversion)
-       SELECT source.idCulinaryUnit, target.idCulinaryUnit, state.idPhysicalState, factors.factor, ?
-       FROM culinary_units source
-       INNER JOIN culinary_units target ON target.codeCulinaryUnit = 'g'
-       INNER JOIN physical_states state ON state.codePhysicalState = ?
-       INNER JOIN (
-         SELECT 'colher_sopa' AS codeCulinaryUnit, 10.0000 AS factor
-         UNION ALL
-         SELECT 'xicara_cha', 115.0000
-       ) factors ON factors.codeCulinaryUnit = source.codeCulinaryUnit
-       ON DUPLICATE KEY UPDATE
-         factorCulinaryUnitConversion = VALUES(factorCulinaryUnitConversion),
-         notesCulinaryUnitConversion = VALUES(notesCulinaryUnitConversion)`,
-      [notes, stateCode]
-    );
-  }
-  const standardConversions = [
-    ["gota", "ml", "liquid_light", 0.05, "Adoçante, corante, amargo/bitters"],
-    ["colher_cha", "ml", "liquid_light", 5, "Essências, suco de limão concentrado"],
-    ["colher_sopa", "ml", "liquid_light", 15, "Azeite, molho de soja, vinagre, xaropes"],
-    ["dose_jigger", "ml", "liquid_light", 50, "Destilados (Cachaça, Gin, Rum, Vodka)"],
-    ["xicara_cha", "ml", "liquid_light", 240, "Água, leite, sucos, caldos fluídos"],
-    ["colher_cha", "g", "liquid_viscous", 7, "Mel, melaço, glicose"],
-    ["colher_sopa", "g", "liquid_viscous", 20, "Leite condensado, mel, cobertura de chocolate"],
-    ["xicara_cha", "g", "liquid_viscous", 300, "Leite condensado, doce de leite concentrado"],
-    ["pitada", "g", "powder_light", 0.5, "Pimenta, canela em pó, noz-moscada"],
-    ["colher_cha", "g", "powder_light", 3, "Fermento em pó, bicarbonato, cacau"],
-    ["colher_sopa", "g", "powder_light", 10, "Farinha de trigo, leite em pó, amido de milho"],
-    ["xicara_cha", "g", "powder_light", 120, "Farinha de trigo peneirada, cacau em pó"],
-    ["pitada", "g", "powder_heavy", 0.5, "Sal refinado"],
-    ["colher_cha", "g", "powder_heavy", 5, "Sal refinado, açúcar refinado"],
-    ["colher_sopa", "g", "powder_heavy", 15, "Açúcar refinado, sal grosso, café moído"],
-    ["xicara_cha", "g", "powder_heavy", 190, "Açúcar refinado, arroz cru, feijão cru"],
-    ["colher_cha", "g", "pasty", 5, "Manteiga, margarina, mostarda, ketchup"],
-    ["colher_sopa", "g", "pasty", 16, "Requeijão, maionese, catupiry, cream cheese"],
-    ["xicara_cha", "g", "pasty", 230, "Maionese base, requeijão cremoso"],
-    ["colher_sopa", "g", "solid_chopped", 10, "Cheiro-verde picado, alho picado/triturado"],
-    ["xicara_cha", "g", "solid_chopped", 115, "Bacon picado, alho picado, ervas e legumes em cubos"],
-    ["kg", "g", "liquid_light", 1000, "Conversão universal de massa"],
-    ["kg", "g", "liquid_viscous", 1000, "Conversão universal de massa"],
-    ["kg", "g", "powder_light", 1000, "Conversão universal de massa"],
-    ["kg", "g", "powder_heavy", 1000, "Conversão universal de massa"],
-    ["kg", "g", "pasty", 1000, "Conversão universal de massa"],
-    ["kg", "g", "solid_chopped", 1000, "Conversão universal de massa"],
-    ["kg", "g", "solid_whole", 1000, "Conversão universal de massa"],
-    ["kg", "g", "solid_sliced", 1000, "Conversão universal de massa"],
-    ["kg", "g", "solid_grated", 1000, "Conversão universal de massa"],
-    ["kg", "g", "frozen", 1000, "Conversão universal de massa"],
-    ["l", "ml", "liquid_light", 1000, "Conversão universal de volume"],
-    ["l", "ml", "liquid_viscous", 1000, "Conversão universal de volume"],
-    ["colher_cafe", "ml", "liquid_light", 2.5, "Medida culinária volumétrica aproximada"],
-    ["colher_sobremesa", "ml", "liquid_light", 10, "Medida culinária volumétrica aproximada"],
-    ["duzia", "un", "solid_whole", 12, "Conversão de contagem"]
-  ];
-  for (const [fromCode, toCode, stateCode, factor, notes] of standardConversions) {
-    await pool.query(
-      `INSERT INTO culinary_unit_conversions
-        (idFromCulinaryUnitConversion, idToCulinaryUnitConversion,
-         idPhysicalStateCulinaryUnitConversion, factorCulinaryUnitConversion,
-         notesCulinaryUnitConversion)
-       SELECT source.idCulinaryUnit, target.idCulinaryUnit, state.idPhysicalState, ?, ?
-       FROM culinary_units source
-       INNER JOIN culinary_units target ON target.codeCulinaryUnit = ?
-       INNER JOIN physical_states state ON state.codePhysicalState = ?
-       WHERE source.codeCulinaryUnit = ?
-       ON DUPLICATE KEY UPDATE
-         factorCulinaryUnitConversion = VALUES(factorCulinaryUnitConversion),
-         notesCulinaryUnitConversion = VALUES(notesCulinaryUnitConversion)`,
-      [factor, notes, toCode, stateCode, fromCode]
-    );
-  }
-})().catch((error) => {
-  culinarySchemaPromise = null;
-  throw error;
-});
-
-const prepareNavigationSchema = async () => {
-  await pool.query(`CREATE TABLE IF NOT EXISTS navigation_menus (
-    idNavigationMenu SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    keyNavigationMenu VARCHAR(80) NOT NULL,
-    labelNavigationMenu VARCHAR(120) NOT NULL,
-    orderNavigationMenu SMALLINT UNSIGNED NOT NULL,
-    isActiveNavigationMenu TINYINT(1) NOT NULL DEFAULT 1,
-    PRIMARY KEY (idNavigationMenu),
-    UNIQUE KEY uqNavigationMenusKey (keyNavigationMenu)
-  ) ENGINE=InnoDB`);
-  await pool.query(`CREATE TABLE IF NOT EXISTS navigation_items (
-    idNavigationItem BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    idNavigationMenu SMALLINT UNSIGNED NOT NULL,
-    idParentNavigationItem BIGINT UNSIGNED NULL,
-    typeNavigationItem ENUM('item', 'submenu', 'bar', 'divider') NOT NULL,
-    keyNavigationItem VARCHAR(80) NOT NULL,
-    labelNavigationItem VARCHAR(120) NOT NULL,
-    routeNavigationItem VARCHAR(120) NULL,
-    descriptionNavigationItem VARCHAR(240) NULL,
-    orderNavigationItem SMALLINT UNSIGNED NOT NULL,
-    isActiveNavigationItem TINYINT(1) NOT NULL DEFAULT 1,
-    showsInBackofficeHomeNavigationItem TINYINT(1) NOT NULL DEFAULT 0,
-    PRIMARY KEY (idNavigationItem),
-    UNIQUE KEY uqNavigationItemsMenuParentKey (idNavigationMenu, idParentNavigationItem, keyNavigationItem),
-    KEY idxNavigationItemsMenuParentOrder (idNavigationMenu, idParentNavigationItem, orderNavigationItem),
-    CONSTRAINT fkNavigationItemsMenu FOREIGN KEY (idNavigationMenu) REFERENCES navigation_menus (idNavigationMenu) ON DELETE CASCADE,
-    CONSTRAINT fkNavigationItemsParent FOREIGN KEY (idParentNavigationItem) REFERENCES navigation_items (idNavigationItem) ON DELETE CASCADE
-  ) ENGINE=InnoDB`);
-  const [navigationItemColumns] = await pool.query(
-    `SELECT COLUMN_NAME
-     FROM information_schema.COLUMNS
-     WHERE TABLE_SCHEMA = DATABASE()
-       AND TABLE_NAME = 'navigation_items'`
-  );
-  const [navigationType] = await pool.query(
-    `SELECT COLUMN_TYPE
-     FROM information_schema.COLUMNS
-     WHERE TABLE_SCHEMA = DATABASE()
-       AND TABLE_NAME = 'navigation_items'
-       AND COLUMN_NAME = 'typeNavigationItem'`
-  );
-  if (navigationType[0] && !String(navigationType[0].COLUMN_TYPE).includes("'divider'")) {
-    await pool.query(
-      "ALTER TABLE navigation_items MODIFY COLUMN typeNavigationItem ENUM('item', 'submenu', 'bar', 'divider') NOT NULL"
-    );
-  }
-  if (!navigationItemColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "showsInBackofficeHomeNavigationItem")) {
-    await pool.query(
-      "ALTER TABLE navigation_items ADD COLUMN showsInBackofficeHomeNavigationItem TINYINT(1) NOT NULL DEFAULT 0 AFTER isActiveNavigationItem"
-    );
-    await pool.query(
-      `UPDATE navigation_items
-       SET showsInBackofficeHomeNavigationItem = 1
-       WHERE (typeNavigationItem = 'bar' AND keyNavigationItem IN ('classes', 'groups'))
-          OR (idParentNavigationItem IS NULL AND keyNavigationItem IN ('products', 'fiscal-operations', 'financial', 'thermal-print', 'settings'))`
-    );
-  }
-  if (!navigationItemColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "descriptionNavigationItem")) {
-    await pool.query(
-      "ALTER TABLE navigation_items ADD COLUMN descriptionNavigationItem VARCHAR(240) NULL AFTER routeNavigationItem"
-    );
-  }
-  const defaultToolMenuKey = normalizeNavigationKey("tools");
-  const defaultCatalogMenuKey = normalizeNavigationKey("cadastros");
-
-  let [toolsMenus] = await pool.query(
-    `SELECT idNavigationMenu
-     FROM navigation_menus
-     WHERE LOWER(keyNavigationMenu) = ?
-        OR LOWER(labelNavigationMenu) = 'ferramentas'
-     LIMIT 1`,
-    [defaultToolMenuKey]
-  );
-  if (!toolsMenus[0]) {
-    const [lastMenuOrder] = await pool.query(
-      "SELECT COALESCE(MAX(orderNavigationMenu), 0) AS lastOrder FROM navigation_menus"
-    );
-    const [insertedToolsMenu] = await pool.query(
-      `INSERT INTO navigation_menus
-        (keyNavigationMenu, labelNavigationMenu, orderNavigationMenu, isActiveNavigationMenu)
-       VALUES (?, 'Ferramentas', ?, 1)`,
-      [defaultToolMenuKey, Number(lastMenuOrder[0]?.lastOrder || 0) + 1]
-    );
-    toolsMenus = [{ idNavigationMenu: insertedToolsMenu.insertId }];
-  }
-  if (toolsMenus[0]) {
-    await pool.query(
-      `DELETE FROM navigation_items
-       WHERE idNavigationMenu = ?
-         AND idParentNavigationItem IS NULL
-         AND (
-           LOWER(keyNavigationItem) = 'navigation-builder'
-           OR LOWER(routeNavigationItem) = 'navigation-builder'
-           OR LOWER(labelNavigationItem) IN ('construtor de menu', 'construtor de navegação')
-         )`,
-      [toolsMenus[0].idNavigationMenu]
-    );
-
-    const [apiStatusItems] = await pool.query(
-      `SELECT idNavigationItem
-       FROM navigation_items
-       WHERE idNavigationMenu = ? AND idParentNavigationItem IS NULL
-         AND (keyNavigationItem = 'api-status'
-              OR routeNavigationItem = 'api-status'
-              OR labelNavigationItem = 'Status da API')
-       LIMIT 1`,
-      [toolsMenus[0].idNavigationMenu]
-    );
-    if (apiStatusItems[0]) {
-      await pool.query(
-        `UPDATE navigation_items
-         SET idParentNavigationItem = NULL,
-             typeNavigationItem = 'item',
-             keyNavigationItem = 'api-status',
-             labelNavigationItem = 'Status da API',
-             routeNavigationItem = 'api-status',
-             descriptionNavigationItem = 'Consulte a disponibilidade da API e do MariaDB.',
-             isActiveNavigationItem = 1,
-             showsInBackofficeHomeNavigationItem = 0
-         WHERE idNavigationItem = ?`,
-        [apiStatusItems[0].idNavigationItem]
-      );
-    } else {
-      const [lastOrder] = await pool.query(
-        `SELECT COALESCE(MAX(orderNavigationItem), 0) AS lastOrder
-         FROM navigation_items
-         WHERE idNavigationMenu = ? AND idParentNavigationItem IS NULL`,
-        [toolsMenus[0].idNavigationMenu]
-      );
-      await pool.query(
-        `INSERT INTO navigation_items
-          (idNavigationMenu, idParentNavigationItem, typeNavigationItem,
-           keyNavigationItem, labelNavigationItem, routeNavigationItem,
-           descriptionNavigationItem, orderNavigationItem, isActiveNavigationItem,
-           showsInBackofficeHomeNavigationItem)
-         VALUES (?, NULL, 'item', 'api-status', 'Status da API', 'api-status',
-                 'Consulte a disponibilidade da API e do MariaDB.',
-                 ?, 1, 0)`,
-        [toolsMenus[0].idNavigationMenu, Number(lastOrder[0]?.lastOrder || 0) + 1]
-      );
-    }
-
-    const [nfceQueryItems] = await pool.query(
-      `SELECT idNavigationItem
-       FROM navigation_items
-       WHERE idNavigationMenu = ? AND idParentNavigationItem IS NULL
-         AND keyNavigationItem = 'nfce-query'
-       LIMIT 1`,
-      [toolsMenus[0].idNavigationMenu]
-    );
-    if (!nfceQueryItems[0]) {
-      const [lastOrder] = await pool.query(
-        `SELECT COALESCE(MAX(orderNavigationItem), 0) AS lastOrder
-         FROM navigation_items
-         WHERE idNavigationMenu = ? AND idParentNavigationItem IS NULL`,
-        [toolsMenus[0].idNavigationMenu]
-      );
-      await pool.query(
-        `INSERT INTO navigation_items
-          (idNavigationMenu, idParentNavigationItem, typeNavigationItem,
-           keyNavigationItem, labelNavigationItem, routeNavigationItem,
-           descriptionNavigationItem, orderNavigationItem, isActiveNavigationItem,
-           showsInBackofficeHomeNavigationItem)
-         VALUES (?, NULL, 'item', 'nfce-query', 'Consulta de NFC-e', 'nfce-query',
-                 'Consulte uma NFC-e no portal oficial e prepare itens para compras.',
-                 ?, 1, 0)`,
-        [toolsMenus[0].idNavigationMenu, Number(lastOrder[0]?.lastOrder || 0) + 1]
-      );
-    }
-    const [importItems] = await pool.query(
-      `SELECT idNavigationItem
-       FROM navigation_items
-       WHERE idNavigationMenu = ? AND idParentNavigationItem IS NULL
-         AND keyNavigationItem = 'import-catalogs'
-       LIMIT 1`,
-      [toolsMenus[0].idNavigationMenu]
-    );
-    if (!importItems[0]) {
-      const [lastOrder] = await pool.query(
-        `SELECT COALESCE(MAX(orderNavigationItem), 0) AS lastOrder
-         FROM navigation_items
-         WHERE idNavigationMenu = ? AND idParentNavigationItem IS NULL`,
-        [toolsMenus[0].idNavigationMenu]
-      );
-      await pool.query(
-        `INSERT INTO navigation_items
-          (idNavigationMenu, idParentNavigationItem, typeNavigationItem,
-           keyNavigationItem, labelNavigationItem, routeNavigationItem,
-           descriptionNavigationItem, orderNavigationItem, isActiveNavigationItem,
-           showsInBackofficeHomeNavigationItem)
-         VALUES (?, NULL, 'item', 'import-catalogs', 'Importar cadastros', 'import-catalogs',
-                 'Importe produtos em lote usando um arquivo CSV.',
-                 ?, 1, 0)`,
-        [toolsMenus[0].idNavigationMenu, Number(lastOrder[0]?.lastOrder || 0) + 1]
-      );
-    }
-    const [backupItems] = await pool.query(
-      `SELECT idNavigationItem
-       FROM navigation_items
-       WHERE idNavigationMenu = ? AND idParentNavigationItem IS NULL
-         AND keyNavigationItem = 'backup'
-       LIMIT 1`,
-      [toolsMenus[0].idNavigationMenu]
-    );
-    if (!backupItems[0]) {
-      const [lastOrder] = await pool.query(
-        `SELECT COALESCE(MAX(orderNavigationItem), 0) AS lastOrder
-         FROM navigation_items
-         WHERE idNavigationMenu = ? AND idParentNavigationItem IS NULL`,
-        [toolsMenus[0].idNavigationMenu]
-      );
-      await pool.query(
-        `INSERT INTO navigation_items
-          (idNavigationMenu, idParentNavigationItem, typeNavigationItem,
-           keyNavigationItem, labelNavigationItem, routeNavigationItem,
-           descriptionNavigationItem, orderNavigationItem, isActiveNavigationItem,
-           showsInBackofficeHomeNavigationItem)
-         VALUES (?, NULL, 'item', 'backup', 'Backup e restauração', 'backup',
-                 'Crie e restaure backups compactados do banco de dados.',
-                 ?, 1, 0)`,
-        [toolsMenus[0].idNavigationMenu, Number(lastOrder[0]?.lastOrder || 0) + 1]
-      );
-    }
-  }
-
-  const [catalogMenus] = await pool.query(
-    `SELECT idNavigationMenu, keyNavigationMenu
-     FROM navigation_menus
-     WHERE LOWER(keyNavigationMenu) IN ('cadastros', 'registrations')
-        OR LOWER(labelNavigationMenu) = 'cadastros'
-     ORDER BY CASE
-       WHEN LOWER(keyNavigationMenu) = 'registrations' THEN 0
-       WHEN LOWER(keyNavigationMenu) = 'cadastros' THEN 1
-       WHEN LOWER(labelNavigationMenu) = 'cadastros' THEN 2
-       ELSE 3
-     END, idNavigationMenu
-    `
-  );
-
-  let catalogMenuId = catalogMenus[0]?.idNavigationMenu;
-  if (!catalogMenuId) {
-    const [lastMenuOrder] = await pool.query(
-      `SELECT COALESCE(MAX(orderNavigationMenu), 0) AS lastOrder
-       FROM navigation_menus`
-    );
-    const [insertedMenu] = await pool.query(
-      `INSERT INTO navigation_menus
-        (keyNavigationMenu, labelNavigationMenu, orderNavigationMenu, isActiveNavigationMenu)
-       VALUES (?, 'Cadastros', ?, 1)`,
-      [defaultCatalogMenuKey, Number(lastMenuOrder[0]?.lastOrder || 0) + 1]
-    );
-    catalogMenuId = insertedMenu.insertId;
-  }
-  const duplicateCatalogMenus = catalogMenus
-    .map(({ idNavigationMenu }) => Number(idNavigationMenu))
-    .filter((idNavigationMenu) => idNavigationMenu !== Number(catalogMenuId));
-  for (const duplicateMenuId of duplicateCatalogMenus) {
-    const [duplicateItems] = await pool.query(
-      `SELECT idNavigationItem
-       FROM navigation_items
-       WHERE idNavigationMenu = ?
-       ORDER BY idNavigationItem`,
-      [duplicateMenuId]
-    );
-    for (const { idNavigationItem } of duplicateItems) {
-      await pool.query(
-        `UPDATE navigation_items
-         SET idNavigationMenu = ?
-         WHERE idNavigationItem = ?`,
-        [catalogMenuId, idNavigationItem]
-      );
-    }
-    await pool.query(
-      "DELETE FROM navigation_menus WHERE idNavigationMenu = ?",
-      [duplicateMenuId]
-    );
-  }
-  await pool.query(
-    `DELETE child
-     FROM navigation_items child
-     INNER JOIN navigation_items parent
-       ON parent.idNavigationItem = child.idParentNavigationItem
-      AND parent.idNavigationMenu = child.idNavigationMenu
-     WHERE child.keyNavigationItem = parent.keyNavigationItem
-       AND child.routeNavigationItem = parent.keyNavigationItem`
-  );
-  await pool.query(
-    `UPDATE navigation_menus
-     SET keyNavigationMenu = ?, labelNavigationMenu = 'Cadastros'
-     WHERE idNavigationMenu = ?`,
-    [defaultCatalogMenuKey, catalogMenuId]
-  );
-
-  const [productNavigationParents] = await pool.query(
-    `SELECT idNavigationItem
-     FROM navigation_items
-     WHERE idNavigationMenu = ?
-       AND idParentNavigationItem IS NULL
-       AND (keyNavigationItem = 'products' OR labelNavigationItem = 'Produtos')
-     ORDER BY idNavigationItem
-     LIMIT 1`,
-    [catalogMenuId]
-  );
-  if (productNavigationParents[0]) {
-    const productParentId = productNavigationParents[0].idNavigationItem;
-    await pool.query(
-      `UPDATE navigation_items
-       SET typeNavigationItem = 'item',
-           keyNavigationItem = 'products',
-           labelNavigationItem = 'Produtos',
-           routeNavigationItem = NULL
-       WHERE idNavigationItem = ?`,
-      [productParentId]
-    );
-    const [finishedGoodsItems] = await pool.query(
-      `SELECT idNavigationItem
-       FROM navigation_items
-       WHERE idNavigationMenu = ?
-         AND idParentNavigationItem = ?
-         AND (keyNavigationItem = 'finished-goods'
-              OR routeNavigationItem IN ('finished-goods', 'products')
-              OR labelNavigationItem = 'Mercadoria para Revenda')
-       ORDER BY CASE
-         WHEN keyNavigationItem = 'finished-goods' THEN 0
-         WHEN labelNavigationItem = 'Mercadoria para Revenda' THEN 1
-         WHEN routeNavigationItem = 'finished-goods' THEN 2
-         ELSE 3
-       END, idNavigationItem
-       LIMIT 1`,
-      [catalogMenuId, productParentId]
-    );
-    if (finishedGoodsItems[0]) {
-      await pool.query(
-        `UPDATE navigation_items
-         SET typeNavigationItem = 'bar',
-             keyNavigationItem = 'finished-goods',
-             labelNavigationItem = 'Mercadoria para Revenda',
-             routeNavigationItem = 'finished-goods',
-             isActiveNavigationItem = 1
-         WHERE idNavigationItem = ?`,
-        [finishedGoodsItems[0].idNavigationItem]
-      );
-    } else {
-      const [lastOrder] = await pool.query(
-        `SELECT COALESCE(MAX(orderNavigationItem), 0) AS lastOrder
-         FROM navigation_items
-         WHERE idNavigationMenu = ? AND idParentNavigationItem = ?`,
-        [catalogMenuId, productParentId]
-      );
-      await pool.query(
-        `INSERT INTO navigation_items
-          (idNavigationMenu, idParentNavigationItem, typeNavigationItem,
-           keyNavigationItem, labelNavigationItem, routeNavigationItem,
-           descriptionNavigationItem, orderNavigationItem, isActiveNavigationItem,
-           showsInBackofficeHomeNavigationItem)
-         VALUES (?, ?, 'bar', 'finished-goods', 'Mercadoria para Revenda',
-                 'finished-goods', NULL, ?, 1, 0)`,
-        [catalogMenuId, productParentId, Number(lastOrder[0]?.lastOrder || 0) + 1]
-      );
-    }
-
-    const [finishedProductItems] = await pool.query(
-      `SELECT idNavigationItem, orderNavigationItem, isActiveNavigationItem
-       FROM navigation_items
-       WHERE idNavigationMenu = ?
-         AND idParentNavigationItem = ?
-         AND (keyNavigationItem = 'finished-products'
-              OR routeNavigationItem = 'finished-products'
-              OR labelNavigationItem = 'Produtos Acabados')
-       ORDER BY idNavigationItem
-       LIMIT 1`,
-      [catalogMenuId, productParentId]
-    );
-    const finishedProduct = finishedProductItems[0];
-    if (!finishedProduct || Number(finishedProduct.orderNavigationItem) !== 2
-      || Number(finishedProduct.isActiveNavigationItem) === 0) {
-      await pool.query(
-        `UPDATE navigation_items
-         SET orderNavigationItem = orderNavigationItem + 1
-         WHERE idNavigationMenu = ?
-           AND idParentNavigationItem = ?
-           AND keyNavigationItem <> 'finished-goods'
-           AND keyNavigationItem <> 'finished-products'
-           AND orderNavigationItem >= 2`,
-        [catalogMenuId, productParentId]
-      );
-    }
-    if (finishedProduct) {
-      await pool.query(
-        `UPDATE navigation_items
-         SET typeNavigationItem = 'bar',
-             keyNavigationItem = 'finished-products',
-             labelNavigationItem = 'Produtos Acabados',
-             routeNavigationItem = 'finished-products',
-             orderNavigationItem = 2,
-             isActiveNavigationItem = 1
-         WHERE idNavigationItem = ?`,
-        [finishedProduct.idNavigationItem]
-      );
-    } else {
-      await pool.query(
-        `INSERT INTO navigation_items
-          (idNavigationMenu, idParentNavigationItem, typeNavigationItem,
-           keyNavigationItem, labelNavigationItem, routeNavigationItem,
-           descriptionNavigationItem, orderNavigationItem, isActiveNavigationItem,
-           showsInBackofficeHomeNavigationItem)
-         VALUES (?, ?, 'bar', 'finished-products', 'Produtos Acabados',
-                 'finished-products', NULL, 2, 1, 0)`,
-        [catalogMenuId, productParentId]
-      );
-    }
-
-  }
-
-  const [supplierItems] = await pool.query(
-    `SELECT idNavigationItem
-     FROM navigation_items
-     WHERE keyNavigationItem = 'suppliers'
-        OR routeNavigationItem = 'suppliers'
-        OR labelNavigationItem = 'Fornecedores'
-     ORDER BY idNavigationItem
-     LIMIT 1`,
-  );
-  if (supplierItems[0]) {
-    await pool.query(
-      `UPDATE navigation_items
-       SET idNavigationMenu = ?,
-           idParentNavigationItem = NULL,
-           typeNavigationItem = 'item',
-           keyNavigationItem = 'suppliers',
-           labelNavigationItem = 'Fornecedores',
-           routeNavigationItem = 'suppliers',
-           descriptionNavigationItem = 'Cadastre e mantenha os fornecedores da loja.',
-           isActiveNavigationItem = 1
-       WHERE idNavigationItem = ?`,
-      [catalogMenuId, supplierItems[0].idNavigationItem]
-    );
-  } else {
-    const [lastOrder] = await pool.query(
-      `SELECT COALESCE(MAX(orderNavigationItem), 0) AS lastOrder
-       FROM navigation_items
-       WHERE idNavigationMenu = ? AND idParentNavigationItem IS NULL`,
-      [catalogMenuId]
-    );
-    await pool.query(
-      `INSERT INTO navigation_items
-        (idNavigationMenu, idParentNavigationItem, typeNavigationItem,
-         keyNavigationItem, labelNavigationItem, routeNavigationItem,
-         descriptionNavigationItem, orderNavigationItem, isActiveNavigationItem,
-         showsInBackofficeHomeNavigationItem)
-       VALUES (?, NULL, 'item', 'suppliers', 'Fornecedores', 'suppliers',
-               'Cadastre e mantenha os fornecedores da loja.', ?, 1, 0)`,
-      [catalogMenuId, Number(lastOrder[0]?.lastOrder || 0) + 1]
-    );
-  }
-
-  for (const [key, label, description, order] of [
-    ["customers", "Clientes", "Cadastre clientes e acompanhe seus vales.", 20],
-    ["consumers", "Consumidores", "Identifique consumidores e consulte seu histórico de consumo.", 21]
-  ]) {
-    const [existingItems] = await pool.query(
-      `SELECT idNavigationItem FROM navigation_items
-       WHERE idNavigationMenu = ? AND idParentNavigationItem IS NULL
-         AND (keyNavigationItem = ? OR routeNavigationItem = ? OR labelNavigationItem = ?)
-       LIMIT 1`,
-      [catalogMenuId, key, key, label]
-    );
-    if (existingItems[0]) {
-      await pool.query(
-        `UPDATE navigation_items SET idNavigationMenu = ?, idParentNavigationItem = NULL,
-          typeNavigationItem = 'item', keyNavigationItem = ?, labelNavigationItem = ?,
-          routeNavigationItem = ?, descriptionNavigationItem = ?, isActiveNavigationItem = 1,
-          orderNavigationItem = ? WHERE idNavigationItem = ?`,
-        [catalogMenuId, key, label, key, description, order, existingItems[0].idNavigationItem]
-      );
-    } else {
-      await pool.query(
-        `INSERT INTO navigation_items
-          (idNavigationMenu, idParentNavigationItem, typeNavigationItem, keyNavigationItem,
-           labelNavigationItem, routeNavigationItem, descriptionNavigationItem,
-           orderNavigationItem, isActiveNavigationItem, showsInBackofficeHomeNavigationItem)
-         VALUES (?, NULL, 'item', ?, ?, ?, ?, ?, 1, 0)`,
-        [catalogMenuId, key, label, key, description, order]
-      );
-    }
-  }
-
-  const [menuIdColumns] = await pool.query(
-    `SELECT DATA_TYPE
-     FROM information_schema.COLUMNS
-     WHERE TABLE_SCHEMA = DATABASE()
-       AND TABLE_NAME = 'navigation_menus'
-       AND COLUMN_NAME = 'idNavigationMenu'`
-  );
-  if (menuIdColumns[0]?.DATA_TYPE === "tinyint") {
-    await pool.query("ALTER TABLE navigation_items DROP FOREIGN KEY fkNavigationItemsMenu");
-    await pool.query("ALTER TABLE navigation_menus MODIFY COLUMN idNavigationMenu SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT");
-    await pool.query("ALTER TABLE navigation_items MODIFY COLUMN idNavigationMenu SMALLINT UNSIGNED NOT NULL");
-    await pool.query(
-      `ALTER TABLE navigation_items
-       ADD CONSTRAINT fkNavigationItemsMenu
-       FOREIGN KEY (idNavigationMenu) REFERENCES navigation_menus (idNavigationMenu) ON DELETE CASCADE`
-    );
-  }
-  return;
-};
-
-const synchronizeNavigationDefaults = async () => {
-  const [storedMenus] = await pool.query(
-    `SELECT idNavigationMenu, keyNavigationMenu, labelNavigationMenu
-     FROM navigation_menus`
-  );
-  const menuIds = new Map();
-  for (const definition of DEFAULT_NAVIGATION.menus) {
-    const stored = storedMenus.find((entry) =>
-      normalizeNavigationKey(entry.keyNavigationMenu) === definition.keyNavigationMenu
-      || normalizeNavigationKey(entry.labelNavigationMenu) === normalizeNavigationKey(definition.labelNavigationMenu)
-    );
-    if (stored) {
-      if (definition.keyNavigationMenu === "sales" || definition.keyNavigationMenu === "exit") {
-        await pool.query(
-          `UPDATE navigation_menus
-           SET keyNavigationMenu = ?, labelNavigationMenu = ?,
-               orderNavigationMenu = ?, isActiveNavigationMenu = 1
-           WHERE idNavigationMenu = ?`,
-          [
-            definition.keyNavigationMenu,
-            definition.labelNavigationMenu,
-            definition.orderNavigationMenu,
-            stored.idNavigationMenu
-          ]
-        );
-      }
-      menuIds.set(definition.keyNavigationMenu, stored.idNavigationMenu);
-      continue;
-    }
-    const [result] = await pool.query(
-      `INSERT INTO navigation_menus
-        (keyNavigationMenu, labelNavigationMenu, orderNavigationMenu, isActiveNavigationMenu)
-       VALUES (?, ?, ?, 1)`,
-      [definition.keyNavigationMenu, definition.labelNavigationMenu, definition.orderNavigationMenu]
-    );
-    menuIds.set(definition.keyNavigationMenu, result.insertId);
-  }
-
-  const [storedItems] = await pool.query(
-    `SELECT idNavigationItem, idNavigationMenu, idParentNavigationItem, keyNavigationItem,
-            labelNavigationItem, routeNavigationItem
-     FROM navigation_items`
-  );
-  const itemIds = new Map();
-  for (const definition of DEFAULT_NAVIGATION.items) {
-    const menuId = menuIds.get(definition.menuKey);
-    const parentId = definition.parentKey
-      ? itemIds.get(`${definition.menuKey}:${definition.parentKey}`)
-      : null;
-    const stored = storedItems.find((entry) =>
-      String(entry.idNavigationMenu) === String(menuId)
-      && String(entry.idParentNavigationItem || "") === String(parentId || "")
-      && (
-        normalizeNavigationKey(entry.keyNavigationItem) === definition.keyNavigationItem
-        || normalizeNavigationKey(entry.labelNavigationItem) === normalizeNavigationKey(definition.labelNavigationItem)
-        || (definition.routeNavigationItem
-          && normalizeNavigationKey(entry.routeNavigationItem) === definition.routeNavigationItem)
-      )
-    );
-    if (stored) {
-      await pool.query(
-        `UPDATE navigation_items
-         SET idNavigationMenu = ?, idParentNavigationItem = ?, typeNavigationItem = ?,
-             keyNavigationItem = ?, routeNavigationItem = ?,
-             descriptionNavigationItem = COALESCE(descriptionNavigationItem, ?)
-         WHERE idNavigationItem = ?`,
-        [
-          menuId,
-          parentId || null,
-          definition.typeNavigationItem,
-          definition.keyNavigationItem,
-          definition.routeNavigationItem,
-          definition.descriptionNavigationItem,
-          stored.idNavigationItem
-        ]
-      );
-      itemIds.set(`${definition.menuKey}:${definition.keyNavigationItem}`, stored.idNavigationItem);
-      continue;
-    }
-    const [result] = await pool.query(
-      `INSERT INTO navigation_items
-        (idNavigationMenu, idParentNavigationItem, typeNavigationItem,
-         keyNavigationItem, labelNavigationItem, routeNavigationItem,
-         descriptionNavigationItem, orderNavigationItem, isActiveNavigationItem,
-         showsInBackofficeHomeNavigationItem)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0)`,
-      [
-        menuId,
-        parentId || null,
-        definition.typeNavigationItem,
-        definition.keyNavigationItem,
-        definition.labelNavigationItem,
-        definition.routeNavigationItem,
-        definition.descriptionNavigationItem,
-        definition.orderNavigationItem
-      ]
-    );
-    itemIds.set(`${definition.menuKey}:${definition.keyNavigationItem}`, result.insertId);
-  }
-};
-
-const normalizeNavigationItemOrders = async () => {
-  const [rows] = await pool.query(
-    `SELECT idNavigationItem, idNavigationMenu, idParentNavigationItem, orderNavigationItem
-     FROM navigation_items
-     ORDER BY idNavigationMenu, COALESCE(idParentNavigationItem, 0), orderNavigationItem, idNavigationItem`
-  );
-  const groups = new Map();
-  for (const row of rows) {
-    const key = `${row.idNavigationMenu}:${row.idParentNavigationItem ?? ""}`;
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(row);
-  }
-  for (const entries of groups.values()) {
-    for (const [index, entry] of entries.entries()) {
-      const order = index + 1;
-      if (Number(entry.orderNavigationItem) === order) continue;
-      await pool.query(
-        "UPDATE navigation_items SET orderNavigationItem = ? WHERE idNavigationItem = ?",
-        [order, entry.idNavigationItem]
-      );
-    }
-  }
-};
-
-const ensureNavigationSchema = (() => {
-  let preparation;
-  return () => {
-    if (!preparation) {
-      preparation = prepareNavigationSchema()
-        .then(synchronizeNavigationDefaults)
-        .then(normalizeNavigationItemOrders)
-        .catch((error) => {
-        preparation = null;
-        throw error;
-      });
-    }
-    return preparation;
-  };
-})();
-
-const ensureUppercaseTextData = async () => {
-  const updates = [
-    ["classes", ["descriptionClass"]],
-    ["groups", ["descriptionGroup"]],
-    ["products", ["nameProduct"]],
-    ["product_types", ["descriptionProductType"]],
-    ["units", ["descriptionUnit"]],
-    ["ncm_catalog", ["descriptionNcm"]],
-    ["cest_catalog", ["descriptionCest", "segmentCest"]],
-    ["payment_methods", ["namePaymentMethod"]],
-    ["suppliers", [
-      "companyNameSupplier", "tradeNameSupplier", "contactNameSupplier", "addressSupplier",
-      "addressComplementSupplier", "neighborhoodSupplier", "citySupplier", "countrySupplier",
-      "notesSupplier"
-    ]],
-    ["customers", ["nameCustomer", "addressCustomer", "notesCustomer"]],
-    ["consumers", ["nameConsumer", "nicknameConsumer", "notesConsumer"]],
-    ["fiscal_operations", ["descriptionFiscalOperation", "operationNatureFiscalOperation", "legalBasisFiscalOperation"]],
-    ["fiscal_catalog_items", ["descriptionFiscalCatalogItem"]],
-    ["sale_items", ["productNameSaleItem"]]
-  ];
-  for (const [table, columns] of updates) {
-    for (const column of columns) {
-      await pool.query(`UPDATE \`${table}\` SET \`${column}\` = UPPER(\`${column}\`) WHERE \`${column}\` IS NOT NULL`);
-    }
-  }
-};
-
-const ensurePaymentMethodSchema = async () => {
-  await pool.query(`CREATE TABLE IF NOT EXISTS payment_methods (
-    idPaymentMethod BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    namePaymentMethod VARCHAR(80) NOT NULL,
-    cashFlowAccountPaymentMethod ENUM('Banco', 'Caixa') NOT NULL DEFAULT 'Caixa',
-    termDaysPaymentMethod SMALLINT UNSIGNED NOT NULL DEFAULT 0,
-    discountValuePaymentMethod DECIMAL(12,2) NOT NULL DEFAULT 0,
-    discountTypePaymentMethod ENUM('percent', 'fixed') NOT NULL DEFAULT 'percent',
-    surchargeValuePaymentMethod DECIMAL(12,2) NOT NULL DEFAULT 0,
-    surchargeTypePaymentMethod ENUM('percent', 'fixed') NOT NULL DEFAULT 'percent',
-    isActivePaymentMethod TINYINT(1) NOT NULL DEFAULT 1,
-    PRIMARY KEY (idPaymentMethod),
-    UNIQUE KEY uqPaymentMethodsNamePaymentMethod (namePaymentMethod)
-  ) ENGINE=InnoDB`);
-  const [columns] = await pool.query(
-    `SELECT COLUMN_NAME
-     FROM information_schema.COLUMNS
-     WHERE TABLE_SCHEMA = DATABASE()
-       AND TABLE_NAME = 'payment_methods'`
-  );
-  const existing = new Set(columns.map(({ COLUMN_NAME }) => COLUMN_NAME));
-  const additions = [
-    ["cashFlowAccountPaymentMethod", "ALTER TABLE payment_methods ADD COLUMN cashFlowAccountPaymentMethod ENUM('Banco', 'Caixa') NOT NULL DEFAULT 'Caixa' AFTER namePaymentMethod"],
-    ["termDaysPaymentMethod", "ALTER TABLE payment_methods ADD COLUMN termDaysPaymentMethod SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER cashFlowAccountPaymentMethod"],
-    ["discountValuePaymentMethod", "ALTER TABLE payment_methods ADD COLUMN discountValuePaymentMethod DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER termDaysPaymentMethod"],
-    ["discountTypePaymentMethod", "ALTER TABLE payment_methods ADD COLUMN discountTypePaymentMethod ENUM('percent', 'fixed') NOT NULL DEFAULT 'percent' AFTER discountValuePaymentMethod"],
-    ["surchargeValuePaymentMethod", "ALTER TABLE payment_methods ADD COLUMN surchargeValuePaymentMethod DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER discountTypePaymentMethod"],
-    ["surchargeTypePaymentMethod", "ALTER TABLE payment_methods ADD COLUMN surchargeTypePaymentMethod ENUM('percent', 'fixed') NOT NULL DEFAULT 'percent' AFTER surchargeValuePaymentMethod"]
-  ];
-  for (const [column, statement] of additions) {
-    if (!existing.has(column)) await pool.query(statement);
-  }
-  await pool.query(
-    `INSERT INTO payment_methods
-      (namePaymentMethod, cashFlowAccountPaymentMethod, termDaysPaymentMethod, isActivePaymentMethod)
-     VALUES ('Vale', 'Caixa', 30, 1)
-     ON DUPLICATE KEY UPDATE isActivePaymentMethod = 1`
-  );
-};
-
-const ensureSupplierSchema = async () => {
-  await pool.query(`CREATE TABLE IF NOT EXISTS suppliers (
-    idSupplier BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    typeSupplier ENUM('juridica', 'fisica') NOT NULL DEFAULT 'juridica',
-    documentSupplier VARCHAR(20) NOT NULL,
-    companyNameSupplier VARCHAR(180) NOT NULL DEFAULT '',
-    tradeNameSupplier VARCHAR(120) NOT NULL DEFAULT '',
-    contactNameSupplier VARCHAR(120) NOT NULL DEFAULT '',
-    phoneSupplier VARCHAR(25) NOT NULL DEFAULT '',
-    emailSupplier VARCHAR(180) NOT NULL DEFAULT '',
-    zipCodeSupplier VARCHAR(9) NOT NULL DEFAULT '',
-    addressSupplier VARCHAR(180) NOT NULL DEFAULT '',
-    addressNumberSupplier VARCHAR(20) NOT NULL DEFAULT '',
-    addressComplementSupplier VARCHAR(80) NOT NULL DEFAULT '',
-    neighborhoodSupplier VARCHAR(100) NOT NULL DEFAULT '',
-    citySupplier VARCHAR(100) NOT NULL DEFAULT '',
-    stateSupplier CHAR(2) NOT NULL DEFAULT '',
-    countrySupplier VARCHAR(80) NOT NULL DEFAULT 'Brasil',
-    notesSupplier VARCHAR(400) NULL,
-    isActiveSupplier TINYINT(1) NOT NULL DEFAULT 1,
-    createdAtSupplier TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updatedAtSupplier TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (idSupplier),
-    UNIQUE KEY uqSuppliersDocumentType (documentSupplier, typeSupplier),
-    KEY idxSuppliersTypeStatus (typeSupplier, isActiveSupplier)
-  ) ENGINE=InnoDB`);
-};
-
 const catalogValues = async (catalog) => {
   const [rows] = await pool.query(
     `SELECT codeFiscalCatalogItem FROM fiscal_catalog_items
@@ -1792,23 +501,205 @@ const handleError = (response, error, fallback) => {
 
 const server = createServer(async (request, response) => {
   const origin = request.headers.origin;
+  setCorsHeaders(response, origin);
   if (request.method === "OPTIONS") {
     if (!isAllowedOrigin(origin)) {
       json(response, 403, { error: "Origem não autorizada." });
       return;
     }
     response.writeHead(204, {
-      ...(origin ? { "Access-Control-Allow-Origin": origin, Vary: "Origin" } : {}),
-      "Access-Control-Allow-Headers": "Authorization, Content-Type",
+      "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Operator-Session",
       "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS"
     });
     response.end();
     return;
   }
-  if (request.url.startsWith("/api/") && !authenticateRequest(request, response)) return;
-  if (origin) {
-    response.setHeader("Access-Control-Allow-Origin", origin);
-    response.setHeader("Vary", "Origin");
+  if (request.url.startsWith("/api/") && !(await authenticateRequest(request, response))) return;
+
+  if (request.method === "POST" && request.url === "/api/operator/login") {
+    try {
+      await ensureOperatorCashSchema();
+      const payload = await readJsonBody(request);
+      const username = normalizeOperatorUsername(payload?.usernameOperator);
+      const password = normalizeOperatorPassword(payload?.passwordOperator);
+      const [operators] = await pool.query(
+        `SELECT idOperator, usernameOperator, displayNameOperator,
+                passwordHashOperator, roleOperator
+         FROM operators
+         WHERE usernameOperator = ? AND isActiveOperator = 1
+         LIMIT 1`,
+        [username]
+      );
+      if (!operators.length || !verifyOperatorPassword(password, operators[0].passwordHashOperator)) {
+        throw new SaleValidationError("Usuário ou senha inválidos.", 401);
+      }
+      const token = createOperatorSessionToken();
+      const expiresAt = sessionExpiration();
+      await pool.query(
+        `INSERT INTO operator_sessions
+          (idOperator, tokenHashOperatorSession, expiresAtOperatorSession)
+         VALUES (?, ?, ?)`,
+        [operators[0].idOperator, hashOperatorSessionToken(token), expiresAt]
+      );
+      json(response, 200, {
+        token,
+        expiresAtOperatorSession: expiresAt.toISOString(),
+        operator: {
+          idOperator: operators[0].idOperator,
+          usernameOperator: operators[0].usernameOperator,
+          displayNameOperator: operators[0].displayNameOperator,
+          roleOperator: operators[0].roleOperator
+        }
+      });
+    } catch (error) {
+      handleError(response, error, { log: "Falha no login do operador:", message: "Não foi possível autenticar o operador.", duplicate: "" });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/api/operator/logout") {
+    try {
+      if (request.operatorSessionToken) {
+        await pool.query(
+          "DELETE FROM operator_sessions WHERE tokenHashOperatorSession = ?",
+          [hashOperatorSessionToken(request.operatorSessionToken)]
+        );
+      }
+      json(response, 200, { ok: true });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao encerrar sessão:", message: "Não foi possível encerrar a sessão.", duplicate: "" });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/api/operator/session") {
+    try {
+      const session = requireOperatorSession(request);
+      json(response, 200, { operator: session });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao consultar sessão:", message: "Não foi possível consultar a sessão.", duplicate: "" });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/api/operators") {
+    try {
+      const session = requireOperatorSession(request);
+      if (session.roleOperator !== "admin") {
+        throw new SaleValidationError("Somente admin pode cadastrar operadores.", 403);
+      }
+      const payload = await readJsonBody(request);
+      const username = normalizeOperatorUsername(payload?.usernameOperator);
+      const password = normalizeOperatorPassword(payload?.passwordOperator);
+      const displayName = String(payload?.displayNameOperator ?? "").trim();
+      const role = String(payload?.roleOperator ?? "operator");
+      if (!displayName || displayName.length > 160 || !isOperatorRole(role)) {
+        throw new SaleValidationError("Dados do operador inválidos.");
+      }
+      const [result] = await pool.query(
+        `INSERT INTO operators
+          (usernameOperator, displayNameOperator, passwordHashOperator, roleOperator)
+         VALUES (?, ?, ?, ?)`,
+        [username, displayName, hashOperatorPassword(password), role]
+      );
+      json(response, 201, { idOperator: result.insertId });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao cadastrar operador:", message: "Não foi possível cadastrar o operador.", duplicate: "O usuário do operador já existe." });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/api/cash/current") {
+    try {
+      requireOperatorSession(request);
+      const session = await getOpenCashSession(pool, 1);
+      json(response, 200, { cashSession: session });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao consultar caixa:", message: "Não foi possível consultar o caixa.", duplicate: "" });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/api/cash/open") {
+    let connection;
+    try {
+      const session = requireOperatorSession(request);
+      connection = await pool.getConnection();
+      const result = await openCashSession(connection, session, await readJsonBody(request));
+      json(response, 201, result);
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao abrir caixa:", message: "Não foi possível abrir o caixa.", duplicate: "" });
+    } finally {
+      connection?.release();
+    }
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/api/cash/close") {
+    let connection;
+    try {
+      const session = requireOperatorSession(request);
+      if (!["supervisor", "admin"].includes(session.roleOperator)) {
+        throw new SaleValidationError("Somente supervisor ou admin pode fechar o caixa.", 403);
+      }
+      connection = await pool.getConnection();
+      const result = await closeCashSession(connection, session, await readJsonBody(request));
+      json(response, 200, result);
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao fechar caixa:", message: "Não foi possível fechar o caixa.", duplicate: "" });
+    } finally {
+      connection?.release();
+    }
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/api/cash/movements") {
+    let connection;
+    try {
+      const session = requireOperatorSession(request);
+      const payload = await readJsonBody(request);
+      const type = String(payload?.typeCashMovement ?? "");
+      if (!["supply", "withdrawal"].includes(type)) {
+        throw new SaleValidationError("Tipo de movimento de caixa inválido.");
+      }
+      const amount = normalizeCashAmount(payload?.amountCashMovement, "Valor do movimento");
+      if (amount <= 0) throw new SaleValidationError("O valor do movimento deve ser positivo.");
+      const description = String(payload?.descriptionCashMovement ?? "").trim();
+      if (description.length < 3 || description.length > 500) {
+        throw new SaleValidationError("Informe uma descrição para o movimento.");
+      }
+      connection = await pool.getConnection();
+      await connection.beginTransaction();
+      const [[cashSession]] = await connection.query(
+        `SELECT idCashSession
+         FROM cash_sessions
+         WHERE idCashRegister = 1 AND statusCashSession = 'open'
+         FOR UPDATE`
+      );
+      if (!cashSession) throw new SaleValidationError("Não existe caixa aberto.", 409);
+      const signedAmount = type === "withdrawal" ? -amount : amount;
+      await connection.query(
+        `INSERT INTO cash_movements
+          (idCashSession, idOperator, typeCashMovement, amountCashMovement, descriptionCashMovement)
+         VALUES (?, ?, ?, ?, ?)`,
+        [cashSession.idCashSession, session.idOperator, type, (signedAmount / 100).toFixed(2), description]
+      );
+      await connection.query(
+        `UPDATE cash_sessions
+         SET expectedClosingAmountCashSession =
+           expectedClosingAmountCashSession + ?
+         WHERE idCashSession = ?`,
+        [(signedAmount / 100).toFixed(2), cashSession.idCashSession]
+      );
+      await connection.commit();
+      json(response, 201, { ok: true, idCashSession: cashSession.idCashSession });
+    } catch (error) {
+      if (connection) await connection.rollback().catch(() => {});
+      handleError(response, error, { log: "Falha ao registrar movimento de caixa:", message: "Não foi possível registrar o movimento.", duplicate: "" });
+    } finally {
+      connection?.release();
+    }
+    return;
   }
 
   if (request.method === "GET" && request.url.startsWith("/api/customers")) {
@@ -2075,11 +966,8 @@ const server = createServer(async (request, response) => {
 
   if (request.method === "GET" && (request.url === "/api/backups" || request.url.startsWith("/api/backups?"))) {
     try {
-      const url = new URL(request.url, "http://localhost");
-      const options = backupOptions(url.searchParams.get("directory") || undefined);
-      const directory = await resolveBackupDirectory(options);
+      const options = backupOptions();
       json(response, 200, {
-        directory,
         backups: await listBackups(options)
       });
     } catch (error) {
@@ -2090,13 +978,20 @@ const server = createServer(async (request, response) => {
 
   if (request.method === "POST" && request.url === "/api/backups") {
     try {
-      const payload = await readJsonBody(request);
       const backup = await createBackup({
         pool,
-        ...backupOptions(payload?.backupDirectory),
+        ...backupOptions(),
         databaseName: config.database.name
       });
-      json(response, 201, { backup });
+      json(response, 201, {
+        backup: {
+          fileName: backup.fileName,
+          createdAt: backup.createdAt,
+          size: backup.size,
+          tableCount: backup.tableCount,
+          rowCount: backup.rowCount
+        }
+      });
     } catch (error) {
       json(response, 500, { error: error instanceof Error ? error.message : "Não foi possível criar o backup." });
     }
@@ -2108,7 +1003,7 @@ const server = createServer(async (request, response) => {
       const url = new URL(request.url, "http://localhost");
       const fileName = decodeURIComponent(url.pathname.slice("/api/backups/download/".length));
       const content = await readBackup({
-        ...backupOptions(url.searchParams.get("directory") || undefined),
+        ...backupOptions(),
         fileName
       });
       binary(response, 200, "application/gzip", `attachment; filename="${fileName}"`, content);
@@ -2123,7 +1018,7 @@ const server = createServer(async (request, response) => {
       const payload = await readJsonBody(request, 70 * 1024 * 1024);
       const encoded = String(payload?.backupBase64 || "");
       if (!encoded) throw new SaleValidationError("Selecione um backup compactado.");
-      const options = backupOptions(payload?.backupDirectory);
+      const options = backupOptions();
       const safetyBackup = await createBackup(options);
       const result = await restoreBackup({
         pool,
@@ -2639,7 +1534,7 @@ const server = createServer(async (request, response) => {
                 (nfceHomologationCscCompany <> '') AS hasNfceHomologationCscCompany,
                 (nfceHomologationTokenCompany <> '') AS hasNfceHomologationTokenCompany,
                 nfceContingencyCompany, nfceCertificateTypeCompany,
-                nfceCertificatePathCompany, nfceCertificateExpiresCompany,
+                nfceCertificateExpiresCompany,
                 nfceCertificateSerialCompany, logoMimeCompany, logoDataCompany,
                 projectIconMimeCompany, projectIconDataCompany
          FROM company_settings
@@ -2662,13 +1557,13 @@ const server = createServer(async (request, response) => {
       await ensureCompanySchema();
       const [rows] = await pool.query(
         `SELECT nfceStateCompany, nfceModelCompany, nfceEnvironmentCompany,
-                nfceSeriesCompany, nfceInitialNumberCompany, nfceContingencyCompany,
+                nfceSeriesCompany, nfceNextNumberCompany AS nfceInitialNumberCompany, nfceContingencyCompany,
                 (nfceCscCompany <> '') AS hasNfceCscCompany,
                 (nfceTokenCompany <> '') AS hasNfceTokenCompany,
                 (nfceHomologationCscCompany <> '') AS hasNfceHomologationCscCompany,
                 (nfceHomologationTokenCompany <> '') AS hasNfceHomologationTokenCompany,
                 nfceCertificateTypeCompany,
-                nfceCertificatePathCompany, nfceCertificateExpiresCompany,
+                nfceCertificateExpiresCompany,
                 nfceCertificateSerialCompany, nfceCertificateNameCompany,
                 (nfceCertificateDataCompany IS NOT NULL AND nfceCertificateDataCompany <> '') AS hasCertificateCompany,
                 (nfceCertificatePasswordCompany IS NOT NULL AND nfceCertificatePasswordCompany <> '') AS hasCertificatePasswordCompany,
@@ -2825,8 +1720,7 @@ const server = createServer(async (request, response) => {
       const nfceTokenCompany = text(payload.nfceTokenCompany, "Token", 255);
       const nfceHomologationCscCompany = text(payload.nfceHomologationCscCompany, "CSC homologação", 255);
       const nfceHomologationTokenCompany = text(payload.nfceHomologationTokenCompany, "Token homologação", 255);
-      const nfceCertificateTypeCompany = enumValue(payload.nfceCertificateTypeCompany, "Tipo de certificado", ["A1", "A3"], "A1");
-      const nfceCertificatePathCompany = text(payload.nfceCertificatePathCompany, "Arquivo/local do certificado", 255);
+      const nfceCertificateTypeCompany = enumValue(payload.nfceCertificateTypeCompany, "Tipo de certificado", ["A1"], "A1");
       const nfceCertificateExpiresCompany = text(payload.nfceCertificateExpiresCompany, "Validade do certificado", 10);
       if (nfceCertificateExpiresCompany && !/^\d{4}-\d{2}-\d{2}$/.test(nfceCertificateExpiresCompany)) {
         throw new SaleValidationError("Validade do certificado inválida.");
@@ -2874,10 +1768,12 @@ const server = createServer(async (request, response) => {
       await pool.query(
         `UPDATE company_settings
          SET nfceStateCompany = ?, nfceModelCompany = ?, nfceEnvironmentCompany = ?,
-             nfceSeriesCompany = ?, nfceInitialNumberCompany = ?, nfceContingencyCompany = ?,
+             nfceSeriesCompany = ?, nfceInitialNumberCompany = ?,
+             nfceNextNumberCompany = GREATEST(nfceNextNumberCompany, ?),
+             nfceContingencyCompany = ?,
              nfceCscCompany = ?, nfceTokenCompany = ?, nfceHomologationCscCompany = ?,
              nfceHomologationTokenCompany = ?, nfceCertificateTypeCompany = ?,
-             nfceCertificatePathCompany = ?, nfceCertificateExpiresCompany = ?,
+             nfceCertificateExpiresCompany = ?,
              nfceCertificateSerialCompany = ?, nfceCertificateNameCompany = COALESCE(NULLIF(?, ''), nfceCertificateNameCompany),
              nfceCertificateDataCompany = COALESCE(?, nfceCertificateDataCompany),
              nfceCertificatePasswordCompany = COALESCE(?, nfceCertificatePasswordCompany)
@@ -2885,23 +1781,24 @@ const server = createServer(async (request, response) => {
          LIMIT 1`,
         [
           nfceStateCompany, nfceModelCompany, nfceEnvironmentCompany,
-          nfceSeriesCompany, nfceInitialNumberCompany, nfceContingencyCompany,
+          nfceSeriesCompany, nfceInitialNumberCompany, nfceInitialNumberCompany,
+          nfceContingencyCompany,
           storedNfceCscCompany, storedNfceTokenCompany, storedNfceHomologationCscCompany,
           storedNfceHomologationTokenCompany, nfceCertificateTypeCompany,
-          nfceCertificatePathCompany, certificateMetadata?.expires || nfceCertificateExpiresCompany || null,
+          certificateMetadata?.expires || nfceCertificateExpiresCompany || null,
           certificateMetadata?.serial || nfceCertificateSerialCompany, nfceCertificateNameCompany,
           encryptedCertificate, encryptedCertificatePassword
         ]
       );
       const [rows] = await pool.query(
         `SELECT nfceStateCompany, nfceModelCompany, nfceEnvironmentCompany,
-                nfceSeriesCompany, nfceInitialNumberCompany, nfceContingencyCompany,
+                nfceSeriesCompany, nfceNextNumberCompany AS nfceInitialNumberCompany, nfceContingencyCompany,
                 (nfceCscCompany <> '') AS hasNfceCscCompany,
                 (nfceTokenCompany <> '') AS hasNfceTokenCompany,
                 (nfceHomologationCscCompany <> '') AS hasNfceHomologationCscCompany,
                 (nfceHomologationTokenCompany <> '') AS hasNfceHomologationTokenCompany,
                 nfceCertificateTypeCompany,
-                nfceCertificatePathCompany, nfceCertificateExpiresCompany,
+                nfceCertificateExpiresCompany,
                 nfceCertificateSerialCompany, nfceCertificateNameCompany,
                 (nfceCertificateDataCompany IS NOT NULL AND nfceCertificateDataCompany <> '') AS hasCertificateCompany,
                 (nfceCertificatePasswordCompany IS NOT NULL AND nfceCertificatePasswordCompany <> '') AS hasCertificatePasswordCompany
@@ -3031,7 +1928,7 @@ const server = createServer(async (request, response) => {
                 (nfceHomologationCscCompany <> '') AS hasNfceHomologationCscCompany,
                 (nfceHomologationTokenCompany <> '') AS hasNfceHomologationTokenCompany,
                 nfceContingencyCompany, nfceCertificateTypeCompany,
-                nfceCertificatePathCompany, nfceCertificateExpiresCompany,
+                nfceCertificateExpiresCompany,
                 nfceCertificateSerialCompany, logoMimeCompany, logoDataCompany,
                 projectIconMimeCompany, projectIconDataCompany
          FROM company_settings
@@ -3160,7 +2057,7 @@ const server = createServer(async (request, response) => {
       await ensureGeneralSettingsSchema();
       const [rows] = await pool.query(
         `SELECT keyGeneralSetting, labelGeneralSetting, typeGeneralSetting,
-                booleanValueGeneralSetting
+                booleanValueGeneralSetting, valueGeneralSetting
          FROM general_settings
          ORDER BY idGeneralSetting`
       );
@@ -3169,7 +2066,8 @@ const server = createServer(async (request, response) => {
           keyGeneralSetting: row.keyGeneralSetting,
           labelGeneralSetting: row.labelGeneralSetting,
           typeGeneralSetting: row.typeGeneralSetting,
-          booleanValueGeneralSetting: Boolean(row.booleanValueGeneralSetting)
+          booleanValueGeneralSetting: Boolean(row.booleanValueGeneralSetting),
+          valueGeneralSetting: row.valueGeneralSetting ?? ""
         }))
       });
     } catch (error) {
@@ -3189,20 +2087,65 @@ const server = createServer(async (request, response) => {
         throw new SaleValidationError("Configurações gerais inválidas.");
       }
       const key = payload.keyGeneralSetting;
-      if (key !== "allowNegativeStock") {
+      const allowedKeys = new Set(["allowNegativeStock", "ncmSourceUrl", "cestSourceUrl"]);
+      if (!allowedKeys.has(key)) {
         throw new SaleValidationError("Configuração geral não reconhecida.");
       }
-      const booleanValue = parseBooleanFlag(payload.booleanValueGeneralSetting, "Valor da configuração");
       await ensureGeneralSettingsSchema();
-      await pool.query(
-        `UPDATE general_settings
-         SET booleanValueGeneralSetting = ?
-         WHERE keyGeneralSetting = ?`,
-        [booleanValue, key]
+      const [settingRows] = await pool.query(
+        `SELECT typeGeneralSetting
+         FROM general_settings
+         WHERE keyGeneralSetting = ?
+         LIMIT 1`,
+        [key]
       );
+      const type = settingRows[0]?.typeGeneralSetting;
+      if (type === "boolean") {
+        const booleanValue = parseBooleanFlag(payload.booleanValueGeneralSetting, "Valor da configuração");
+        await pool.query(
+          `UPDATE general_settings
+           SET booleanValueGeneralSetting = ?
+           WHERE keyGeneralSetting = ?`,
+          [booleanValue, key]
+        );
+      } else {
+        const value = String(payload.valueGeneralSetting ?? "").trim();
+        if (type === "text" && !value) {
+          throw new SaleValidationError("Informe um valor para a configuração.");
+        }
+        if (type === "number" && (!value || !Number.isFinite(Number(value)))) {
+          throw new SaleValidationError("Informe um número válido.");
+        }
+        if (type === "json") {
+          try {
+            JSON.parse(value);
+          } catch {
+            throw new SaleValidationError("Informe um JSON válido.");
+          }
+        }
+        if (key === "ncmSourceUrl" || key === "cestSourceUrl") {
+          try {
+            validateOfficialSourceUrl(value, key === "ncmSourceUrl" ? "NCM" : "CEST");
+          } catch (error) {
+            throw new SaleValidationError(error.message);
+          }
+        }
+        await pool.query(
+          `UPDATE general_settings
+           SET valueGeneralSetting = ?
+           WHERE keyGeneralSetting = ?`,
+          [value, key]
+        );
+        if (key === "ncmSourceUrl") {
+          config.ncmSourceUrl = value;
+        }
+        if (key === "cestSourceUrl") {
+          config.cestSourceUrl = value;
+        }
+      }
       const [rows] = await pool.query(
         `SELECT keyGeneralSetting, labelGeneralSetting, typeGeneralSetting,
-                booleanValueGeneralSetting
+                booleanValueGeneralSetting, valueGeneralSetting
          FROM general_settings
          WHERE keyGeneralSetting = ?`,
         [key]
@@ -3213,7 +2156,8 @@ const server = createServer(async (request, response) => {
               keyGeneralSetting: rows[0].keyGeneralSetting,
               labelGeneralSetting: rows[0].labelGeneralSetting,
               typeGeneralSetting: rows[0].typeGeneralSetting,
-              booleanValueGeneralSetting: Boolean(rows[0].booleanValueGeneralSetting)
+              booleanValueGeneralSetting: Boolean(rows[0].booleanValueGeneralSetting),
+              valueGeneralSetting: rows[0].valueGeneralSetting ?? ""
             }
           : null
       });
@@ -3233,6 +2177,7 @@ const server = createServer(async (request, response) => {
       const requestUrl = new URL(request.url, "http://localhost");
       const includeInactive = requestUrl.searchParams.get("includeInactive") === "1";
       const productTypeDescription = uppercaseText(requestUrl.searchParams.get("productType") || "");
+      const allowNegativeStock = await getGeneralSettingBoolean("allowNegativeStock");
       const [products] = await pool.query(
         `SELECT products.idProduct, products.idGroup, products.skuProduct,
                 products.pdvCodeProduct, products.nameProduct,
@@ -3240,7 +2185,7 @@ const server = createServer(async (request, response) => {
                 products.idPhysicalStateProduct, products.idUnitProduct, products.ncmProduct,
                 products.cestProduct, products.priceProduct, products.costPriceProduct,
                 products.stockQuantityProduct, products.controlsStockProduct,
-                products.isFractionalProduct, products.printsKitchenProduct,
+                products.isFractionalProduct, products.printsPlace,
                 products.showsInPdvProduct,
                 products.isActiveProduct,
                 groups.descriptionGroup, classes.descriptionClass,
@@ -3249,10 +2194,11 @@ const server = createServer(async (request, response) => {
          INNER JOIN \`groups\` groups ON groups.idGroup = products.idGroup
          INNER JOIN classes ON classes.idClass = groups.idClass
          LEFT JOIN product_types ON product_types.idProductType = products.idProductTypeProduct
-         WHERE (? OR (products.isActiveProduct = 1 AND products.showsInPdvProduct = 1))
+         WHERE (? OR (products.isActiveProduct = 1 AND products.showsInPdvProduct = 1
+           AND (? OR products.controlsStockProduct = 0 OR products.stockQuantityProduct > 0)))
            AND (? = '' OR product_types.descriptionProductType = ?)
          ORDER BY products.nameProduct`,
-        [includeInactive, productTypeDescription, productTypeDescription]
+        [includeInactive, allowNegativeStock, productTypeDescription, productTypeDescription]
       );
       json(response, 200, { products });
     } catch (error) {
@@ -3798,16 +2744,48 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (request.method === "GET" && request.url === "/api/ncm-cest/ncms") {
+  if (request.method === "GET" && request.url.startsWith("/api/ncm-cest/ncms")) {
     try {
       await ensureNcmCestSchema();
+      const requestUrl = new URL(request.url, "http://localhost");
+      const pagination = parseCatalogPagination(requestUrl.searchParams);
+      const { hasPagination, search } = pagination;
+      if (!hasPagination) {
+        const [ncms] = await pool.query(
+          `SELECT idNcm, codeNcm, descriptionNcm
+           FROM ncm_catalog
+           WHERE isActiveNcm = 1
+           ORDER BY codeNcm`
+        );
+        json(response, 200, { ncms });
+        return;
+      }
+      const { page, pageSize } = pagination;
+      const like = `%${search}%`;
+      const [[{ total }]] = await pool.query(
+        `SELECT COUNT(*) AS total
+         FROM ncm_catalog
+         WHERE isActiveNcm = 1
+           AND (? = '' OR codeNcm LIKE ? OR descriptionNcm LIKE ?)`,
+        [search, like, like]
+      );
+      const { pageCount, page: normalizedPage } = normalizeCatalogPage(page, total, pageSize);
       const [ncms] = await pool.query(
         `SELECT idNcm, codeNcm, descriptionNcm
          FROM ncm_catalog
          WHERE isActiveNcm = 1
-         ORDER BY codeNcm`
+           AND (? = '' OR codeNcm LIKE ? OR descriptionNcm LIKE ?)
+         ORDER BY codeNcm
+         LIMIT ? OFFSET ?`,
+        [search, like, like, pageSize, (normalizedPage - 1) * pageSize]
       );
-      json(response, 200, { ncms });
+      json(response, 200, {
+        ncms,
+        total: Number(total),
+        page: normalizedPage,
+        pageSize,
+        pageCount
+      });
     } catch (error) {
       handleError(response, error, { log: "Falha ao listar NCMs:", message: "Não foi possível consultar os NCMs.", duplicate: "" });
     }
@@ -3836,16 +2814,48 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (request.method === "GET" && request.url === "/api/ncm-cest/cests") {
+  if (request.method === "GET" && request.url.startsWith("/api/ncm-cest/cests")) {
     try {
       await ensureNcmCestSchema();
+      const requestUrl = new URL(request.url, "http://localhost");
+      const pagination = parseCatalogPagination(requestUrl.searchParams);
+      const { hasPagination, search } = pagination;
+      if (!hasPagination) {
+        const [cests] = await pool.query(
+          `SELECT idCest, codeCest, descriptionCest, segmentCest
+           FROM cest_catalog
+           WHERE isActiveCest = 1
+           ORDER BY codeCest`
+        );
+        json(response, 200, { cests });
+        return;
+      }
+      const { page, pageSize } = pagination;
+      const like = `%${search}%`;
+      const [[{ total }]] = await pool.query(
+        `SELECT COUNT(*) AS total
+         FROM cest_catalog
+         WHERE isActiveCest = 1
+           AND (? = '' OR codeCest LIKE ? OR descriptionCest LIKE ? OR segmentCest LIKE ?)`,
+        [search, like, like, like]
+      );
+      const { pageCount, page: normalizedPage } = normalizeCatalogPage(page, total, pageSize);
       const [cests] = await pool.query(
         `SELECT idCest, codeCest, descriptionCest, segmentCest
          FROM cest_catalog
          WHERE isActiveCest = 1
-         ORDER BY codeCest`
+           AND (? = '' OR codeCest LIKE ? OR descriptionCest LIKE ? OR segmentCest LIKE ?)
+         ORDER BY codeCest
+         LIMIT ? OFFSET ?`,
+        [search, like, like, like, pageSize, (normalizedPage - 1) * pageSize]
       );
-      json(response, 200, { cests });
+      json(response, 200, {
+        cests,
+        total: Number(total),
+        page: normalizedPage,
+        pageSize,
+        pageCount
+      });
     } catch (error) {
       handleError(response, error, { log: "Falha ao listar CESTs:", message: "Não foi possível consultar os CESTs.", duplicate: "" });
     }
@@ -4123,19 +3133,23 @@ const server = createServer(async (request, response) => {
       const costPriceProduct = parseMoney(payload.costPriceProduct ?? "0", "Preço de custo");
       const controlsStockProduct = parseBooleanFlag(payload.controlsStockProduct, "Controla estoque", true);
       const isFractionalProduct = parseBooleanFlag(payload.isFractionalProduct, "Produto fracionado");
-      const printsKitchenProduct = parseBooleanFlag(payload.printsKitchenProduct, "Imprime cozinha");
       const showsInPdvProduct = parseBooleanFlag(payload.showsInPdvProduct, "Exibe no PDV", true);
       const stockQuantityProduct = parseProductQuantity(payload.stockQuantityProduct, allowNegativeStock, Boolean(isFractionalProduct));
       const [groups] = await pool.query("SELECT idGroup FROM `groups` WHERE idGroup = ?", [idGroup]);
       if (!groups.length) throw new SaleValidationError("Grupo não encontrado.", 409);
       const [productTypeRows] = await pool.query("SELECT idProductType, descriptionProductType FROM product_types WHERE idProductType = ? AND isActiveProductType = 1", [idProductTypeProduct]);
       if (idProductTypeProduct && !productTypeRows.length) throw new SaleValidationError("Tipo de produto não encontrado.", 409);
+      const printsPlace = resolvePrintPlace(
+        payload.printsPlace,
+        productTypeRows[0]?.descriptionProductType,
+        payload.printsKitchenProduct
+      );
       const nonSaleProduct = isNonSaleProductType(productTypeRows[0]?.descriptionProductType);
       const isRawMaterial = uppercaseText(productTypeRows[0]?.descriptionProductType) === "MATÉRIA-PRIMA";
       if (isRawMaterial && !idPhysicalStateProduct) {
         throw new SaleValidationError("Estado físico é obrigatório para matéria-prima.");
       }
-      const normalizedPhysicalStateProduct = isRawMaterial ? idPhysicalStateProduct : 0;
+      const normalizedPhysicalStateProduct = isRawMaterial ? idPhysicalStateProduct : null;
       if (normalizedPhysicalStateProduct) {
         const [physicalStateRows] = await pool.query(
           "SELECT idPhysicalState FROM physical_states WHERE idPhysicalState = ?",
@@ -4176,15 +3190,15 @@ const server = createServer(async (request, response) => {
         `INSERT INTO products
           (idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct,
            idProductTypeProduct, idPhysicalStateProduct, idUnitProduct, ncmProduct, cestProduct, priceProduct, costPriceProduct,
-           stockQuantityProduct, controlsStockProduct, isFractionalProduct, printsKitchenProduct,
+           stockQuantityProduct, controlsStockProduct, isFractionalProduct, printsPlace,
            showsInPdvProduct)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
         [idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct,
           idProductTypeProduct, normalizedPhysicalStateProduct, idUnitProduct, ncmProduct || null, cestProduct || null,
           priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct,
-          printsKitchenProduct, showsInPdvProduct]
+          printsPlace, showsInPdvProduct]
       );
-      json(response, 201, { product: { idProduct: result.insertId, idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct, idProductTypeProduct, idPhysicalStateProduct: normalizedPhysicalStateProduct, idUnitProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct, printsKitchenProduct, showsInPdvProduct } });
+      json(response, 201, { product: { idProduct: result.insertId, idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct, idProductTypeProduct, idPhysicalStateProduct: normalizedPhysicalStateProduct, idUnitProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct, printsPlace, showsInPdvProduct } });
     } catch (error) {
       handleError(response, error, { log: "Falha ao criar produto:", message: "Não foi possível criar o produto.", duplicate: "SKU ou código PDV já cadastrado." });
     }
@@ -4299,6 +3313,11 @@ const server = createServer(async (request, response) => {
         if (descriptionProductType && !typeRows.length) {
           throw new SaleValidationError(`Linha ${line}: tipo de produto ou Código SPED "${descriptionProductType}" não encontrado.`);
         }
+        const printsPlace = resolvePrintPlace(
+          row.printsPlace,
+          typeRows[0]?.descriptionProductType,
+          parseImportBoolean(row.printsKitchenProduct, 0, "Imprime na cozinha")
+        );
         const nonSaleProduct = isNonSaleProductType(typeRows[0]?.descriptionProductType);
         if (uppercaseText(typeRows[0]?.descriptionProductType) === "MATÉRIA-PRIMA" && !/^MP-/i.test(skuProduct)) {
           throw new SaleValidationError(`Linha ${line}: o SKU de matéria-prima deve começar com MP-.`);
@@ -4347,22 +3366,22 @@ const server = createServer(async (request, response) => {
           : parseMoney(priceValue, `Preço da linha ${line}`);
         const controlsStockProduct = parseImportBoolean(row.controlsStockProduct, 1, "Controla estoque");
         const isFractionalProduct = parseImportBoolean(row.isFractionalProduct, 0, "Produto fracionado");
-        const printsKitchenProduct = parseImportBoolean(row.printsKitchenProduct, 0, "Imprime na cozinha");
         const showsInPdvProduct = parseImportBoolean(row.showsInPdvProduct, 1, "Exibe no PDV");
+        const isActiveProduct = parseImportStatus(row.isActiveProduct, 1);
         const stockQuantityProduct = parseProductQuantity(stockValue || "0", allowNegativeStock, Boolean(isFractionalProduct));
         await connection.query(
           `INSERT INTO products
             (idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct,
              idProductTypeProduct, idPhysicalStateProduct, idUnitProduct, ncmProduct, cestProduct, priceProduct, costPriceProduct,
-             stockQuantityProduct, controlsStockProduct, isFractionalProduct, printsKitchenProduct,
-             showsInPdvProduct)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+             stockQuantityProduct, controlsStockProduct, isFractionalProduct, printsPlace,
+             showsInPdvProduct, isActiveProduct)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
           [
             groupRows[0].idGroup, skuProduct, pdvCodeProduct, nameProduct,
             fiscalRows[0]?.idFiscalOperation || null, typeRows[0]?.idProductType || null,
-            0, unitRows[0]?.idUnit || null, ncmProduct || null, cestProduct || null,
+            null, unitRows[0]?.idUnit || null, ncmProduct || null, cestProduct || null,
             priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct,
-            printsKitchenProduct, showsInPdvProduct
+            printsPlace, showsInPdvProduct, isActiveProduct
           ]
         );
         importedCount += 1;
@@ -4407,19 +3426,23 @@ const server = createServer(async (request, response) => {
       const costPriceProduct = parseMoney(payload.costPriceProduct ?? "0", "Preço de custo");
       const controlsStockProduct = parseBooleanFlag(payload.controlsStockProduct, "Controla estoque", true);
       const isFractionalProduct = parseBooleanFlag(payload.isFractionalProduct, "Produto fracionado");
-      const printsKitchenProduct = parseBooleanFlag(payload.printsKitchenProduct, "Imprime cozinha");
       const showsInPdvProduct = parseBooleanFlag(payload.showsInPdvProduct, "Exibe no PDV", true);
       const stockQuantityProduct = parseProductQuantity(payload.stockQuantityProduct, allowNegativeStock, Boolean(isFractionalProduct));
       const [groups] = await pool.query("SELECT idGroup FROM `groups` WHERE idGroup = ?", [idGroup]);
       if (!groups.length) throw new SaleValidationError("Grupo não encontrado.", 409);
       const [productTypeRows] = await pool.query("SELECT idProductType, descriptionProductType FROM product_types WHERE idProductType = ? AND isActiveProductType = 1", [idProductTypeProduct]);
       if (idProductTypeProduct && !productTypeRows.length) throw new SaleValidationError("Tipo de produto não encontrado.", 409);
+      const printsPlace = resolvePrintPlace(
+        payload.printsPlace,
+        productTypeRows[0]?.descriptionProductType,
+        payload.printsKitchenProduct
+      );
       const nonSaleProduct = isNonSaleProductType(productTypeRows[0]?.descriptionProductType);
       const isRawMaterial = uppercaseText(productTypeRows[0]?.descriptionProductType) === "MATÉRIA-PRIMA";
       if (isRawMaterial && !idPhysicalStateProduct) {
         throw new SaleValidationError("Estado físico é obrigatório para matéria-prima.");
       }
-      const normalizedPhysicalStateProduct = isRawMaterial ? idPhysicalStateProduct : 0;
+      const normalizedPhysicalStateProduct = isRawMaterial ? idPhysicalStateProduct : null;
       if (normalizedPhysicalStateProduct) {
         const [physicalStateRows] = await pool.query(
           "SELECT idPhysicalState FROM physical_states WHERE idPhysicalState = ?",
@@ -4460,16 +3483,16 @@ const server = createServer(async (request, response) => {
         `UPDATE products SET idGroup = ?, skuProduct = ?, pdvCodeProduct = ?, nameProduct = ?,
            idFiscalOperationSaleProduct = ?, idProductTypeProduct = ?, idPhysicalStateProduct = ?, idUnitProduct = ?,
            ncmProduct = ?, cestProduct = ?, priceProduct = ?, costPriceProduct = ?, stockQuantityProduct = ?,
-           controlsStockProduct = ?, isFractionalProduct = ?, printsKitchenProduct = ?,
+           controlsStockProduct = ?, isFractionalProduct = ?, printsPlace = ?,
            showsInPdvProduct = ?
          WHERE idProduct = ?`,
         [idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct,
           idProductTypeProduct, normalizedPhysicalStateProduct, idUnitProduct, ncmProduct || null, cestProduct || null,
           priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct,
-          printsKitchenProduct, showsInPdvProduct, idProduct]
+          printsPlace, showsInPdvProduct, idProduct]
       );
       if (!result.affectedRows) throw new SaleValidationError("Produto não encontrado.", 404);
-      json(response, 200, { product: { idProduct, idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct, idProductTypeProduct, idPhysicalStateProduct: normalizedPhysicalStateProduct, idUnitProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct, printsKitchenProduct, showsInPdvProduct } });
+      json(response, 200, { product: { idProduct, idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct, idProductTypeProduct, idPhysicalStateProduct: normalizedPhysicalStateProduct, idUnitProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct, printsPlace, showsInPdvProduct } });
     } catch (error) {
       handleError(response, error, { log: "Falha ao editar produto:", message: "Não foi possível editar o produto.", duplicate: "SKU ou código PDV já cadastrado." });
     }
@@ -4909,15 +3932,107 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "GET" && request.url.startsWith("/api/sales")) {
+    try {
+      requireOperatorSession(request);
+      await ensureSaleFiscalSchema();
+      const requestUrl = new URL(request.url, "http://localhost");
+      const sales = await listRecentSales(pool, requestUrl.searchParams.get("limit"));
+      json(response, 200, { sales });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao listar vendas:", message: "Não foi possível consultar as vendas.", duplicate: "" });
+    }
+    return;
+  }
+
   if (request.method === "POST" && request.url === "/api/sales") {
     let connection;
     try {
+      const operatorSession = requireOperatorSession(request);
+      const cashSession = await getOpenCashSession(pool, 1);
+      if (!cashSession) throw new SaleValidationError("Abra o caixa antes de registrar vendas.", 409);
       const payload = await readJsonBody(request);
+      await ensureSaleFiscalSchema();
+      let fiscalConfig = null;
+      if (payload?.emitNfce === true) {
+        await ensureCompanySchema();
+        await ensureProductFiscalSchema();
+        const [[company]] = await pool.query(
+          `SELECT documentCompany, corporateNameCompany, tradeNameCompany,
+                  stateRegistrationCompany, zipCodeCompany, addressCompany,
+                  addressNumberCompany, neighborhoodCompany, cityCompany,
+                  municipalityCodeCompany, nfceEnvironmentCompany, nfceSeriesCompany,
+                  nfceModelCompany, nfceCertificateTypeCompany,
+                  nfceHomologationCscCompany, nfceHomologationTokenCompany,
+                  nfceCertificateDataCompany, nfceCertificatePasswordCompany
+           FROM company_settings
+           ORDER BY idCompanySetting ASC
+           LIMIT 1`
+        );
+        if (!company) throw new SaleValidationError("Cadastro da empresa não encontrado.", 409);
+        const [[operation]] = await pool.query(
+          `SELECT operationNatureFiscalOperation, taxSituationFiscalOperation,
+                  originFiscalOperation, cfopFiscalOperation
+           FROM fiscal_operations
+           WHERE typeFiscalOperation = 'exit' AND isActiveFiscalOperation = 1
+           ORDER BY idFiscalOperation
+           LIMIT 1`
+        );
+        fiscalConfig = {
+          company: {
+            ...company,
+            nfceCertificateDataCompany: company.nfceCertificateDataCompany
+              ? decryptSecret(company.nfceCertificateDataCompany)
+              : null,
+            nfceCertificatePasswordCompany: company.nfceCertificatePasswordCompany
+              ? decryptSecret(company.nfceCertificatePasswordCompany)
+              : null
+          },
+          operation: operation || null
+        };
+      }
       connection = await pool.getConnection();
-      const result = await createSale(connection, payload);
+      const result = await createSale(connection, payload, {
+        operatorSession,
+        cashSession,
+        fiscalConfig,
+        fiscalAuthorizer: fiscalConfig
+          ? (saleData) => authorizeSaleNfce({
+            ...saleData,
+            company: fiscalConfig.company,
+            operation: fiscalConfig.operation,
+            certificateData: fiscalConfig.company.nfceCertificateDataCompany,
+            certificatePassword: fiscalConfig.company.nfceCertificatePasswordCompany
+          })
+          : null
+      });
       json(response, result.idempotent ? 200 : 201, result);
     } catch (error) {
       handleError(response, error, { log: "Falha ao registrar venda:", message: "Não foi possível registrar a venda.", duplicate: "" });
+    } finally {
+      connection?.release();
+    }
+    return;
+  }
+
+  const cancellationMatch = request.method === "POST"
+    ? request.url.match(/^\/api\/sales\/(\d+)\/cancel$/)
+    : null;
+  if (cancellationMatch) {
+    let connection;
+    try {
+      const operatorSession = requireOperatorSession(request);
+      const payload = await readJsonBody(request);
+      connection = await pool.getConnection();
+      const result = await cancelSale(
+        connection,
+        Number(cancellationMatch[1]),
+        payload,
+        { operatorSession }
+      );
+      json(response, 200, result);
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao cancelar venda:", message: "Não foi possível cancelar a venda.", duplicate: "" });
     } finally {
       connection?.release();
     }
@@ -4935,11 +4050,13 @@ server.listen(config.apiPort, config.apiHost, () => {
     ensureProductFiscalSchema(),
     ensureProductCatalogSchema(),
     ensurePrinterSettingsSchema(),
-    ensureGeneralSettingsSchema(),
+    ensureGeneralSettingsSchema().then(loadGeneralSourceSettings),
     ensureCompanySchema(),
+    ensureSaleFiscalSchema(),
     ensureSupplierSchema(),
     ensureCustomerConsumerSchema().then(migrateCustomerConsumerSchema),
-    ensureNavigationSchema()
+    ensureNavigationSchema(),
+    ensureOperatorCashSchema()
   ]).then(() => ensureUppercaseTextData()).catch((error) => {
     console.error("Falha ao preparar ou normalizar o banco:", error);
   });

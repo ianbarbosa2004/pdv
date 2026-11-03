@@ -29,27 +29,47 @@ export const selectContextualNavigationItems = (navigation, parentKey, fallbackI
     )
     .sort((left, right) =>
       Number(left.orderNavigationItem || 0) - Number(right.orderNavigationItem || 0)
+    );
+
+  const contextualParent = items.find((item) =>
+    String(item.idParentNavigationItem) === String(parent.idNavigationItem)
+    && isActive(item)
+    && (
+      normalizeNavigationValue(item.routeNavigationItem) === normalizedParentKey
+      || normalizeNavigationValue(item.keyNavigationItem) === normalizedParentKey
+      || normalizeNavigationValue(item.labelNavigationItem) === normalizeNavigationValue(parent.labelNavigationItem)
     )
+  );
+  const configuredNavigationItems = configuredItems
+    .filter((item) => item !== contextualParent)
     .map((item) => [item.keyNavigationItem, item.labelNavigationItem]);
 
-  if (!configuredItems.length) return fallbackItems;
+  if (!configuredNavigationItems.length && !contextualParent) return fallbackItems;
 
   const configuredKeys = new Set(
-    configuredItems.map(([key]) => normalizeNavigationValue(key))
+    configuredNavigationItems.map(([key]) => normalizeNavigationValue(key))
   );
-  const parentItem = isActive(parent)
-    ? [[parent.keyNavigationItem, parent.labelNavigationItem]]
+  const parentItem = isActive(contextualParent || parent)
+    ? [[
+      (contextualParent || parent).routeNavigationItem
+        || (contextualParent || parent).keyNavigationItem,
+      (contextualParent || parent).labelNavigationItem
+    ]]
     : fallbackItems.filter(([key]) =>
         normalizeNavigationValue(key) === normalizedParentKey
       );
+  if (contextualParent) {
+    configuredKeys.add(normalizeNavigationValue(contextualParent.keyNavigationItem));
+    configuredKeys.add(normalizeNavigationValue(parent.keyNavigationItem));
+  }
   for (const [key] of parentItem) {
     configuredKeys.add(normalizeNavigationValue(key));
   }
   const primaryFallbackItem = fallbackItems[0];
   const itemsWithPrimaryFallback = primaryFallbackItem
     && !configuredKeys.has(normalizeNavigationValue(primaryFallbackItem[0]))
-    ? [primaryFallbackItem, ...configuredItems]
-    : configuredItems;
+    ? [primaryFallbackItem, ...configuredNavigationItems]
+    : configuredNavigationItems;
 
   return [...parentItem, ...itemsWithPrimaryFallback];
 };

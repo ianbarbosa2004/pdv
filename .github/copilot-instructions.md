@@ -9,9 +9,9 @@ Estas instruções complementam `README.md` e os documentos em `docs/`.
 - O computador servidor da loja hospeda a API Node.js e o MariaDB.
 - Os terminais Tauri acessam somente a API pela rede local; nunca recebem
   credenciais nem executam SQL diretamente.
-- Regras compartilhadas ficam em `src/shared`; integração do navegador fica em
-  `src/`; API e banco ficam em `src/server/`; a camada nativa fica em
-  `src-tauri/`.
+- Regras compartilhadas ficam em `src/shared`; telas e componentes ficam em
+  `src/catalog`, `src/sales`, `src/settings`, `src/tools` e `src/ui`; API e
+  banco ficam em `src/server/`; a camada nativa fica em `src-tauri/`.
 - `database/schema.sql` é o schema inicial e deve evoluir por migrações revisadas.
 
 ### Fluxo de dados
@@ -32,10 +32,12 @@ npm.cmd install
 npm.cmd run dev
 npm.cmd run api
 npm.cmd test
-npm.cmd run build
-node --check src/server/server.js
 git diff --check
 ```
+
+Execute `npm.cmd run build` somente quando a alteração envolver o bundle,
+configuração Vite/Tauri, versionamento ou uma validação de produção. Use
+`node --check` nos arquivos JavaScript modificados.
 
 Quando necessário, valide o ambiente Tauri com `npm.cmd exec tauri info` e
 compile com `npm.cmd run tauri -- build --no-bundle`.
@@ -49,13 +51,18 @@ compile com `npm.cmd run tauri -- build --no-bundle`.
 - O frontend só confirma uma escrita após sucesso da API; em falhas, restaure
   o estado visual anterior.
 - Não duplique fontes de verdade entre vendas, estoque, caixa e relatórios.
-- Impressão ESC/POS é local ao terminal e separada da confirmação da venda.
+- Impressão é local ao terminal, usa o driver do Windows e é separada da
+  confirmação da venda.
 - Use `node:test`; não introduza Jest ou Vitest sem decisão explícita.
-- Crie novos testes sempre em `tests/`; quando a quantidade justificar,
-  organize-os em `tests/unit/` e `tests/integration/`.
+- Crie testes isolados em `tests/unit/` e testes de API, banco ou contratos em
+  `tests/integration/`.
 - Crie documentação operacional e decisões técnicas em `docs/`, mantendo o
   `README.md` como visão geral e índice.
-- Siga SemVer: o build incrementa automaticamente o `PATCH`; use
+- Documente automaticamente alterações de código nos Markdown diretamente
+  relacionados quando mudarem contrato, operação, arquitetura, validação,
+  segurança ou comportamento visível.
+- Siga SemVer: o hook `prebuild` e o fluxo `prerelease:client` podem acionar o
+  versionamento automático quando o build é executado; use
   `npm.cmd run version:minor` para funcionalidades compatíveis e
   `npm.cmd run version:major` para mudanças incompatíveis ou a primeira versão
   estável.

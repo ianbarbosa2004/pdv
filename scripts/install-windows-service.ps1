@@ -1,10 +1,15 @@
-param(
+﻿param(
   [string]$InstallDirectory = 'C:\ProgramData\PDV\service',
   [string]$LogDirectory = 'C:\ProgramData\PDV\logs',
-  [string]$ServiceName = 'PDV-API'
+  [string]$ServiceName = 'PDV-API',
+  [string]$ApplicationDirectory = 'C:\ProgramData\PDV\app',
+  [switch]$SkipStart
 )
 
 $ErrorActionPreference = 'Stop'
+$utf8 = New-Object System.Text.UTF8Encoding($false)
+$OutputEncoding = $utf8
+[Console]::OutputEncoding = $utf8
 
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $nodePath = (Get-Command node.exe -ErrorAction Stop).Source
@@ -27,8 +32,8 @@ $configPath = Join-Path $InstallDirectory "$ServiceName.xml"
 $winswVersion = 'v2.12.0'
 $winswSha256 = '05B82D46AD331CC16BDC00DE5C6332C1EF818DF8CEEFCD49C726553209B3A0DA'
 
-if (-not (Test-Path (Join-Path $repositoryRoot '.env'))) {
-  throw "Arquivo .env não encontrado em $repositoryRoot."
+if (-not (Test-Path (Join-Path $ApplicationDirectory '.env'))) {
+  throw "Arquivo .env operacional não encontrado em $ApplicationDirectory."
 }
 
 $runningApiProcesses = Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" |
@@ -46,11 +51,11 @@ if (-not $mariaDbService) {
 }
 
 New-Item -ItemType Directory -Force -Path $InstallDirectory, $LogDirectory | Out-Null
-& icacls.exe $repositoryRoot /grant '*S-1-5-19:(OI)(CI)(RX)' /T /C | Out-Null
+& icacls.exe $ApplicationDirectory /grant '*S-1-5-19:(OI)(CI)(RX)' /T /C | Out-Null
 if ($LASTEXITCODE -ne 0) {
-  throw "Não foi possível conceder leitura do checkout à conta LocalService."
+  throw "Não foi possível conceder leitura da aplicação à conta LocalService."
 }
-$parentPath = Split-Path $repositoryRoot -Parent
+$parentPath = Split-Path $ApplicationDirectory -Parent
 while ($parentPath -and $parentPath -ne [System.IO.Path]::GetPathRoot($parentPath)) {
   & icacls.exe $parentPath /grant '*S-1-5-19:(RX)' /C | Out-Null
   if ($LASTEXITCODE -ne 0) {
@@ -73,7 +78,7 @@ if ($actualHash -ne $winswSha256) {
   throw "Hash inesperado para WinSW $winswVersion. Esperado $winswSha256, obtido $actualHash."
 }
 
-$escapedRoot = [System.Security.SecurityElement]::Escape($repositoryRoot)
+$escapedRoot = [System.Security.SecurityElement]::Escape($ApplicationDirectory)
 $escapedNode = [System.Security.SecurityElement]::Escape($nodePath)
 $escapedOpenSsl = [System.Security.SecurityElement]::Escape($opensslPath)
 $escapedLog = [System.Security.SecurityElement]::Escape($LogDirectory)
@@ -83,9 +88,10 @@ $config = @"
   <name>PDV API</name>
   <description>API Node.js do sistema PDV da loja.</description>
   <executable>$escapedNode</executable>
-  <arguments>--env-file=.env src/server/server.js</arguments>
+  <arguments>--env-file=.env scripts/run-api-service.mjs</arguments>
   <workingdirectory>$escapedRoot</workingdirectory>
   <env name="PDV_OPENSSL_PATH" value="$escapedOpenSsl" />
+  <env name="PDV_SERVICE_ERROR_LOG" value="$escapedLog\api-startup.error.log" />
   <stoptimeout>15sec</stoptimeout>
   <startmode>Automatic</startmode>
   <delayedAutoStart>true</delayedAutoStart>
@@ -100,7 +106,6 @@ $config = @"
   <onfailure action="restart" delay="30 sec" />
   <onfailure action="restart" delay="60 sec" />
   <resetfailure>1 day</resetfailure>
-  <serviceaccount>LocalService</serviceaccount>
 </service>
 "@
 
@@ -114,14 +119,20 @@ $serviceAccountCommand = 'sc.exe config {0} obj= "NT AUTHORITY\LocalService"' -f
 if ($LASTEXITCODE -ne 0) {
   throw "Não foi possível configurar a conta LocalService para o serviço."
 }
-& $winswPath start
+if (-not $SkipStart) {
+  & $winswPath start
 
-Start-Sleep -Seconds 5
-$service = Get-Service -Name $ServiceName -ErrorAction Stop
-if ($service.Status -ne 'Running') {
-  throw "O serviço $ServiceName não iniciou. Estado atual: $($service.Status)."
+  Start-Sleep -Seconds 5
+  $service = Get-Service -Name $ServiceName -ErrorAction Stop
+  if ($service.Status -ne 'Running') {
+    throw "O serviço $ServiceName não iniciou. Estado atual: $($service.Status)."
+  }
 }
 
-Write-Output "Serviço $ServiceName instalado e em execução."
-Write-Output "Checkout: $repositoryRoot"
+if ($SkipStart) {
+  Write-Output "Serviço $ServiceName instalado e aguardando a publicação da aplicação."
+} else {
+  Write-Output "Serviço $ServiceName instalado e em execução."
+}
+Write-Output "Aplicação: $ApplicationDirectory"
 Write-Output "Logs: $LogDirectory"

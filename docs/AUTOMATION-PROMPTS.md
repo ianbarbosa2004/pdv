@@ -61,9 +61,11 @@ dist ou src-tauri/target. Se houver dúvida, pare e informe os caminhos.
 Execute:
 
 npm.cmd test
-npm.cmd run build
-node --check src/server/server.js
 git diff --check
+
+Execute npm.cmd run build somente quando a alteração envolver o bundle,
+Vite/Tauri, versionamento ou uma validação de produção. Use node --check nos
+arquivos JavaScript modificados.
 
 Se o Tauri estiver configurado e as dependências nativas disponíveis, valide
 também npm.cmd exec tauri info. Não faça a compilação nativa completa sem
@@ -110,9 +112,11 @@ Preserve .env, credenciais, chaves privadas, dados reais, dumps, backups,
 node_modules, dist e src-tauri/target. Execute:
 
 npm.cmd test
-npm.cmd run build
-node --check src/server/server.js
 git diff --check
+
+Execute npm.cmd run build somente quando a alteração envolver o bundle,
+Vite/Tauri, versionamento ou uma validação de produção. Use node --check nos
+arquivos JavaScript modificados.
 
 Só crie commit quando houver alterações documentais reais. O commit deve
 conter:
@@ -148,8 +152,10 @@ navegação, Retaguarda, atalhos, interface, testes e pendências.
 
 Não documente senhas, tokens, certificados, XMLs reais, dados reais, dumps,
 backups ou artefatos. Execute git diff --check. Se contratos funcionais forem
-refletidos ou houver dúvida, execute npm.cmd test, npm.cmd run build e
-node --check src/server/server.js.
+refletidos ou houver dúvida, execute npm.cmd test e git diff --check. Execute
+npm.cmd run build somente quando a alteração envolver o bundle, Vite/Tauri,
+versionamento ou uma validação de produção; use node --check nos arquivos
+JavaScript modificados.
 
 Se houver mudanças documentais reais, crie um commit descritivo com:
 
@@ -178,9 +184,11 @@ Antes de agir, execute git status --short, git diff --cached e git diff.
 Depois execute:
 
 npm.cmd test
-npm.cmd run build
-node --check src/server/server.js
 git diff --check
+
+Execute npm.cmd run build somente quando a alteração envolver o bundle,
+Vite/Tauri, versionamento ou uma validação de produção. Use node --check nos
+arquivos JavaScript modificados.
 
 Quando houver mudanças reais, crie um commit com:
 

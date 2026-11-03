@@ -32,14 +32,34 @@ import { installTablePagination } from "./ui/table-pagination.js";
 import {
   apiFetch,
   getApiUrl,
-  getConfiguredBackupDirectory,
   loadConfiguredApiUrl
 } from "./shared/api.js";
 import { ensureApiStatusNavigation } from "./shared/navigation-defaults.js";
+import {
+  createEnvironmentSelectionScreen,
+  createOperatorLoginScreen
+} from "./operator/operator-login-screen.js";
+import { createCashScreen } from "./operator/cash-screen.js";
+import { clearOperatorSessionToken } from "./shared/api.js";
 
 const app = document.querySelector("#app");
 
 if (!app) throw new Error("Elemento raiz da aplicação não encontrado.");
+
+const normalizeScreenChrome = () => {
+  const operatorName = window.__PDV_OPERATOR__?.displayNameOperator || "Operador";
+  app.querySelectorAll(".classic-titlebar span").forEach((label) => {
+    if (label.textContent.trim() === "Operador: Operador") {
+      label.textContent = `Operador: ${operatorName}`;
+    }
+  });
+  app.querySelectorAll(".classic-toolbar > [data-back]").forEach((button) => {
+    button.remove();
+  });
+};
+
+const screenChromeObserver = new MutationObserver(normalizeScreenChrome);
+screenChromeObserver.observe(app, { childList: true, subtree: true });
 
 const getAppWindow = () => {
   if (!window.__TAURI_INTERNALS__) return null;
@@ -62,6 +82,8 @@ function requestExit() {
 const mount = (screen) => {
   app.replaceChildren(screen);
   installTablePagination(screen);
+  normalizeScreenChrome();
+  screen.querySelector("[autofocus]")?.focus();
 };
 const common = () => ({
   sales: showSales,
@@ -119,9 +141,36 @@ const common = () => ({
   sair: requestExit
 });
 
-const showSales = (options = {}) => mount(createSaleScreen({ onBackoffice: showBackoffice, ...options }));
+const showCash = () => mount(createCashScreen({
+  onBack: showSales,
+  onOpened: showSales,
+  onClosed: () => showLogin()
+}));
+const showSales = (options = {}) => mount(createSaleScreen({
+  onBackoffice: showBackoffice,
+  onCash: showCash,
+  onLogout: async () => {
+    await apiFetch(`${getApiUrl()}/api/operator/logout`, { method: "POST" }).catch(() => {});
+    await clearOperatorSessionToken();
+    showLogin();
+  },
+  ...options
+}));
 const showBackoffice = () =>
   mount(createBackofficeScreen({ onBack: showSales, ...common() }));
+const showEnvironmentSelection = () => mount(createEnvironmentSelectionScreen({
+  onFrontOfCash: showSales,
+  onCash: showCash,
+  onBackoffice: showBackoffice,
+  onChangeUser: async () => {
+    await apiFetch(`${getApiUrl()}/api/operator/logout`, { method: "POST" }).catch(() => {});
+    await clearOperatorSessionToken();
+    showLogin();
+  }
+}));
+const showLogin = () => mount(createOperatorLoginScreen({
+  onAuthenticated: showEnvironmentSelection
+}));
 const showSettings = () =>
   mount(createSettingsScreen({ onBack: showBackoffice, ...common() }));
 const showGeneralSettings = () =>
@@ -392,7 +441,7 @@ const createCloseBackupPrompt = () => {
       void apiFetch(`${getApiUrl()}/api/backups`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ backupDirectory: getConfiguredBackupDirectory() })
+        body: JSON.stringify({})
       })
         .then(async (response) => {
           const payload = await response.json().catch(() => ({}));
@@ -431,6 +480,18 @@ const installCloseBackupPrompt = () => {
     if (closing) return;
     if (promptOpen) {
       event.preventDefault();
+      return;
+    }
+    if (app.querySelector(".auth-screen")) {
+      closing = true;
+      event.preventDefault();
+      window.setTimeout(() => {
+        void appWindow.destroy().catch(() => {
+          void appWindow.close().catch((error) => {
+            console.error("Não foi possível fechar o aplicativo pela tela de login:", error);
+          });
+        });
+      }, 0);
       return;
     }
     event.preventDefault();
@@ -484,24 +545,14 @@ const checkApiHealth = async () => {
 
 const startApplication = async () => {
   installCloseBackupPrompt();
-  const apiHealthy = await checkApiHealth();
-  let navigationError = false;
   try {
     await loadNavigation();
   } catch {
-    navigationError = true;
     window.__PDV_NAVIGATION__ = ensureApiStatusNavigation({ menus: [], items: [] });
     window.__PDV_NAVIGATION_SOURCE__ = "unavailable";
   }
   await loadProjectIcon(getApiUrl()).catch(() => {});
-  showSales({
-    initialApiError: !apiHealthy || navigationError,
-    onApiConfigured: async () => {
-      const connected = await checkApiHealth();
-      if (connected) await loadNavigation();
-      return connected;
-    }
-  });
+  showLogin();
 };
 
 void loadConfiguredApiUrl()

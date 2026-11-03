@@ -7,9 +7,9 @@ produto.
 
 ## Organização de arquivos
 
-- Testes automatizados devem ser criados dentro de `tests/`.
-- Testes de domínio, modelos e serviços isolados devem ficar em `tests/unit/`.
-- Testes de API, banco e contratos HTTP devem ficar em `tests/integration/`.
+- Testes automatizados devem ser criados dentro de `tests/`; testes de domínio,
+  modelos e serviços isolados ficam em `tests/unit/`, enquanto testes de API,
+  banco e contratos HTTP ficam em `tests/integration/`.
 - O runner padrão (`npm.cmd test`) descobre ambos os grupos recursivamente.
 - `docs/NOTES.md` é reservado para anotações pessoais de tarefas e não deve
   ser removido durante reorganizações ou limpezas da árvore.
@@ -43,9 +43,371 @@ contextual.
 
 O `database/schema.sql` é o schema inicial reproduzível. A API também executa
 verificações idempotentes ao iniciar ou ao acessar cada área, por meio das
-funções `ensure...Schema` em `src/server/server.js`. Essas verificações criam
+funções `ensure...Schema` compostas pelo módulo
+`src/server/schema-manager.js`. O roteador em `src/server/server.js` recebe
+somente a interface desse módulo. Essas verificações criam
 tabelas ausentes e adicionam colunas novas com `ALTER TABLE`; não devem apagar,
 recriar ou truncar tabelas existentes.
+
+A preparação do catálogo NCM/CEST pertence ao módulo
+`src/server/ncm-cest-update.js`, que é a única fonte runtime para as tabelas
+`ncm_catalog`, `cest_catalog`, `ncm_cest_relations` e `ncm_cest_updates`.
+Atualizações e inicialização reutilizam a mesma preparação idempotente para
+evitar divergência entre o caminho de carga e o caminho de inicialização.
+
+### Registro da auditoria arquitetural e operacional — 2026-11-02
+
+Esta etapa corrigiu os dois pontos arquiteturais identificados na auditoria:
+
+1. As rotinas de preparação do banco foram retiradas de
+   `src/server/server.js` e passaram a ser compostas por
+   `src/server/schema-manager.js`, cuja interface recebe `pool` e `config` e
+   devolve somente as operações necessárias ao roteador e ao startup.
+2. A preparação das quatro tabelas NCM/CEST foi concentrada em
+   `src/server/ncm-cest-update.js`; não deve ser recriada em outro módulo.
+
+Também foram corrigidos os scripts `scripts/publish-windows-api-service.ps1`
+e `scripts/configure-windows-service-account.ps1`. O SQL que redefine
+`pdv_app` é transmitido diretamente ao `mysql` por pipe. A senha não é
+materializada em arquivo SQL persistente. A conta `PDVApiSvc` é criada ou
+atualizada com a senha gerada antes do provisionamento do Credential Manager.
+
+Validação realizada: 58 testes passaram; os arquivos JavaScript alterados
+passaram em `node --check`; os três scripts Windows passaram pela análise
+sintática do PowerShell; `git diff --check` passou. Não foram executados
+publicação, deploy, alteração de serviço ou build completo. Como somente
+scripts, documentação e preparação de código foram alterados nesta etapa, não
+é necessário reiniciar a API agora. Depois de publicar alterações em
+`src/server/`, reinicie a API publicada com `api.cmd` antes da validação real.
+
+### Implementação de operadores e caixa — 2026-11-02
+
+A pendência identificada na auditoria foi implementada em uma primeira versão
+vertical:
+
+- operadores usam usuário e senha individuais com hash `scrypt`;
+- sessões expiram após oito horas e usam token aleatório armazenado somente
+  como hash no banco;
+- o token compartilhado continua identificando o terminal, enquanto
+  `X-Operator-Session` identifica o operador;
+- o caixa principal exige abertura com saldo inicial, registra vendas pagas
+  pela conta `Caixa`, permite suprimento/sangria e exige supervisor/admin para
+  fechamento;
+- diferenças de fechamento exigem justificativa;
+- `sales` passa a registrar operador e sessão de caixa, e o servidor rejeita
+  vendas sem operador autenticado e caixa aberto.
+
+Rotas adicionadas: `POST /api/operator/login`,
+`POST /api/operator/logout`, `GET /api/operator/session`,
+`POST /api/operators`, `GET /api/cash/current`, `POST /api/cash/open`,
+`POST /api/cash/movements` e `POST /api/cash/close`.
+Para criar o primeiro operador, use `npm.cmd run create:operator` com
+`PDV_OPERATOR_PASSWORD` somente no ambiente do servidor; nunca registre a
+senha em documentação ou logs. Se a conta MariaDB da API não puder executar
+a inclusão, gere apenas o hash com o argumento `--hash-only` e faça o
+`INSERT`/`UPDATE` no DBeaver usando uma conta autorizada; o hash não permite
+recuperar a senha original.
+
+Como `src/server/` e o frontend foram alterados, a API precisa ser publicada e
+reiniciada antes da validação operacional. A migração runtime é executada pelo
+startup de `schema-manager.js`; instalações existentes recebem as colunas de
+vínculo de venda como anuláveis para preservar o histórico legado.
+
+### Separação entre Frente de Caixa e Retaguarda — 2026-11-02
+
+O login autentica o operador, mas não abre caixa automaticamente. Depois da
+autenticação, a tela de credenciais é substituída por uma tela exclusiva de
+seleção de ambiente, que apresenta três destinos:
+
+- **Vendas**: permite consultar o catálogo e informa quando o caixa
+  está fechado; a abertura exige saldo inicial e acontece na tela de Caixa,
+  somente quando o operador escolhe trabalhar com vendas;
+- **Caixa**: abre diretamente o controle de abertura, movimentações e
+  fechamento do caixa;
+- **Retaguarda**: abre diretamente para cadastros, configurações e ferramentas,
+  sem exigir caixa aberto.
+
+A tela inicial da Retaguarda exibe somente os itens marcados como **Atalho** no
+Construtor de navegação. Os cards seguem a ordem dos menus e dos itens
+persistida na navegação, mantendo uma única fonte de verdade para a organização
+do menu, e cada card usa um ícone Lucide correspondente ao módulo. O cabeçalho
+consulta o operador autenticado e o estado real do caixa; alertas adicionais só
+devem ser exibidos quando houver uma fonte correspondente na API.
+
+A seleção pós-login usa uma tela de módulos inspirada na referência visual
+fornecida, mas oferece exatamente três ambientes: **Vendas**, **Caixa** e
+**Retaguarda**. A tela mostra o operador autenticado e o status real do caixa;
+**Trocar usuário** permanece como ação auxiliar fora da grade de ambientes.
+
+A ordem, os divisores e a estrutura definidos no Construtor de navegação são
+configuração persistida. A preparação do schema não renumera mais os itens
+existentes ao iniciar a API; ela apenas cria ou corrige registros essenciais
+ausentes. Portanto, alterações feitas no Construtor continuam sendo carregadas
+após novo login e reinício da API.
+
+As barras contextuais não exibem ação de retorno: não mostram “Frente de caixa”
+nem “Voltar”. A navegação entre áreas ocorre pelo menu principal e pelas opções
+contextuais disponíveis na própria tela.
+
+A API continua exigindo operador autenticado e caixa aberto na rota de venda.
+Essa regra não foi relaxada; a separação ocorre na navegação e evita bloquear
+atividades administrativas. Esta etapa alterou apenas frontend e documentação:
+não é necessário reiniciar a API. É necessário gerar e distribuir o bundle
+frontend para validar a mudança no terminal.
+
+A tela de login não possui seletor de ambiente ou conexão “Padrão”. O botão
+com ícone de banco abre a configuração da API, permitindo informar, testar e
+salvar o endereço do servidor antes da autenticação. Uma falha de rede no
+teste não substitui o endereço anteriormente salvo. Essa configuração é local
+ao terminal e não altera as credenciais ou a configuração do servidor.
+No modal, **Testar** verifica a conexão sem salvar. O botão **Salvar** só fica
+habilitado depois de um teste bem-sucedido da mesma URL; então grava o endereço
+informado e fecha a configuração.
+
+O fechamento do aplicativo pela tela de login não solicita backup, pois ainda
+não há operação autenticada ativa. A pergunta de backup continua reservada às
+telas operacionais.
+
+### Auditoria de backup e restauração — 2026-11-02
+
+Foi identificado e corrigido um risco no fluxo de backup: as rotas aceitavam
+`directory` na query string e `backupDirectory` no corpo, permitindo que um
+terminal autenticado direcionasse leitura, gravação, download ou restauração
+para qualquer caminho acessível à conta da API. O servidor agora ignora esses
+valores e usa exclusivamente `PDV_BACKUP_DIR` ou o diretório padrão da API.
+
+O diretório físico não é retornado ao terminal. A API envia somente os
+metadados necessários para a tela, como nome, data, tamanho e contagem de
+registros. A configuração deve ser feita no servidor; o caminho escolhido no
+terminal não é uma autorização para acessar diretórios do servidor. A alteração
+envolve `src/server/server.js`, portanto exige nova publicação e reinício da
+API antes da validação em produção.
+
+### Auditoria de autorização e CORS — 2026-11-02
+
+A proteção existente foi conferida sem alteração de contrato:
+
+- a API não inicia sem `PDV_API_TOKEN`;
+- no modo `vite serve`, o cliente reutiliza `VITE_PDV_API_TOKEN` ou
+  `PDV_API_TOKEN`; quando ambos não existem, procura o token operacional em
+  `C:\ProgramData\PDV\app\.env`, permitindo testar uma instalação limpa sem
+  copiar segredos para o checkout;
+- builds de cliente continuam exigindo `VITE_PDV_API_TOKEN` explicitamente pelo
+  fluxo de publicação;
+- todas as rotas `/api/` exigem `Authorization: Bearer ...`;
+- origens CORS são comparadas com `PDV_API_ALLOWED_ORIGINS`;
+- preflight rejeita origens não autorizadas;
+- respostas não incluem credenciais de banco ou dados de autenticação.
+
+O limite conhecido é intencional e já está registrado para a etapa futura:
+um token compartilhado autentica o terminal perante a API, mas não representa
+um operador, uma sessão ou uma permissão específica. Não é adequado usar esse
+token para controlar telas financeiras ou autorizar operações por usuário.
+
+### Auditoria de papel servidor/terminal — 2026-11-03
+
+A auditoria confirmou que o sistema ainda não possui uma identificação
+confiável do papel do chamador. O servidor pode conhecer suas próprias
+capacidades, mas os terminais acessam a mesma API e usam o token compartilhado
+do terminal; por isso, `127.0.0.1`, hostname, origem HTTP ou flag local não
+podem ser usados como autorização. A proteção de backup continua correta
+porque o diretório é resolvido exclusivamente pela API.
+
+Não foi adicionada uma solução parcial que apenas esconderia telas. Antes de
+liberar operações exclusivas do servidor, será necessário criar uma identidade
+ou capacidade emitida e validada pelo servidor, com autorização efetiva no
+backend. Até lá, recursos de servidor devem permanecer protegidos por suas
+rotas e configurações server-side existentes.
+
+### Consolidação da versão 0.9.0 — 2026-11-03
+
+As alterações funcionais acumuladas em 2 e 3 de novembro devem ser tratadas
+como incremento **minor**, pois adicionam capacidades compatíveis ao produto:
+operadores e sessões, controle de caixa, cancelamento auditado, NFC-e em
+homologação, destino de impressão, importação de Status e regras de estoque.
+O versionamento sincronizado deve permanecer em `package.json`,
+`package-lock.json`, `src-tauri/tauri.conf.json` e `src-tauri/Cargo.toml`.
+
+Na Frente de Caixa, `GET /api/products` aplica a configuração
+`allowNegativeStock` somente ao catálogo operacional. Com estoque negativo
+permitido, produtos controlados com estoque zero ou negativo continuam
+renderizados. Sem essa permissão, eles são filtrados quando não têm estoque
+positivo. Produtos com `controlsStockProduct = 0` permanecem visíveis em ambos
+os cenários. Chamadas administrativas com `includeInactive=1` não recebem esse
+filtro.
+
+Esta consolidação foi validada com 90 testes aprovados, `node --check` nos
+JavaScript alterados e `git diff --check`. Como houve alteração em
+`src/server/`, a validação operacional exige publicar a API atualizada e
+reiniciar o serviço `PDV-API`; isso não foi executado nesta etapa. Não execute
+build completo apenas para documentar a mudança; ele deve ser usado quando a
+distribuição do bundle ou do instalador for realmente necessária.
+
+### Auditoria de integridade de vendas e estoque — 2026-11-02
+
+O fluxo foi revisado da interface à transação:
+
+- a interface só limpa o carrinho depois de uma resposta HTTP bem-sucedida;
+- o servidor normaliza e valida itens, quantidades, desconto e pagamentos;
+- produtos são bloqueados com `FOR UPDATE` antes da confirmação de estoque;
+- venda, itens, pagamentos, Vale e baixa de estoque usam a mesma transação;
+- falhas fazem rollback e não são convertidas em sucesso;
+- `clientIdSale` possui restrição única e comparação do conteúdo para
+  idempotência segura;
+- o servidor retorna o resumo confirmado da venda após o commit.
+
+Não foi encontrado defeito novo nesta auditoria. O limite funcional já
+registrado permanece: sem operador e caixa vinculados, o fluxo não permite
+responsabilização financeira por usuário.
+
+### Auditoria de impressão — 2026-11-02
+
+O fluxo de impressão foi revisado no terminal Tauri:
+
+- impressão direta usa o driver de impressora do Windows;
+- a pré-visualização usa o diálogo de impressão do sistema;
+- o envio é local ao terminal e não participa da confirmação financeira;
+- nomes de impressora e layout possuem limites server-side;
+- o layout é escapado na pré-visualização e limitado a 80 linhas, com texto
+  livre limitado a 120 caracteres na interface.
+
+O fluxo ESC/POS foi removido por decisão de produto. Não foi encontrado
+defeito novo no fluxo Windows/GDI. Falhas de impressão continuam separadas da
+venda confirmada, conforme a regra operacional. A validação automatizada
+permaneceu com 59 testes aprovados.
+
+### Auditoria de dependências — 2026-11-02
+
+As dependências declaradas foram comparadas com os imports, scripts, comandos
+Tauri e configurações de capability. Foram removidas `cors`,
+`@tauri-apps/plugin-http`, `rfd` e `tauri-plugin-http`, pois não tinham uso
+ativo após a remoção da impressão TCP/RAW e da seleção local de diretório de
+backup. O `package-lock.json` e o `Cargo.lock` foram atualizados, e não restam
+referências a esses pacotes ou comandos.
+
+As dependências ainda utilizadas foram preservadas: Vite/Tauri, `keytar`,
+`lucide`, `mysql2`, `node-forge`, `xml-crypto`, além das crates Rust usadas
+pela janela, DPAPI, ícone, logging e impressão Windows/GDI.
+
+### Auditoria de schema e migrações — 2026-11-02
+
+`database/schema.sql` foi comparado com as declarações `CREATE TABLE IF NOT
+EXISTS` do gerenciador de schema em runtime. Não há tabela criada somente pelo
+runtime sem correspondente no schema inicial. As tabelas que aparecem apenas
+no schema inicial são as entidades centrais que a instalação deve criar pela
+importação inicial, como produtos, vendas, itens, pagamentos e NCM/CEST; a API
+não tenta recriá-las automaticamente para evitar ocultar uma instalação
+incompleta.
+
+As migrações de unidades culinárias, normalização de textos e correção de
+embalagens continuam presentes, documentadas e separadas da inicialização
+normalizadora da API. As operações de dados revisadas usam transação, consultas
+parametrizadas e verificações de conflito antes de alterar registros. Nenhuma
+inconsistência nova foi encontrada nesta auditoria.
+
+### Auditoria de empacotamento Windows — 2026-11-02
+
+O script `scripts/build-client-release.mjs` continua usando somente as
+ferramentas declaradas do projeto: Node.js, Vite e a CLI Tauri. O bundle
+mantém os instaladores MSI/NSIS por máquina, o `UpgradeCode` fixo do WiX e a
+proibição de downgrade no Windows. A remoção de ESC/POS e das dependências
+obsoletas não deixou referências no processo de release.
+
+As versões de `package.json`, `src-tauri/tauri.conf.json` e
+`src-tauri/Cargo.toml` estão sincronizadas em `0.8.11`. A sintaxe dos scripts
+de release/versionamento foi validada. Não foi executado build completo de
+instalador, pois esta auditoria não exigia gerar artefatos distribuíveis.
+
+Os instaladores Windows foram configurados para português: NSIS usa
+`Portuguese`, WiX/MSI usa `pt-BR` e o seletor de idioma permanece desativado
+para manter a instalação da loja em português.
+
+### Auditoria de desempenho — 2026-11-02
+
+A busca da Frente de Caixa reconstruía todo o DOM da tela a cada tecla,
+incluindo carrinho, resumo, modal de pagamento e todos os listeners. A busca
+agora atualiza somente o grid de produtos e reusa o binding existente dos
+cartões. Isso reduz trabalho de layout e evita reconfigurar partes da tela que
+não mudaram, sem alterar o contrato da API ou o comportamento do carrinho.
+
+O endpoint de produtos ainda retorna o catálogo completo e não foi paginado
+nesta etapa, porque a Frente de Caixa e as Views atuais dependem da coleção
+completa para filtragem local. A paginação deve ser tratada como alteração de
+contrato em uma etapa própria, com medição do volume real e suporte no
+frontend.
+
+A tela de cadastro de produtos também deixou de baixar o catálogo completo de
+NCMs durante a abertura. A consulta é carregada somente quando o usuário abre
+o modal de pesquisa, com estados explícitos de carregamento, erro e tentativa
+novamente. O código NCM já selecionado permanece no formulário mesmo antes da
+carga da descrição correspondente.
+
+#### Medição de volume dos catálogos — 2026-11-02
+
+Os endpoints locais foram medidos três vezes com autenticação, em ambiente de
+desenvolvimento, sem alterar dados:
+
+| Endpoint | Registros | Resposta UTF-8 | Observação |
+| --- | ---: | ---: | --- |
+| `/api/products?includeInactive=1` | 75 | 43 KB | Volume compatível com filtragem local e sem paginação imediata |
+| `/api/groups?includeInactive=1` | 19 | 2,8 KB | Volume baixo |
+| `/api/ncm-cest/ncms` | 10.508 | 939 KB | Maior payload; adequado para carga sob demanda, não para toda abertura |
+| `/api/ncm-cest/cests` | 947 | 194 KB | Catálogo fiscal relevante; deve ser avaliado para consulta server-side |
+
+Produtos variaram entre 43 e 133 ms nas três medições, grupos entre 3 e
+5 ms, NCMs entre 125 e 400 ms e CESTs entre 78 e 350 ms após o aquecimento
+local. Uma medição inicial isolada do CEST chegou a 6,7 s, indicando que a
+preparação/cache do banco pode dominar a primeira consulta; esse valor não foi
+usado como latência média.
+
+Conclusão: não há evidência para introduzir paginação em produtos ou grupos
+agora, pois a carga atual é pequena e as telas dependem de filtragem local.
+NCM/CEST permanece candidato a paginação ou busca server-side, especialmente
+na tela dedicada que hoje carrega os dois catálogos completos. Essa alteração
+deve preservar a pesquisa, a paginação visual e os contratos de seleção antes
+de ser implementada.
+
+Essa etapa implementou a consulta server-side na tela dedicada de NCM/CEST.
+`GET /api/ncm-cest/ncms` e `GET /api/ncm-cest/cests` preservam o retorno completo
+quando chamados sem parâmetros, mantendo compatibilidade com o formulário de
+produto. Quando recebem `page`, `pageSize` e/ou `search`, retornam somente a
+página solicitada junto de `total`, `page`, `pageSize` e `pageCount`. A tela
+fiscal usa esse contrato para não transferir os 10.508 NCMs e 947 CESTs de uma
+vez; buscas e trocas de página são canceladas logicamente quando uma resposta
+mais nova chega primeiro.
+
+Registro intermediário: após o reinício da API publicada, `/api/health`
+respondeu HTTP 200 com o banco conectado, porém as rotas paginadas retornaram
+404. O reinício confirmou a saúde do serviço, mas não atualizou a cópia
+publicada em `C:\ProgramData\PDV\app`.
+
+Registro intermediário: após um bundle inicial, instalação e reinício
+informados pelo operador, a validação permaneceu em 404. A inspeção confirmou que
+`C:\ProgramData\PDV\app\src\server\server.js` ainda não contém
+`parseCatalogPagination`, embora o checkout contenha. O problema é de conteúdo
+instalado, não de disponibilidade do serviço; o processo ativo continua sendo
+o wrapper `C:\ProgramData\PDV\service\PDV-API.exe`.
+
+Uma tentativa posterior encontrou corrupção nos argumentos de
+`Set-LocalUser`/`New-LocalUser` dos scripts de publicação. Os comandos foram
+corrigidos com splatting de parâmetros e validados pelo parser do PowerShell;
+a publicação foi repetida com sucesso posteriormente.
+
+O operador repetiu a publicação após a correção. A API publicada ficou
+saudável, passou a conter `parseCatalogPagination` e
+`src/server/catalog-pagination.js`, e as rotas paginadas autenticadas
+responderam HTTP 200. A rota de NCM página 2 confirmou total 10.508,
+`pageSize` 25 e `pageCount` 421.
+
+Na auditoria de interface e acessibilidade, o Lighthouse encontrou contraste
+insuficiente nos textos secundários da Frente de Caixa. As cores de
+`eyebrow`, categorias, grupos dos cartões e textos auxiliares do carrinho foram
+ajustadas para atingir o contraste mínimo esperado. Os campos de pesquisa
+também receberam `name` explícito e rótulos acessíveis onde faltavam. A
+auditoria foi executada no
+Vite local; os avisos de HTTPS, SEO e arquivos de descoberta (`robots.txt`,
+`llms.txt` e `ai-catalog.json`) não foram tratados como defeitos do fluxo
+local do PDV nesta etapa.
 
 As tabelas de cadastro e apoio atualmente são:
 
@@ -58,7 +420,7 @@ As tabelas de cadastro e apoio atualmente são:
 | Configuração | `company_settings`, `printer_settings`, `general_settings` | Empresa, NFC-e, certificado protegido, impressoras, layout de cupom e regras operacionais gerais |
 | Insumos culinários | `culinary_units`, `physical_states`, `culinary_unit_conversions` | Unidades de medida, estados físicos e fatores de conversão para estoque |
 | Navegação | `navigation_menus`, `navigation_items` | Menus, barras contextuais, rotas e ordenação |
-| Venda | `sales`, `sale_items`, `sale_payments`, `customer_vouchers` | Venda, itens congelados, pagamentos, idempotência e débitos de Vale |
+| Venda | `sales`, `sale_items`, `sale_payments`, `customer_vouchers`, `sale_fiscal_documents` | Venda, itens congelados, pagamentos, idempotência, débitos de Vale e estado fiscal opcional |
 | Pessoas | `customers`, `consumers` | Clientes financeiros, consumidores operacionais e relação automática Cliente → Consumidor |
 
 As chaves e colunas persistidas seguem o padrão `nomeCampoEntidade`, por
@@ -69,7 +431,7 @@ histórico; por isso a interface oferece inativação antes da exclusão
 definitiva.
 
 Ao alterar uma tabela, atualize nesta ordem: `database/schema.sql`, migração compatível
-em `server.js`, consultas e validações da API, telas, testes e esta
+no módulo de schema responsável pelo domínio, consultas e validações da API, telas, testes e esta
 documentação. Teste tanto uma instalação nova quanto um banco existente com
 colunas da versão anterior. A migração deve preservar dados, índices e
 restrições.
@@ -162,16 +524,81 @@ Execute a validação padrão:
 
 ```powershell
 npm.cmd test
-npm.cmd run build
-node --check src/server/server.js
 git diff --check
 ```
 
+Execute `npm.cmd run build` quando a alteração envolver o bundle do frontend,
+configuração Vite/Tauri, versionamento ou uma validação de produção. Para
+alterações de JavaScript, execute `node --check` nos arquivos modificados.
+Não é necessário compilar o projeto inteiro a cada alteração.
+
+### Diretriz de validação e continuidade
+
+Não compile o projeto inteiro após toda alteração. Escolha a menor validação
+que cubra o escopo modificado:
+
+- documentação, scripts locais e testes isolados: `git diff --check` e os
+  testes diretamente relacionados;
+- JavaScript: `node --check` nos arquivos alterados e os testes relacionados;
+- `src/server/`: `npm.cmd test`, `node --check` e reinício da API publicada
+  antes da validação operacional;
+- Vite, Tauri, versionamento ou bundle distribuível: execute o build
+  correspondente;
+- alterações que envolvam MariaDB: valide o fluxo completo com banco e dados
+  de teste controlados, sem usar dados reais.
+
+Toda etapa relevante deve deixar nos documentos afetados o estado atual, os
+comandos realmente executados, o resultado da validação, a necessidade de
+reiniciar a API ou redistribuir o frontend e os próximos bloqueios conhecidos.
+Nunca registre senhas, tokens, certificados, XMLs reais, dumps ou outros
+segredos. O documento canônico deve ser atualizado em vez de criar notas
+paralelas na raiz do repositório.
+
+### Migrações disponíveis
+
+### Cancelamento auditado de vendas
+
+O cancelamento de uma venda confirmada é uma operação transacional protegida
+por sessão de operador. Somente `supervisor` e `admin` podem executá-la pela
+rota `POST /api/sales/:idSale/cancel`, enviando um motivo com pelo menos cinco
+caracteres.
+
+A API não apaga a venda. Ela marca `statusSale = 'cancelled'`, registra o
+operador, horário e motivo, repõe o estoque controlado, cancela um Vale ainda
+aberto e registra a reversão de valores da conta `Caixa` como movimento
+`sale_cancellation`. A reversão financeira exige que o caixa da venda ainda
+esteja aberto. Qualquer falha provoca rollback completo, e uma venda já
+cancelada retorna resultado idempotente.
+
+Alterações nesse fluxo exigem testes de serviço e contrato HTTP, `node --check`
+nos módulos JavaScript, publicação e reinício da API antes da validação
+operacional. A tela de vendas ainda não oferece a ação visual de cancelamento;
+essa integração foi adicionada posteriormente como consulta sob demanda de
+vendas recentes. O modal permite cancelar uma venda somente para
+`supervisor`/`admin`, exige confirmação e motivo, e atualiza a lista após o
+sucesso. Como a tela ainda depende do frontend distribuído, a validação em
+terminal exige novo bundle; não use `window.confirm` nem `window.prompt`.
+
+As migrações ficam em `scripts/migrations/` e devem ser executadas somente
+com backup verificável quando alterarem dados existentes:
+
+| Comando | Arquivo | Finalidade |
+| --- | --- | --- |
+| `npm.cmd run migrate:culinary-units` | `migrate-culinary-units.mjs` | Cria ou atualiza unidades, estados físicos e conversões culinárias de referência |
+| `npm.cmd run migrate:uppercase` | `migrate-uppercase-data.mjs` | Normaliza textos humanos existentes, preservando acentos e excluindo códigos e dados técnicos |
+| `node --env-file=.env scripts/migrations/migrate-embalagens-to-uso-consumo.mjs` | `migrate-embalagens-to-uso-consumo.mjs` | Migra dados legados de embalagens para a classificação de uso e consumo |
+
+As duas primeiras migrações possuem scripts npm. A migração de embalagens é
+um procedimento operacional explícito e não deve ser adicionada a um comando
+genérico sem revisar sua idempotência e o impacto nos dados existentes. Todas
+as migrações devem preservar dados e ser validadas com uma leitura real da API
+depois da execução.
+
 ### Versionamento dos builds
 
-Os comandos `npm.cmd run build` e `npm.cmd run release:client` acionam
-automaticamente `npm.cmd run version:auto` antes de executar o build. O script
-mantém a mesma versão em:
+O hook `prebuild` de `package.json` e o script `prerelease:client` acionam
+automaticamente `npm.cmd run version:auto` antes de executar seus builds. O
+script mantém a mesma versão em:
 
 - `package.json`;
 - `package-lock.json`;
@@ -259,10 +686,15 @@ se essa pasta não for gravável (por exemplo, uma instalação protegida em
 desenvolvimento, o padrão é `%LOCALAPPDATA%\\PDV Zanzibar\\backups`, evitando
 gravar no workspace. A tela exibe o destino efetivo utilizado.
 
-Quando o operador informa um destino na tela, a preferência é persistida no
-`offline-config.json` da aplicação Tauri, na chave `backupDirectory`. Esse
-caminho é interpretado no servidor da API; em uma instalação remota, ele deve
-ser um caminho válido no computador que hospeda a API e o MariaDB.
+O operador não informa o destino na tela. O terminal recebe apenas a indicação
+de que o destino é controlado pelo servidor e nunca recebe o caminho físico.
+
+As configurações gerais ficam na tabela `general_settings`. Além de
+booleanos, ela aceita valores `text`, `number` e `json` por meio de
+`valueGeneralSetting`, enquanto `typeGeneralSetting` identifica o tipo do
+valor. As fontes NCM e CEST são inicializadas com defaults seguros e podem ser
+alteradas pela tela de Configurações Gerais; a API mantém os defaults enquanto
+o banco ainda não estiver preparado.
 
 Perguntas que interrompem ações, como exclusões e restaurações, usam o modal
 reutilizável `src/ui/confirmation-modal.js`. Ele substitui `window.confirm`
@@ -491,8 +923,14 @@ operação fiscal de saída (`idFiscalOperationSaleProduct`), um tipo em
 criadas de forma idempotente e permanecem sem registros até o usuário
 cadastrá-los.
 
-Os campos `controlsStockProduct`, `isFractionalProduct`,
-`printsKitchenProduct` e `showsInPdvProduct` são booleanos validados pela API.
+Os campos `controlsStockProduct`, `isFractionalProduct` e
+`showsInPdvProduct` são booleanos validados pela API. O campo `printsPlace`
+define o destino de impressão e aceita somente `NÃO IMPRIMIR`, `BAR`, `COPA` ou
+`COZINHA`; o padrão é `NÃO IMPRIMIR`. O campo aparece nos formulários de
+**Mercadoria para Revenda** e **Produtos Acabados**, ao lado de Estoque. Para
+Matérias-primas, Embalagens e Material de Uso e Consumo, a API grava sempre
+`NÃO IMPRIMIR`. O editor de produtos em **Views** mantém o campo disponível
+para edição.
 `showsInPdvProduct` inicia como verdadeiro e controla se o produto aparece na
 frente de caixa. O estoque inicial é
 inteiro para produtos não fracionados e aceita até três casas decimais para
@@ -501,9 +939,26 @@ configuração `allowNegativeStock` está ativa, o valor também pode ser negati
 quando está desativada, o formulário e a API exigem valor maior ou igual a zero.
 A quantidade vendida pode aceitar até três casas decimais para produtos
 fracionados. Quando `controlsStockProduct` é falso, o item e o pagamento são
-persistidos normalmente, mas o estoque não é validado nem baixado. O campo
-`printsKitchenProduct` fica disponível para o fluxo futuro de impressão de
-cozinha.
+persistidos normalmente; antes da baixa, o serviço verifica esse campo e não
+valida disponibilidade nem altera `stockQuantityProduct` quando ele está
+desativado. Produtos
+legados com `printsKitchenProduct = 1` são convertidos para `COZINHA` pela
+evolução idempotente do schema; os demais recebem `NÃO IMPRIMIR`. A alteração
+do schema e da API exige publicar a API atualizada e reiniciar o serviço
+`PDV-API`; não exige reinstalar o terminal inteiro.
+
+Na consulta de produtos da Frente de Caixa, a disponibilidade só restringe
+produtos que controlam estoque quando `allowNegativeStock` está desativado.
+Com `Permitir estoque negativo` ativado, produtos com estoque zero ou negativo
+continuam sendo renderizados; produtos que não controlam estoque também
+continuam disponíveis. Consultas administrativas com `includeInactive=1` não
+usam esse filtro.
+
+Na importação de produtos por CSV, o modelo inclui `printsPlace` e
+`isActiveProduct`. O local aceita `NÃO IMPRIMIR`, `BAR`, `COPA` ou `COZINHA`;
+o status aceita `ATIVO` ou `INATIVO` (também `1`/`0`, `sim`/`não`) e usa
+`ATIVO` como padrão. A tela de importação disponibiliza os arquivos
+`referencia-locais-de-impressao.md` e `referencia-status-produtos.md`.
 
 Na barra de navegação de terceiro nível de **Cadastros > Produtos**, os
 cadastros de **Tipo de Produto** e **Unidade tributável** ficam disponíveis
@@ -641,20 +1096,24 @@ na mesma mudança. Para esta base, o fluxo recomendado é:
    `docs/DEPLOYMENT.md`;
 3. registrar marcos funcionais e decisões consolidadas em
    `docs/PROJECT-HISTORY.md`;
-4. executar os testes e verificações aplicáveis;
-5. conferir `git diff --check` e garantir que `.env`, credenciais, dumps,
+4. atualizar automaticamente os documentos Markdown diretamente relacionados
+   quando a alteração de código mudar contrato, operação, arquitetura,
+   validação, segurança ou comportamento visível;
+5. executar os testes e verificações aplicáveis;
+6. conferir `git diff --check` e garantir que `.env`, credenciais, dumps,
    backups, `node_modules`, `dist`, `src-tauri/target` e
    `.playwright-mcp` e `.agents` não estejam no escopo;
-6. criar um commit com uma mensagem objetiva no padrão adotado pelo projeto;
-7. abrir o pull request contra `main`, descrevendo comportamento alterado,
+7. criar um commit com uma mensagem objetiva no padrão adotado pelo projeto;
+8. abrir o pull request contra `main`, descrevendo comportamento alterado,
    validações e eventuais passos de reinício da API;
-8. fazer o merge somente após revisar o diff e o resultado das verificações;
-9. publicar a API e os bundles do cliente usando somente o procedimento
+9. fazer o merge somente após revisar o diff e o resultado das verificações;
+10. publicar a API e os bundles do cliente usando somente o procedimento
    documentado em `docs/DEPLOYMENT.md`.
 
-Builds e releases não incrementam a versão automaticamente. Um commit apenas
-documental ou uma correção pontual não deve gerar uma nova versão sem uma
-decisão explícita de SemVer. Alterações em `src/server/` exigem reiniciar ou
+O hook `prebuild` e o fluxo `prerelease:client` podem acionar o versionamento
+automático quando o build é executado. Um commit apenas documental ou uma
+correção pontual não deve gerar uma nova versão sem uma decisão explícita de
+SemVer. Alterações em `src/server/` exigem reiniciar ou
 reinstalar o serviço `PDV-API` antes da validação; alterações somente em
 frontend, documentação ou scripts locais não exigem reinício da API.
 
@@ -885,6 +1344,11 @@ Fiscais**, **CFOP**, **CST / CSOSN**, **Alíquotas ICMS**, **Regimes**, **Tipos*
 **Desoneração**. A barra é renderizada por
 `src/catalog/fiscal-navigation.js`.
 
+No Construtor, o item de menu **Operações Fiscais** permanece um `item` de
+ordem 6. A entrada **Operações Fiscais** da barra contextual é um registro
+filho separado, do tipo `bar` e ordem 1; isso evita misturar a posição do menu
+com a posição da barra contextual.
+
 O item **Cadastros > Financeiros** abre a primeira tela do grupo, **Formas de
 pagamento**, e renderiza a barra contextual financeira. A empresa não pertence
 mais a essa barra: seu cadastro fica exclusivamente em **Configurações > Dados
@@ -961,6 +1425,101 @@ persiste o documento. O XML é exibido apenas para conferência local de
 estrutura, assinatura, data/hora, município e QR Code. A emissão continua
 dependendo do botão de teste em homologação.
 
+A emissão integrada da Frente de Caixa é opcional por venda. Quando o payload
+de `POST /api/sales` contém `emitNfce: true`, a API reserva número e cria um
+documento `pending` na mesma transação da venda; após o commit, autoriza na
+SEF/MG e persiste `authorized`, `rejected` ou `unknown`, além de XML, chave,
+protocolo, cStat e mensagem quando disponíveis. Sem solicitação, a venda fica
+`completed` com `fiscalStatus: "not_requested"` e não consome numeração. A
+integração continua restrita à homologação nesta etapa.
+
+### Auditoria dos campos NFC-e — 2026-11-02
+
+A revisão do formulário, da API, do schema e do serviço de teste classificou os
+campos NFC-e da seguinte forma:
+
+| Campo | Situação atual | Classificação |
+| --- | --- | --- |
+| `nfceCertificateDataCompany` e `nfceCertificatePasswordCompany` | Usados para extrair a chave privada, o certificado público, assinar o XML e autorizar o teste. | Necessários para o fluxo A1 atual. |
+| `nfceCscCompany`, `nfceTokenCompany`, `nfceHomologationCscCompany` e `nfceHomologationTokenCompany` | Usados na composição do QR Code e no credenciamento por ambiente. | Necessários para emissão por ambiente. |
+| `nfceCertificateExpiresCompany` | Extraído do PKCS#12 e exibido como metadado; não bloqueia emissão nem é usado na assinatura. | Não é requisito técnico da emissão, mas é útil para diagnóstico e manutenção. Deve ser mantido até existir uma rotina de verificação/alerta de expiração. |
+| `nfceCertificateSerialCompany` | Extraído e exibido como identificação do certificado; não participa da emissão. | Metadado útil, não requisito técnico. |
+| `nfceCertificateNameCompany` | Exibe no formulário o nome do arquivo A1 armazenado. | Apenas UX; pode ser mantido ou substituído por um indicador genérico. |
+| `nfceCertificatePathCompany` | Não há campo ativo no formulário, o servidor não acessa esse caminho e o fluxo atual armazena apenas valor vazio. | Removido do código e do schema; instalações antigas precisam executar a migração de remoção. |
+| `nfceCertificateTypeCompany` | O produto utiliza somente A1 em arquivo PKCS#12; a tela e a API aceitam exclusivamente A1. | Necessário para o fluxo atual; A3 não faz parte do produto. |
+| `nfceStateCompany` e `nfceModelCompany` | A API aceita somente MG/modelo 65 e o XML atual usa esses valores fixos. | Redundantes na implementação atual, mas podem representar uma futura expansão; não remover sem decidir o escopo fiscal. |
+| `nfceSeriesCompany` | É usada na chave de acesso e no XML. | Necessária. |
+| `nfceInitialNumberCompany` | É persistida, mas o teste gera número temporário e a venda atual não emite NFC-e. | Sem efeito operacional no fluxo atual; deve ser revisada junto com a futura numeração transacional. |
+| `nfceContingencyCompany` | É persistida e exibida, mas o serviço atual não implementa emissão offline. | Preparatória; não deve ser tratada como recurso funcional até existir emissão e reconciliação offline. |
+
+A validade do certificado, portanto, não é necessária para assinar ou enviar uma
+NFC-e no fluxo atual; ela é um metadado derivado do arquivo A1. Removê-la agora
+reduziria a visibilidade operacional e exigiria recalcular a validade em cada
+consulta. A recomendação é mantê-la, adicionar futuramente alerta/bloqueio de
+certificado expirado e só então avaliar sua necessidade como dado persistido.
+
+`nfceCertificatePathCompany` foi removido do código e do schema inicial. Para
+instalações existentes, após confirmar backup SQL ou outro procedimento de
+recuperação, execute:
+
+```powershell
+npm.cmd run migrate:remove-nfce-certificate-path
+```
+
+A migração é idempotente e remove somente a coluna legada. A API deve ser
+reiniciada após a migração para garantir que nenhum processo antigo mantenha o
+contrato anterior. O produto utiliza somente certificado A1 em arquivo PKCS#12;
+A3 não é uma opção funcional nem é aceito pela API.
+
+### Auditoria de numeração e contingência NFC-e — 2026-11-02
+
+A configuração persiste `nfceInitialNumberCompany`,
+`nfceNextNumberCompany` e `nfceContingencyCompany`. A integração de venda usa
+`nfceNextNumberCompany` com bloqueio da linha de configuração para reservar a
+sequência sem manter a transação aberta durante a rede. Documentos são
+armazenados em `sale_fiscal_documents`; ainda não existem envio posterior,
+cancelamento/inutilização fiscal ou reconciliação de contingência offline.
+
+Conclusão: o número inicial e a contingência são preparatórios e não devem
+ser apresentados como emissão fiscal funcional. Uma implementação futura deve
+reservar a numeração dentro da mesma transação da emissão, registrar chave e
+protocolo, e modelar o ciclo offline/online antes de habilitar o modo
+`offline`. Essa alteração exige decisão de escopo fiscal, migração revisada e
+testes de concorrência e recuperação.
+
+### FK de estado físico dos produtos — 2026-11-02
+
+`products.idPhysicalStateProduct` passou a usar `NULL` para representar
+produto sem estado físico. O schema inicial agora declara a FK
+`fkProductsPhysicalState` para `physical_states(idPhysicalState)`, e o
+servidor/frontend foram ajustados para não enviar nem interpretar o sentinela
+`0`. Para instalações existentes, a migração idempotente
+`npm.cmd run migrate:products-physical-state-fk` converte `0` e referências
+inválidas para `NULL`, torna a coluna anulável e adiciona a FK.
+
+O checkout não conseguiu executar essa migração porque o usuário
+`pdv_app` não possui senha disponível no `.env` (`using password: NO`).
+Em 2026-11-02, a migração foi executada com sucesso no DBeaver por uma conta
+autorizada, após a normalização dos dados. A coluna foi tornada anulável e a
+FK `fkProductsPhysicalState` foi criada. A execução abaixo permanece como
+referência operacional para novas instalações:
+
+```sql
+UPDATE products p
+LEFT JOIN physical_states s
+  ON s.idPhysicalState = NULLIF(p.idPhysicalStateProduct, 0)
+SET p.idPhysicalStateProduct = NULL
+WHERE p.idPhysicalStateProduct = 0
+   OR (p.idPhysicalStateProduct IS NOT NULL AND s.idPhysicalState IS NULL);
+
+ALTER TABLE products
+  MODIFY COLUMN idPhysicalStateProduct INT NULL DEFAULT NULL,
+  ADD CONSTRAINT fkProductsPhysicalState
+    FOREIGN KEY (idPhysicalStateProduct)
+    REFERENCES physical_states (idPhysicalState)
+    ON DELETE RESTRICT;
+```
+
 O cadastro de **Formas de pagamento** segue o padrão dos demais cadastros:
 possui formulário de inclusão, edição por ícone de lápis e exclusão por ícone
 de lixeira. Cada registro mantém o nome, a conta do Fluxo de Caixa
@@ -1035,9 +1594,13 @@ Classif/Siscomex (Receita Federal). A fonte CEST é a legislação publicada pel
 CONFAZ e deve fornecer JSON, CSV, TSV ou tabela HTML com CEST, descrição,
 segmento e, quando disponível, NCM para formar as relações.
 
-As URLs podem ser substituídas no ambiente do servidor por
-`PDV_NCM_SOURCE_URL` e `PDV_CEST_SOURCE_URL`. A execução registra origem,
-status, data, quantidade de NCMs, CESTs e relações em `ncm_cest_updates`.
+As URLs podem ser configuradas no ambiente do servidor ou em
+`general_settings` por `PDV_NCM_SOURCE_URL` e `PDV_CEST_SOURCE_URL`. Por
+segurança, somente HTTPS nos hosts oficiais
+`portalunico.siscomex.gov.br` e `www.confaz.fazenda.gov.br` é aceito; a API
+também rejeita redirecionamentos para impedir que uma configuração de catálogo
+seja usada para acessar destinos internos. A execução registra origem, status,
+data, quantidade de NCMs, CESTs e relações em `ncm_cest_updates`.
 Registros que não estão na edição vigente ficam inativos; relações anteriores
 são substituídas somente depois que as duas fontes forem baixadas e
 interpretadas com sucesso.
@@ -1079,22 +1642,13 @@ A montagem é salva pela API em `/api/printer-settings`, na coluna JSON
 `receiptLayoutPrinterSetting`. O layout é uma lista ordenada de linhas e não
 contém dados de uma venda específica: os campos são resolvidos somente no
 momento da impressão. O botão de impressão usa o diálogo do sistema com
-`@page size: 80mm`, e o botão de download gera o arquivo ESC/POS do layout
-atual para testes controlados.
+`@page size: 80mm`.
 
-Esta etapa usa a camada Tauri para dois transportes diretos: rede TCP RAW,
-normalmente na porta 9100, e USB por meio do driver instalado no Windows. No
-USB, o conteúdo é renderizado como uma página GDI Unicode pelo driver da
-impressora selecionada, permitindo que o spooler e o driver POS-80 controlem
-largura, fonte e a comunicação com a porta USB. A rede continua usando bytes
-ESC/POS, seleção de CP850, quebras `CRLF` e envio em blocos de 128 bytes com
-uma pausa curta entre eles.
-
-Para rede, informe o IP ou nome DNS e a porta RAW configurada no equipamento.
-Para USB, a tela usa exclusivamente a impressora definida em
+A impressão direta usa a camada Tauri e a impressora definida em
 **Retaguarda > Configurações > Impressoras > Impressora padrão de Cupom**; não
-há uma segunda seleção de impressora na montagem. Se nenhuma impressora de
-Cupom estiver configurada, a impressão USB é bloqueada antes do envio.
+há seleção de endereço de rede ou de formato de bytes na montagem. Se nenhuma
+impressora de Cupom estiver configurada, a impressão direta é bloqueada antes
+do envio.
 
 No USB, família, tamanho em px, alinhamento e negrito são enviados por linha
 ao renderizador GDI e aplicados pelo driver selecionado. A integração não deve
@@ -1111,12 +1665,9 @@ Cada linha pode ser um campo, texto livre ou divisor. Linhas de texto persistem
 `fontFamily`, `fontSize`, `align` e `bold`; a configuração é um modelo e não
 contém dados de uma venda real.
 
-O transporte USB usa o comando nativo legado `send_raw_print`, mas isso não
-significa que a fila USB receba ESC/POS: quando `transport` é `usb`, o Rust
-renderiza linhas estruturadas com GDI e o driver Windows; quando
-`transport` é `network`, envia o payload ESC/POS por TCP. Alterações nesse
-contrato devem atualizar simultaneamente a tela de montagem, o comando Tauri
-e o renderizador Rust.
+O comando Tauri `print_receipt` renderiza linhas estruturadas com GDI e o
+driver Windows. Alterações nesse contrato devem atualizar simultaneamente a
+tela de montagem, o comando Tauri e o renderizador Rust.
 
 ### Navegação e Retaguarda
 

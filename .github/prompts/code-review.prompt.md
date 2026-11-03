@@ -7,7 +7,7 @@ Revise as alterações atuais como mantenedor do PDV.
 
 Inspecione o caminho completo entre interface, payload, API, validação,
 transação MariaDB, estoque, pagamentos e nova leitura. Priorize totais,
-duplicidade, autorização, SQL parametrizado, rollback, impressão ESC/POS,
+duplicidade, autorização, SQL parametrizado, rollback, impressão pelo driver,
 credenciais e artefatos gerados.
 
 Relate somente achados acionáveis com severidade, arquivo, linha, impacto,

@@ -82,6 +82,9 @@ export function createCatalogScreen({
   let editingProduct = null;
   const scheduleMessageClear = createFeedbackTimer();
   let ncms = [];
+  let ncmsLoading = false;
+  let ncmLoadError = "";
+  let ncmLoadPromise = null;
   let cestOptions = [];
   let newNcmProduct = "";
   let newCestProduct = "";
@@ -92,14 +95,14 @@ export function createCatalogScreen({
     idGroup: "",
     idFiscalOperationSaleProduct: "",
     idProductTypeProduct: "",
-    idPhysicalStateProduct: "0",
+    idPhysicalStateProduct: "",
     idUnitProduct: "",
     priceProduct: "0,00",
     costPriceProduct: "0,00",
     stockQuantityProduct: "0",
     controlsStockProduct: defaultControlsStock,
     isFractionalProduct: defaultIsFractionalProduct,
-    printsKitchenProduct: false,
+    printsPlace: "NÃO IMPRIMIR",
     showsInPdvProduct: defaultShowsInPdv
   };
   let ncmLookupOpen = false;
@@ -135,10 +138,11 @@ export function createCatalogScreen({
 
   const renderNcmField = (selectedValue) => {
     const selectedNcm = getSelectedNcm(selectedValue);
+    const selectedCode = selectedNcm?.codeNcm || selectedValue || "";
     return `
       <label class="form-field"><span>NCM</span>
         <div class="catalog-lookup-field">
-          <input name="ncmProduct" value="${escapeHtml(selectedNcm?.codeNcm || "")}" placeholder="Não informado" readonly />
+          <input name="ncmProduct" value="${escapeHtml(selectedCode)}" placeholder="Não informado" readonly />
           <button class="catalog-lookup-button" type="button" data-open-ncm title="Consultar NCM" aria-label="Consultar NCM"><i data-lucide="search"></i></button>
           <span class="catalog-lookup-description">${escapeHtml(selectedNcm?.descriptionNcm || "Nenhum NCM selecionado")}</span>
         </div>
@@ -160,7 +164,7 @@ export function createCatalogScreen({
       idGroup: String(formData.get("idGroup") ?? ""),
       idFiscalOperationSaleProduct: String(formData.get("idFiscalOperationSaleProduct") ?? ""),
       idProductTypeProduct: String(formData.get("idProductTypeProduct") ?? ""),
-      idPhysicalStateProduct: String(formData.get("idPhysicalStateProduct") ?? "0"),
+      idPhysicalStateProduct: String(formData.get("idPhysicalStateProduct") ?? ""),
       idUnitProduct: String(formData.get("idUnitProduct") ?? ""),
       priceProduct: String(formData.get("priceProduct") ?? ""),
       costPriceProduct: String(formData.get("costPriceProduct") ?? ""),
@@ -169,7 +173,7 @@ export function createCatalogScreen({
       ) || "0",
       controlsStockProduct: formData.get("controlsStockProduct") === "on",
       isFractionalProduct: formData.get("isFractionalProduct") === "on",
-      printsKitchenProduct: formData.get("printsKitchenProduct") === "on",
+      printsPlace: formData.get("printsPlace") || "NÃO IMPRIMIR",
       showsInPdvProduct: formData.get("showsInPdvProduct") === "on"
     };
   };
@@ -180,8 +184,8 @@ export function createCatalogScreen({
     ).join("")}`;
 
   const renderPhysicalStateOptions = (selectedValue) =>
-    `<option value="0">Selecione</option>${physicalStates.map((state) =>
-      `<option value="${state.idPhysicalState}" ${String(selectedValue ?? "0") === String(state.idPhysicalState) ? "selected" : ""}>${escapeHtml(state.namePhysicalState)}</option>`
+    `<option value="">Selecione</option>${physicalStates.map((state) =>
+      `<option value="${state.idPhysicalState}" ${String(selectedValue ?? "") === String(state.idPhysicalState) ? "selected" : ""}>${escapeHtml(state.namePhysicalState)}</option>`
     ).join("")}`;
 
   const renderUnitOptions = (selectedValue) =>
@@ -210,6 +214,11 @@ export function createCatalogScreen({
     .includes(productTypeDescription.toLocaleUpperCase("pt-BR"));
   const isRawMaterialsCatalog =
     productTypeDescription.toLocaleUpperCase("pt-BR") === "MATÉRIA-PRIMA";
+  const canConfigurePrintPlace = [
+    "MERCADORIA PARA REVENDA",
+    "PRODUTO ACABADO",
+    "PRODUTOS ACABADOS"
+  ].includes(productTypeDescription.toLocaleUpperCase("pt-BR"));
 
   const renderPriceFields = (product, isEdit = false) => {
     const costValue = isEdit
@@ -245,14 +254,14 @@ export function createCatalogScreen({
       idProductTypeProduct: getScreenProductType()
         ? String(getScreenProductType().idProductType)
         : "",
-      idPhysicalStateProduct: "0",
+      idPhysicalStateProduct: "",
       idUnitProduct: "",
       priceProduct: "0,00",
       costPriceProduct: "0,00",
       stockQuantityProduct: "0",
       controlsStockProduct: defaultControlsStock,
       isFractionalProduct: defaultIsFractionalProduct,
-      printsKitchenProduct: false,
+      printsPlace: "NÃO IMPRIMIR",
       showsInPdvProduct: defaultShowsInPdv
     };
     newNcmProduct = "";
@@ -273,11 +282,18 @@ export function createCatalogScreen({
     `;
   };
 
+  const renderPrintPlaceField = (product) => canConfigurePrintPlace
+    ? `<label class="form-field"><span>Local de impressão</span><select name="printsPlace">
+        ${["NÃO IMPRIMIR", "BAR", "COPA", "COZINHA"].map((place) =>
+          `<option value="${place}" ${String(product.printsPlace || "NÃO IMPRIMIR") === place ? "selected" : ""}>${place}</option>`
+        ).join("")}
+      </select></label>`
+    : "";
+
   const renderProductFlags = (product = newProductDraft) => `
     <div class="classic-form-grid">
       <label class="form-field checkbox-field"><span>Controla estoque</span><input name="controlsStockProduct" type="checkbox" ${Number(product.controlsStockProduct) !== 0 ? "checked" : ""} /></label>
       <label class="form-field checkbox-field"><span>Produto fracionado</span><input name="isFractionalProduct" type="checkbox" ${product.isFractionalProduct ? "checked" : ""} /></label>
-      <label class="form-field checkbox-field"><span>Imprime cozinha</span><input name="printsKitchenProduct" type="checkbox" ${product.printsKitchenProduct ? "checked" : ""} /></label>
       <label class="form-field checkbox-field"><span>Exibir no PDV</span><input name="showsInPdvProduct" type="checkbox" ${product.showsInPdvProduct !== false && product.showsInPdvProduct !== 0 ? "checked" : ""} /></label>
     </div>
   `;
@@ -331,7 +347,10 @@ export function createCatalogScreen({
           </div>
           <div class="classic-form-grid">
             ${renderPriceFields(newProductDraft)}
+          </div>
+          <div class="classic-form-grid">
             ${renderStockInput(newProductDraft, "Estoque inicial")}
+            ${renderPrintPlaceField(newProductDraft)}
           </div>
           ${renderProductFlags()}
           ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}
@@ -346,7 +365,7 @@ export function createCatalogScreen({
         <section class="classic-grid-panel">
           <div class="classic-panel-header classic-list-header">
             <span>${escapeHtml(listTitle)}</span>
-            <input class="classic-list-search" data-search dir="ltr" type="search" placeholder="Pesquisar..." aria-label="Pesquisar produtos" value="${escapeHtml(searchTerm)}" />
+            <input class="classic-list-search" name="productSearch" data-search dir="ltr" type="search" placeholder="Pesquisar..." aria-label="Pesquisar produtos" value="${escapeHtml(searchTerm)}" />
           </div>
           <div class="classic-grid-wrapper">
             ${
@@ -436,7 +455,10 @@ export function createCatalogScreen({
                 </div>
                 <div class="classic-form-grid">
                   ${renderPriceFields(editingProduct, true)}
+                </div>
+                <div class="classic-form-grid">
                   ${renderStockInput(editingProduct, "Estoque")}
+                  ${renderPrintPlaceField(editingProduct)}
                 </div>
                 ${renderProductFlags(editingProduct)}
                 ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}
@@ -466,7 +488,11 @@ export function createCatalogScreen({
               </label>
             </div>
             <div class="ncm-lookup-table-wrapper">
-              ${lookupRows.length ? `
+              ${ncmsLoading
+                ? '<p class="classic-empty">Carregando NCMs...</p>'
+                : ncmLoadError
+                  ? `<div class="classic-empty error-state"><p>${escapeHtml(ncmLoadError)}</p><button class="classic-button" data-retry-ncms type="button">Tentar novamente</button></div>`
+                  : lookupRows.length ? `
                 <table class="classic-table ncm-lookup-table">
                   <thead><tr><th>NCM</th><th>Descrição</th><th class="actions-column">Selecionar</th></tr></thead>
                   <tbody>${lookupRows.map((ncm) => `
@@ -533,8 +559,10 @@ export function createCatalogScreen({
         ncmLookupField = "code";
         render();
         root.querySelector("[data-ncm-lookup-search]")?.focus();
+        void loadNcms();
       });
     });
+    root.querySelector("[data-retry-ncms]")?.addEventListener("click", () => void loadNcms());
     root.querySelector("[data-ncm-lookup-field]")?.addEventListener("change", (event) => {
       ncmLookupField = event.currentTarget.value;
       render();
@@ -666,6 +694,30 @@ export function createCatalogScreen({
     });
   };
 
+  const loadNcms = async () => {
+    if (ncms.length || ncmLoadPromise) return ncmLoadPromise;
+    ncmsLoading = true;
+    ncmLoadError = "";
+    render();
+    ncmLoadPromise = apiFetch(`${getApiUrl()}/api/ncm-cest/ncms`)
+      .then(async (response) => {
+        const payload = await response.json();
+        if (!response.ok || !Array.isArray(payload.ncms)) {
+          throw new Error(payload.error || "Não foi possível carregar os NCMs.");
+        }
+        ncms = payload.ncms;
+      })
+      .catch((loadError) => {
+        ncmLoadError = loadError instanceof Error ? loadError.message : "Falha ao carregar os NCMs.";
+      })
+      .finally(() => {
+        ncmsLoading = false;
+        ncmLoadPromise = null;
+        render();
+      });
+    return ncmLoadPromise;
+  };
+
   const deleteProduct = async (id) => {
     const confirmed = await confirmAction({
       title: "Excluir produto",
@@ -762,12 +814,6 @@ export function createCatalogScreen({
       if (!newProductDraft.idFiscalOperationSaleProduct && getDefaultFiscalOperation()) {
         newProductDraft.idFiscalOperationSaleProduct = String(getDefaultFiscalOperation().idFiscalOperation);
       }
-      const ncmResponse = await apiFetch(`${getApiUrl()}/api/ncm-cest/ncms`);
-      const ncmPayload = await ncmResponse.json();
-      if (!ncmResponse.ok || !Array.isArray(ncmPayload.ncms)) {
-        throw new Error(ncmPayload.error || "Não foi possível carregar os NCMs.");
-      }
-      ncms = ncmPayload.ncms;
       error = "";
     } catch (loadError) {
       error = loadError instanceof Error ? loadError.message : "Falha ao carregar o catálogo.";
@@ -815,7 +861,7 @@ export function createCatalogScreen({
           idProductTypeProduct: formData.get("idProductTypeProduct") ? Number(formData.get("idProductTypeProduct")) : null,
           idPhysicalStateProduct: isRawMaterialsCatalog && formData.get("idPhysicalStateProduct")
             ? Number(formData.get("idPhysicalStateProduct"))
-            : 0,
+            : null,
           idUnitProduct: formData.get("idUnitProduct") ? Number(formData.get("idUnitProduct")) : null,
           ncmProduct: formData.get("ncmProduct") || null,
           cestProduct: formData.get("cestProduct") || null,
@@ -828,7 +874,7 @@ export function createCatalogScreen({
             ?? "0",
           controlsStockProduct: formData.get("controlsStockProduct") === "on",
           isFractionalProduct: formData.get("isFractionalProduct") === "on",
-          printsKitchenProduct: formData.get("printsKitchenProduct") === "on",
+          printsPlace: formData.get("printsPlace") || "NÃO IMPRIMIR",
           showsInPdvProduct: formData.get("showsInPdvProduct") === "on"
         })
       });

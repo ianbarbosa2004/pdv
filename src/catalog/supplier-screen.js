@@ -211,7 +211,7 @@ export function createSupplierScreen({
           <div class="classic-form-actions"><button class="classic-button primary" type="submit" ${submitting || loading ? "disabled" : ""}>${submitting ? "Salvando..." : "Salvar fornecedor"}</button><button class="classic-button" data-clear type="button" ${submitting ? "disabled" : ""}>Limpar</button></div>
         </form>
         <section class="classic-grid-panel">
-          <div class="classic-panel-header classic-list-header"><span>Fornecedores</span><input class="classic-list-search" data-search type="search" placeholder="Pesquisar..." aria-label="Pesquisar fornecedores" value="${escapeHtml(searchTerm)}" /></div>
+          <div class="classic-panel-header classic-list-header"><span>Fornecedores</span><input class="classic-list-search" name="supplierSearch" data-search type="search" placeholder="Pesquisar..." aria-label="Pesquisar fornecedores" value="${escapeHtml(searchTerm)}" /></div>
           <div class="classic-grid-wrapper">${loading ? `<p class="classic-empty">Carregando fornecedores...</p>` : visible.length ? `
             <table class="classic-table"><thead><tr><th>Nome</th><th>Tipo</th><th>CPF/CNPJ</th><th>Cidade/UF</th><th>Status</th><th class="actions-column">Ações</th></tr></thead>
             <tbody>${visible.map((supplier) => `<tr class="${supplier.isActiveSupplier ? "" : "is-inactive"}" data-view-record="${escapeHtml(JSON.stringify(supplier))}">

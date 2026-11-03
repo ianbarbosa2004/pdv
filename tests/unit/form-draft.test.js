@@ -3,11 +3,12 @@ import assert from "node:assert/strict";
 import { renderPreservingFormDraft } from "../../src/ui/form-draft.js";
 import { clearRenderedFeedback, renderSuccessFeedback } from "../../src/ui/feedback.js";
 
-const field = (name, type, value, checked = false) => ({
+const field = (name, type, value, checked = false, options = {}) => ({
   name,
   type,
   value,
-  checked
+  checked,
+  ...options
 });
 
 const form = (...fields) => ({
@@ -39,6 +40,30 @@ test("preserves text, select and checkbox values across a render", () => {
   assert.equal(root.forms[0].elements[0].value, "CONSUMIDOR");
   assert.equal(root.forms[0].elements[1].value, "VIP");
   assert.equal(root.forms[0].elements[2].checked, true);
+});
+
+test("does not restore disabled or read-only fields over loaded values", () => {
+  const currentForm = form(
+    field("certificateExpires", "date", "", false, { disabled: true }),
+    field("certificateSerial", "text", "", false, { readOnly: true })
+  );
+  const root = {
+    forms: [currentForm],
+    querySelectorAll(selector) {
+      assert.equal(selector, "form");
+      return this.forms;
+    }
+  };
+
+  renderPreservingFormDraft(root, () => {
+    root.forms = [form(
+      field("certificateExpires", "date", "2027-01-31", false, { disabled: true }),
+      field("certificateSerial", "text", "ABC123", false, { readOnly: true })
+    )];
+  });
+
+  assert.equal(root.forms[0].elements[0].value, "2027-01-31");
+  assert.equal(root.forms[0].elements[1].value, "ABC123");
 });
 
 test("clears feedback without rebuilding the form", () => {

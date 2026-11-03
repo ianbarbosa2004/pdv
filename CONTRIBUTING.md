@@ -18,8 +18,15 @@ CSC, tokens e dados sensíveis permanecem no servidor.
 - `src/`: frontend Vite e integração da interface.
 - `src/shared/`: regras reutilizáveis de domínio.
 - `src/server/`: API Node.js e acesso ao MariaDB.
+- `src/catalog/`: telas e navegação de cadastros.
+- `src/settings/`: configurações e Construtor de navegação.
+- `src/tools/`: ferramentas operacionais e Views.
+- `src/ui/`: componentes visuais e navegação compartilhada.
+- `database/`: schema inicial do MariaDB.
+- `scripts/migrations/`: migrações idempotentes.
 - `src-tauri/`: integração nativa, incluindo impressão local.
-- `tests/`: testes com `node:test`.
+- `tests/unit/`: testes isolados com `node:test`.
+- `tests/integration/`: testes de API, banco e contratos.
 - `docs/`: documentação operacional e decisões técnicas.
 
 Ao alterar uma área consolidada, consulte o histórico para preservar decisões
@@ -56,7 +63,7 @@ A impressora padrão de Cupom é configurada em
 
 - USB usa o driver Windows/GDI e aplica fonte, tamanho, alinhamento e negrito
   por linha.
-- Rede usa TCP RAW/ESC-POS, normalmente na porta 9100.
+- A impressão direta usa a impressora de Cupom configurada no Windows.
 - Impressão ocorre somente depois da confirmação da venda.
 - Falha de impressão não deve repetir ou desfazer uma venda confirmada.
 
@@ -66,10 +73,12 @@ Execute o conjunto mínimo antes de propor uma alteração:
 
 ```powershell
 npm.cmd test
-npm.cmd run build
-node --check src/server/server.js
 git diff --check
 ```
+
+Execute `npm.cmd run build` somente quando a alteração afetar o bundle,
+configuração Vite/Tauri, versionamento ou quando for necessária uma validação
+de produção. Reinicie a API quando `src/server/` for alterado.
 
 Para validar a camada nativa:
 

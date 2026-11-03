@@ -1,6 +1,6 @@
 {
   "name": "pdv",
-  "version": "0.8.11",
+  "version": "0.9.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,9 +10,14 @@
     "preview": "vite preview",
     "test": "node --test",
     "api": "node --env-file=.env src/server/server.js",
+    "install:windows-api": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/install-windows-api.ps1",
+    "set:database-credential": "node --env-file=.env scripts/set-database-credential.mjs",
     "tauri": "tauri",
     "migrate:culinary-units": "node --env-file=.env scripts/migrations/migrate-culinary-units.mjs",
     "migrate:uppercase": "node --env-file=.env scripts/migrations/migrate-uppercase-data.mjs",
+    "migrate:remove-nfce-certificate-path": "node --env-file=.env scripts/migrations/migrate-remove-nfce-certificate-path.mjs",
+    "migrate:products-physical-state-fk": "node --env-file=.env scripts/migrations/migrate-products-physical-state-fk.mjs",
+    "create:operator": "node --env-file=.env scripts/create-operator.mjs",
     "release:client": "node scripts/build-client-release.mjs",
     "prerelease:client": "node scripts/increment-version.mjs auto",
     "version:increment": "node scripts/increment-version.mjs patch",
@@ -23,8 +28,7 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.8.0",
-    "@tauri-apps/plugin-http": "^2.8.3",
-    "cors": "^2.8.6",
+    "keytar": "^7.9.0",
     "lucide": "^1.61.0",
     "mysql2": "^3.15.3",
     "node-forge": "^1.3.1",
@@ -35,6 +39,7 @@
     "vite": "^7.1.7"
   },
   "allowScripts": {
-    "esbuild@0.28.2": true
+    "esbuild@0.28.2": true,
+    "keytar@7.9.0": true
   }
 }

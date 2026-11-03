@@ -84,10 +84,22 @@ export function createGeneralSettingsScreen({
                       <tr>
                         <td><strong>${escapeHtml(setting.labelGeneralSetting)}</strong></td>
                         <td>
-                          <label class="settings-toggle">
-                            <input type="checkbox" name="${escapeHtml(setting.keyGeneralSetting)}" ${setting.booleanValueGeneralSetting ? "checked" : ""} />
-                            <span>${setting.booleanValueGeneralSetting ? "Sim" : "Não"}</span>
-                          </label>
+                          ${setting.typeGeneralSetting === "boolean"
+                            ? `<label class="settings-toggle">
+                                <input type="checkbox" name="${escapeHtml(setting.keyGeneralSetting)}" ${setting.booleanValueGeneralSetting ? "checked" : ""} />
+                                <span>${setting.booleanValueGeneralSetting ? "Sim" : "Não"}</span>
+                              </label>`
+                            : `<input
+                                class="classic-input"
+                                type="${setting.typeGeneralSetting === "number"
+                                  ? "number"
+                                  : (setting.keyGeneralSetting === "ncmSourceUrl" || setting.keyGeneralSetting === "cestSourceUrl"
+                                    ? "url"
+                                    : "text")}"
+                                name="${escapeHtml(setting.keyGeneralSetting)}"
+                                value="${escapeHtml(setting.valueGeneralSetting)}"
+                                ${setting.typeGeneralSetting === "number" ? 'step="any"' : ""}
+                              />`}
                         </td>
                       </tr>
                     `).join("")}
@@ -212,7 +224,9 @@ export function createGeneralSettingsScreen({
             method: "PUT",
             body: JSON.stringify({
               keyGeneralSetting: setting.keyGeneralSetting,
-              booleanValueGeneralSetting: Boolean(input?.checked)
+              ...(setting.typeGeneralSetting === "boolean"
+                ? { booleanValueGeneralSetting: Boolean(input?.checked) }
+                : { valueGeneralSetting: input?.value ?? "" })
             })
           });
         }

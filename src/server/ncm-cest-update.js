@@ -2,6 +2,29 @@ const DEFAULT_NCM_SOURCE_URL =
   "https://portalunico.siscomex.gov.br/classif/api/publico/nomenclatura/download/json";
 const DEFAULT_CEST_SOURCE_URL =
   "https://www.confaz.fazenda.gov.br/legislacao/convenios/2018/CV142_18";
+const OFFICIAL_SOURCE_HOSTS = new Set([
+  "portalunico.siscomex.gov.br",
+  "www.confaz.fazenda.gov.br"
+]);
+
+const validateOfficialSourceUrl = (value, label = "fonte") => {
+  let parsed;
+  try {
+    parsed = new URL(String(value ?? ""));
+  } catch {
+    throw new Error(`A URL da ${label} é inválida.`);
+  }
+  if (
+    parsed.protocol !== "https:" ||
+    parsed.username ||
+    parsed.password ||
+    parsed.port ||
+    !OFFICIAL_SOURCE_HOSTS.has(parsed.hostname.toLowerCase())
+  ) {
+    throw new Error(`A URL da ${label} deve usar uma fonte oficial HTTPS.`);
+  }
+  return parsed.toString();
+};
 
 const normalizeText = (value) =>
   String(value ?? "")
@@ -133,12 +156,14 @@ const parseCestPayload = (text) => {
 };
 
 const fetchSource = async (url, label) => {
+  const safeUrl = validateOfficialSourceUrl(url, label);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
   try {
-    const response = await fetch(url, {
+    const response = await fetch(safeUrl, {
       headers: { Accept: "application/json,text/csv,text/html,*/*" },
-      signal: controller.signal
+      signal: controller.signal,
+      redirect: "error"
     });
     if (!response.ok) throw new Error(`${label} respondeu HTTP ${response.status}.`);
     const text = await response.text();
@@ -175,6 +200,17 @@ const ensureUpdateSchema = async (pool) => {
     updatedAtCest TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (idCest),
     UNIQUE KEY uqCestCode (codeCest)
+  ) ENGINE=InnoDB`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS ncm_cest_relations (
+    idNcmCestRelation BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    idNcm BIGINT UNSIGNED NOT NULL,
+    idCest BIGINT UNSIGNED NOT NULL,
+    createdAtNcmCestRelation TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (idNcmCestRelation),
+    UNIQUE KEY uqNcmCestRelation (idNcm, idCest),
+    KEY idxNcmCestRelationsCest (idCest),
+    CONSTRAINT fkNcmCestRelationsNcm FOREIGN KEY (idNcm) REFERENCES ncm_catalog (idNcm) ON DELETE RESTRICT,
+    CONSTRAINT fkNcmCestRelationsCest FOREIGN KEY (idCest) REFERENCES cest_catalog (idCest) ON DELETE RESTRICT
   ) ENGINE=InnoDB`);
   await pool.query("ALTER TABLE ncm_catalog MODIFY COLUMN descriptionNcm TEXT NOT NULL");
   await pool.query("ALTER TABLE cest_catalog MODIFY COLUMN descriptionCest TEXT NOT NULL");
@@ -294,5 +330,6 @@ export {
   ensureUpdateSchema,
   parseCestPayload,
   parseNcmPayload,
+  validateOfficialSourceUrl,
   updateCatalog
 };

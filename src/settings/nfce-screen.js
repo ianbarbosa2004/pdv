@@ -92,10 +92,8 @@ export function createNfceScreen({
             <div class="classic-form-grid company-grid-three nfce-certificate-grid">
               <label class="form-field">
                 <span>Tipo de certificado</span>
-                <select name="nfceCertificateTypeCompany" required>
-                  <option value="A1" ${company.nfceCertificateTypeCompany !== "A3" ? "selected" : ""}>A1 - arquivo digital</option>
-                  <option value="A3" ${company.nfceCertificateTypeCompany === "A3" ? "selected" : ""}>A3 - dispositivo</option>
-                </select>
+                <input type="hidden" name="nfceCertificateTypeCompany" value="A1" />
+                <input type="text" value="A1 - arquivo digital" readonly aria-label="Tipo de certificado A1" />
               </label>
               <label class="form-field">
                 <span>Certificado A1 (.pfx/.p12)</span>

@@ -5,6 +5,7 @@ import {
   normalizeMaskedNumber
 } from "../ui/number-mask.js";
 import { apiFetch, getApiUrl, saveConfiguredApiUrl  } from "../shared/api.js";
+import { confirmAction } from "../ui/confirmation-modal.js";
 
 const formatCurrency = (value) =>
   new Intl.NumberFormat("pt-BR", {
@@ -38,7 +39,51 @@ const escapeHtml = (value) =>
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 
-export function createSaleScreen({ onBackoffice, initialApiError = false, onApiConfigured } = {}) {
+const requestCancellationReason = () => new Promise((resolve) => {
+  const backdrop = document.createElement("div");
+  backdrop.className = "classic-modal-backdrop";
+  backdrop.innerHTML = `
+    <section class="classic-modal" role="dialog" aria-modal="true" aria-labelledby="cancellation-reason-title">
+      <div class="classic-panel-header modal-panel-header">
+        <span id="cancellation-reason-title">Motivo do cancelamento</span>
+        <button class="modal-close-button" data-cancel-reason type="button" aria-label="Cancelar" title="Cancelar">×</button>
+      </div>
+      <form data-cancellation-reason-form>
+        <div class="classic-form-body">
+          <label class="form-field">
+            <span>Motivo</span>
+            <textarea name="reason" minlength="5" maxlength="500" required></textarea>
+          </label>
+        </div>
+        <div class="classic-form-actions">
+          <button class="classic-button primary danger" type="submit">Confirmar cancelamento</button>
+          <button class="classic-button" data-cancel-reason type="button">Voltar</button>
+        </div>
+      </form>
+    </section>
+  `;
+  document.body.append(backdrop);
+  const finish = (reason = "") => {
+    backdrop.remove();
+    resolve(reason);
+  };
+  backdrop.querySelectorAll("[data-cancel-reason]").forEach((button) => {
+    button.addEventListener("click", () => finish());
+  });
+  backdrop.querySelector("[data-cancellation-reason-form]")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    finish(new FormData(event.currentTarget).get("reason")?.toString().trim() || "");
+  });
+  backdrop.querySelector("textarea")?.focus();
+});
+
+export function createSaleScreen({
+  onBackoffice,
+  onCash,
+  onLogout,
+  initialApiError = false,
+  onApiConfigured
+} = {}) {
   const root = document.createElement("main");
   let products = [];
   let paymentMethods = [];
@@ -50,26 +95,150 @@ export function createSaleScreen({ onBackoffice, initialApiError = false, onApiC
   let loadError = "";
   let paymentLoading = true;
   let paymentError = "";
+  let cashSession = null;
+  let cashLoading = true;
   let paymentOpen = false;
   let idPaymentMethod = "";
   let idCustomerSale = "";
   let paymentAmount = "";
+  let emitNfce = false;
   let submittingPayment = false;
+  let saleFeedback = "";
   let apiConfigOpen = initialApiError;
   let apiConfigSaving = false;
   let apiConfigError = "";
   let apiConfigUrl = getApiUrl();
+  let recentSalesOpen = false;
+  let recentSales = [];
+  let recentSalesLoading = false;
+  let recentSalesError = "";
+  const operator = window.__PDV_OPERATOR__ || {};
+  const canCancelSales = ["supervisor", "admin"].includes(operator.roleOperator);
+
+  const getVisibleProducts = () => products.filter((product) => {
+    const matchesGroup =
+      activeGroup === "Todos" || product.group === activeGroup;
+    const matchesSearch = product.name
+      .toLocaleLowerCase("pt-BR")
+      .includes(searchTerm.toLocaleLowerCase("pt-BR"));
+    return matchesGroup && matchesSearch;
+  });
+
+  const productGridMarkup = () => {
+    const visibleProducts = getVisibleProducts();
+    if (loading) {
+      return '<p class="empty-state">Carregando produtos...</p>';
+    }
+    if (loadError) {
+      return `<div class="empty-state error-state"><strong>Não foi possível carregar o catálogo.</strong><span>${escapeHtml(loadError)}</span><button class="secondary-button" data-retry type="button">Tentar novamente</button></div>`;
+    }
+    if (!visibleProducts.length) {
+      return '<p class="empty-state">Nenhum produto encontrado.</p>';
+    }
+    return visibleProducts
+      .map(
+        (product) => `
+          <button class="product-card" data-product="${product.idProduct}" type="button">
+            <span class="product-icon">${escapeHtml(product.name.charAt(0))}</span>
+            <span class="product-category">${escapeHtml(product.group)}</span>
+            <strong>${escapeHtml(product.name)}</strong>
+            <span class="product-price">${formatCurrency(product.price)}</span>
+          </button>
+        `
+      )
+      .join("");
+  };
+
+  const fiscalStatusLabel = (status) => ({
+    not_requested: "Não solicitada",
+    pending: "Pendente",
+    authorized: "Autorizada",
+    rejected: "Rejeitada",
+    unknown: "Resultado desconhecido"
+  }[status] || status || "Não informado");
+
+  const formatSaleDate = (value) => {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime())
+      ? String(value || "")
+      : new Intl.DateTimeFormat("pt-BR", {
+        dateStyle: "short",
+        timeStyle: "short"
+      }).format(date);
+  };
+
+  const recentSalesMarkup = () => `
+    <div class="classic-modal-backdrop" data-recent-sales-backdrop>
+      <section class="classic-modal recent-sales-modal" role="dialog" aria-modal="true" aria-labelledby="recent-sales-title">
+        <div class="classic-panel-header modal-panel-header">
+          <span id="recent-sales-title">Vendas recentes</span>
+          <button class="modal-close-button" data-close-recent-sales type="button" aria-label="Fechar" title="Fechar">×</button>
+        </div>
+        <div class="classic-form-body">
+          ${recentSalesLoading ? '<p class="modal-help-text">Carregando vendas...</p>' : ""}
+          ${recentSalesError ? `<p class="error-message">${escapeHtml(recentSalesError)}</p>` : ""}
+          ${!recentSalesLoading && !recentSalesError && !recentSales.length ? '<p class="modal-help-text">Nenhuma venda encontrada.</p>' : ""}
+          ${recentSales.length ? `
+            <div class="recent-sales-table-wrap">
+              <table class="recent-sales-table">
+              <thead>
+                <tr>
+                  <th>Cód. venda</th>
+                  <th>Tipo</th>
+                  <th>ECF/SAT</th>
+                  <th>Cliente</th>
+                  <th>Mesa/comanda</th>
+                  <th>Data de emissão</th>
+                  <th>Valor total</th>
+                  <th>Status</th>
+                  <th>Status cupom fiscal</th>
+                  <th>MFE</th>
+                  <th>Operação</th>
+                </tr>
+              </thead>
+              <tbody>
+              ${recentSales.map((sale) => `
+                <tr>
+                  <td data-label="Cód. venda">${escapeHtml(String(sale.idSale || ""))}</td>
+                  <td data-label="Tipo">${sale.fiscalStatus !== "not_requested" ? "NFC-e" : "Venda"}</td>
+                  <td data-label="ECF/SAT">-</td>
+                  <td data-label="Cliente">Consumidor</td>
+                  <td data-label="Mesa/comanda">-</td>
+                  <td data-label="Data de emissão">${escapeHtml(formatSaleDate(sale.createdAtSale))}</td>
+                  <td data-label="Valor total">${formatCurrency(Number(sale.totalSale || 0))}</td>
+                  <td data-label="Status" class="${sale.statusSale === "cancelled" ? "status-error" : "status-success"}">${sale.statusSale === "cancelled" ? "Cancelada" : "Concluída"}</td>
+                  <td data-label="Status cupom fiscal">
+                    <span class="fiscal-status fiscal-status-${escapeHtml(String(sale.fiscalStatus || "not_requested"))}">${escapeHtml(fiscalStatusLabel(sale.fiscalStatus))}</span>
+                    ${sale.fiscalNumber ? `<small>Nº ${escapeHtml(String(sale.fiscalNumber))} · série ${escapeHtml(String(sale.fiscalSeries || ""))}</small>` : ""}
+                    ${sale.fiscalCStat || sale.fiscalMessage ? `<small>${sale.fiscalCStat ? `cStat ${escapeHtml(String(sale.fiscalCStat))}` : ""}${sale.fiscalCStat && sale.fiscalMessage ? " · " : ""}${escapeHtml(String(sale.fiscalMessage || ""))}</small>` : ""}
+                  </td>
+                  <td data-label="MFE">-</td>
+                  <td data-label="Operação" class="recent-sale-actions">
+                    ${sale.fiscalAccessKey ? `<small>Chave: ${escapeHtml(String(sale.fiscalAccessKey))}</small>` : ""}
+                    ${sale.fiscalProtocol ? `<small>Protocolo: ${escapeHtml(String(sale.fiscalProtocol))}</small>` : ""}
+                    ${sale.fiscalXml ? `<details><summary>Ver XML</summary><textarea readonly rows="10" aria-label="XML da NFC-e da venda ${escapeHtml(String(sale.idSale))}">${escapeHtml(String(sale.fiscalXml))}</textarea></details>` : ""}
+                    ${canCancelSales && sale.statusSale !== "cancelled" ? `<button class="secondary-button danger-button" data-cancel-sale="${sale.idSale}" type="button">Cancelar</button>` : ""}
+                  </td>
+                </tr>
+              `).join("")}
+              </tbody>
+              </table>
+            </div>
+          ` : ""}
+        </div>
+      </section>
+    </div>
+  `;
+
+  const updateProductGrid = () => {
+    const grid = root.querySelector(".product-grid");
+    if (!grid) return;
+    grid.innerHTML = productGridMarkup();
+    bindProductEvents();
+  };
 
   const render = () => {
     const groups = ["Todos", ...new Set(products.map(({ group }) => group))];
-    const visibleProducts = products.filter((product) => {
-      const matchesGroup =
-        activeGroup === "Todos" || product.group === activeGroup;
-      const matchesSearch = product.name
-        .toLocaleLowerCase("pt-BR")
-        .includes(searchTerm.toLocaleLowerCase("pt-BR"));
-      return matchesGroup && matchesSearch;
-    });
     const { itemCount, total } = calculateSaleTotals(cart);
 
     root.className = "sale-screen";
@@ -80,10 +249,13 @@ export function createSaleScreen({ onBackoffice, initialApiError = false, onApiC
           <h1>Frente de caixa</h1>
         </div>
         <div class="cash-status">
-          <span class="status-dot"></span>
-          <span>Caixa aberto</span>
-          <strong>Operador</strong>
+          <span class="status-dot ${cashSession ? "" : "status-dot-warning"}"></span>
+          <span>${cashLoading ? "Verificando caixa..." : cashSession ? "Caixa aberto" : "Caixa fechado"}</span>
+          <strong>Operador autenticado</strong>
+          <button class="secondary-button" data-cash type="button">Caixa</button>
           <button class="secondary-button" data-backoffice type="button">Retaguarda</button>
+          <button class="secondary-button" data-recent-sales type="button">Vendas recentes</button>
+          <button class="text-button" data-logout type="button">Logout</button>
         </div>
       </header>
 
@@ -97,6 +269,7 @@ export function createSaleScreen({ onBackoffice, initialApiError = false, onApiC
             <label class="search">
               <span aria-hidden="true">⌕</span>
               <input
+                name="productSearch"
                 data-search
                 type="search"
                 placeholder="Buscar produto"
@@ -129,26 +302,7 @@ export function createSaleScreen({ onBackoffice, initialApiError = false, onApiC
           </nav>
 
           <div class="product-grid">
-            ${
-              loading
-                ? '<p class="empty-state">Carregando produtos...</p>'
-                : loadError
-                  ? `<div class="empty-state error-state"><strong>Não foi possível carregar o catálogo.</strong><span>${escapeHtml(loadError)}</span><button class="secondary-button" data-retry type="button">Tentar novamente</button></div>`
-                  : visibleProducts.length
-                ? visibleProducts
-                    .map(
-                      (product) => `
-                        <button class="product-card" data-product="${product.idProduct}" type="button">
-                          <span class="product-icon">${escapeHtml(product.name.charAt(0))}</span>
-                          <span class="product-category">${escapeHtml(product.group)}</span>
-                          <strong>${escapeHtml(product.name)}</strong>
-                          <span class="product-price">${formatCurrency(product.price)}</span>
-                        </button>
-                      `
-                    )
-                    .join("")
-                : '<p class="empty-state">Nenhum produto encontrado.</p>'
-            }
+            ${productGridMarkup()}
           </div>
         </div>
 
@@ -162,6 +316,7 @@ export function createSaleScreen({ onBackoffice, initialApiError = false, onApiC
               cart.length ? "" : "disabled"
             }>Limpar</button>
           </div>
+          ${saleFeedback ? `<div class="sale-feedback-banner success-message" role="status">${escapeHtml(saleFeedback)}</div>` : ""}
 
           <div class="cart-items">
             ${
@@ -185,6 +340,13 @@ export function createSaleScreen({ onBackoffice, initialApiError = false, onApiC
                 : '<div class="cart-empty"><span class="empty-cart-icon">＋</span><strong>Seu carrinho está vazio</strong><span>Adicione produtos para iniciar a venda.</span></div>'
             }
           </div>
+          ${!cashLoading && !cashSession ? `
+            <div class="cash-notice">
+              <strong>O caixa está fechado</strong>
+              <span>Você pode consultar os produtos, mas precisa abrir o caixa para concluir uma venda.</span>
+              <button class="secondary-button" data-cash type="button">Abrir caixa</button>
+            </div>
+          ` : ""}
 
           <div class="sale-summary">
             <div><span>Itens</span><strong>${itemCount}</strong></div>
@@ -192,7 +354,7 @@ export function createSaleScreen({ onBackoffice, initialApiError = false, onApiC
             <div class="sale-total"><span>Total</span><strong>${formatCurrency(total)}</strong></div>
           </div>
           <button class="primary-button" data-payment type="button" ${
-            cart.length ? "" : "disabled"
+            cart.length && cashSession ? "" : "disabled"
           }>Ir para pagamento <span>→</span></button>
         </aside>
       </section>
@@ -243,6 +405,10 @@ export function createSaleScreen({ onBackoffice, initialApiError = false, onApiC
                     <span>Total da venda</span>
                     <strong>${formatCurrency(total)}</strong>
                   </div>
+                  <label class="form-field checkbox-field">
+                    <span><input data-emit-nfce type="checkbox" ${emitNfce ? "checked" : ""} ${submittingPayment ? "disabled" : ""} /> Emitir NFC-e em homologação</span>
+                    <small>A venda será confirmada mesmo se a SEF/MG estiver indisponível; nesse caso ficará pendente para tratamento posterior.</small>
+                  </label>
                   ${
                     paymentError
                       ? `<p class="payment-error">${escapeHtml(paymentError)}</p>`
@@ -290,6 +456,7 @@ export function createSaleScreen({ onBackoffice, initialApiError = false, onApiC
           `
           : ""
       }
+      ${recentSalesOpen ? recentSalesMarkup() : ""}
     `;
 
     bindEvents();
@@ -323,10 +490,14 @@ export function createSaleScreen({ onBackoffice, initialApiError = false, onApiC
     render();
   };
 
-  const bindEvents = () => {
+  const bindProductEvents = () => {
     root.querySelectorAll("[data-product]").forEach((button) => {
       button.addEventListener("click", () => addProduct(button.dataset.product));
     });
+  };
+
+  const bindEvents = () => {
+    bindProductEvents();
     root.querySelectorAll("[data-remove]").forEach((button) => {
       button.addEventListener("click", () => removeProduct(button.dataset.remove));
     });
@@ -383,6 +554,9 @@ export function createSaleScreen({ onBackoffice, initialApiError = false, onApiC
     root.querySelector("[data-payment-amount]")?.addEventListener("input", (event) => {
       paymentAmount = event.target.value;
     });
+    root.querySelector("[data-emit-nfce]")?.addEventListener("change", (event) => {
+      emitNfce = event.target.checked;
+    });
     root.querySelector("[data-payment-form]")?.addEventListener("submit", (event) => {
       event.preventDefault();
       void submitPayment();
@@ -391,6 +565,25 @@ export function createSaleScreen({ onBackoffice, initialApiError = false, onApiC
       void fetchCatalog();
     });
     root.querySelector("[data-backoffice]")?.addEventListener("click", () => onBackoffice?.());
+    root.querySelector("[data-cash]")?.addEventListener("click", () => onCash?.());
+    root.querySelector("[data-recent-sales]")?.addEventListener("click", () => {
+      recentSalesOpen = true;
+      void fetchRecentSales();
+    });
+    root.querySelector("[data-close-recent-sales]")?.addEventListener("click", () => {
+      recentSalesOpen = false;
+      render();
+    });
+    root.querySelector("[data-recent-sales-backdrop]")?.addEventListener("click", (event) => {
+      if (event.target === event.currentTarget) {
+        recentSalesOpen = false;
+        render();
+      }
+    });
+    root.querySelectorAll("[data-cancel-sale]").forEach((button) => {
+      button.addEventListener("click", () => void cancelRecentSale(Number(button.dataset.cancelSale)));
+    });
+    root.querySelector("[data-logout]")?.addEventListener("click", () => onLogout?.());
     root.querySelectorAll("[data-close-api-config]").forEach((button) => {
       button.addEventListener("click", () => {
         apiConfigOpen = false;
@@ -426,11 +619,52 @@ export function createSaleScreen({ onBackoffice, initialApiError = false, onApiC
     });
     root.querySelector("[data-search]")?.addEventListener("input", (event) => {
       searchTerm = event.target.value;
-      render();
-      const input = root.querySelector("[data-search]");
-      input?.focus();
-      input?.setSelectionRange(searchTerm.length, searchTerm.length);
+      updateProductGrid();
     });
+  };
+
+  const fetchRecentSales = async () => {
+    recentSalesLoading = true;
+    recentSalesError = "";
+    render();
+    try {
+      const response = await apiFetch(`${getApiUrl()}/api/sales?limit=20`);
+      const payload = await response.json();
+      if (!response.ok || !Array.isArray(payload.sales)) {
+        throw new Error(payload.error || "Não foi possível consultar as vendas.");
+      }
+      recentSales = payload.sales;
+    } catch (error) {
+      recentSalesError = error instanceof Error ? error.message : "Falha ao consultar as vendas.";
+    } finally {
+      recentSalesLoading = false;
+      render();
+    }
+  };
+
+  const cancelRecentSale = async (idSale) => {
+    const confirmed = await confirmAction({
+      title: "Cancelar venda",
+      message: `Cancelar a venda #${idSale}?`,
+      detail: "O estoque e o caixa serão revertidos e o cancelamento ficará registrado.",
+      confirmLabel: "Cancelar venda"
+    });
+    if (!confirmed) return;
+    const reason = await requestCancellationReason();
+    if (!reason?.trim()) return;
+    try {
+      const response = await apiFetch(`${getApiUrl()}/api/sales/${idSale}/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason })
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Não foi possível cancelar a venda.");
+      await fetchRecentSales();
+    } catch (error) {
+      recentSalesError = error instanceof Error ? error.message : "Falha ao cancelar a venda.";
+      render();
+    }
   };
 
   render();
@@ -478,6 +712,23 @@ export function createSaleScreen({ onBackoffice, initialApiError = false, onApiC
     }
   };
 
+  const fetchCash = async () => {
+    cashLoading = true;
+    render();
+    try {
+      const response = await apiFetch(`${getApiUrl()}/api/cash/current`);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Não foi possível consultar o caixa.");
+      cashSession = payload.cashSession || null;
+    } catch (error) {
+      cashSession = null;
+      console.error("Não foi possível consultar o caixa:", error);
+    } finally {
+      cashLoading = false;
+      render();
+    }
+  };
+
   const submitPayment = async () => {
     const amount = Number(normalizeMaskedNumber(paymentAmount));
     const { total } = calculateSaleTotals(cart);
@@ -507,15 +758,23 @@ export function createSaleScreen({ onBackoffice, initialApiError = false, onApiC
           })),
           payments: [{ idPaymentMethod: Number(idPaymentMethod), amountSalePayment: amount.toFixed(2) }],
           idCustomerSale: idCustomerSale ? Number(idCustomerSale) : null,
-          discountSale: "0.00"
+          discountSale: "0.00",
+          emitNfce
         })
       });
       const payload = await response.json();
       if (!response.ok) {
         throw new Error(payload.error || "Não foi possível registrar a venda.");
       }
+      const fiscalStatus = payload.sale?.fiscalStatus;
+      saleFeedback = fiscalStatus && fiscalStatus !== "not_requested"
+        ? `Venda registrada. NFC-e: ${fiscalStatus}.`
+        : "Venda registrada com sucesso.";
       cart.splice(0, cart.length);
       paymentOpen = false;
+      emitNfce = false;
+      submittingPayment = false;
+      render();
       await fetchCatalog();
     } catch (error) {
       paymentError =
@@ -528,5 +787,6 @@ export function createSaleScreen({ onBackoffice, initialApiError = false, onApiC
 
   void fetchCatalog();
   void fetchPaymentMethods();
+  void fetchCash();
   return root;
 }
