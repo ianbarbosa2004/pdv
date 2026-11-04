@@ -4,6 +4,7 @@ import { apiFetch, getApiUrl  } from "../shared/api.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
 import { getContextualNavigationItems, renderContextualNavigationItems } from "../ui/contextual-navigation.js";
 import { resolveNavigationHandler } from "../ui/navigation-routing.js";
+import { getNavigationPresentation } from "../ui/navigation-intro.js";
 import { buildViewsGroupTree } from "./views-model.js";
 import { bindProductList, filterProductList, renderProductList, sortProductList } from "./product-list-view.js";
 
@@ -33,7 +34,7 @@ const viewsNavigation = [
 ];
 
 const renderViewsNavigation = (active) => `
-  <div class="classic-toolbar">
+  <div class="classic-toolbar screen-context-bar views-context-bar" aria-label="Navegação contextual">
     ${renderContextualNavigationItems(getContextualNavigationItems("views", viewsNavigation), active, "views-nav")}
   </div>
 `;
@@ -249,6 +250,7 @@ export function createProductViewsScreen({
   function render() {
     const tree = buildViewsGroupTree(groups, products);
     const visibleProducts = getVisibleProducts();
+    const navigationPresentation = getNavigationPresentation(active, title, description);
     root.className = "catalog-screen views-screen";
     root.innerHTML = `
       <header class="classic-titlebar"><strong>PDV - ${escapeHtml(title)}</strong><span>Operador: Operador</span></header>
@@ -256,8 +258,8 @@ export function createProductViewsScreen({
       ${renderViewsNavigation(active)}
       <section class="views-content">
         <div class="views-intro">
-          <div class="views-intro-block"><span class="views-intro-label">Views</span><h1>${escapeHtml(title)}</h1></div>
-          <div class="views-intro-block"><span class="views-intro-label">Consulta operacional</span><p>${escapeHtml(description)}</p></div>
+          <div class="views-intro-block"><span class="views-intro-label">Views</span><h1>${escapeHtml(navigationPresentation.title)}</h1></div>
+          <div class="views-intro-block"><span class="views-intro-label">Consulta operacional</span><p>${escapeHtml(navigationPresentation.description)}</p></div>
         </div>
         <section class="views-workspace ${showGroups ? "" : "views-workspace-full"}">
           ${showGroups ? `

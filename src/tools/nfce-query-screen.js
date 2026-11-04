@@ -1,4 +1,6 @@
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
+import { renderScreenContextBar } from "../ui/screen-context.js";
+import { renderNavigationIntro } from "../ui/navigation-intro.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 
 const escapeHtml = (value) =>
@@ -56,17 +58,10 @@ export function createNfceQueryScreen({ onBack, onNfce, ...handlers }) {
         <span>Operador: Operador</span>
       </header>
       ${renderMainMenu()}
-      <div class="classic-toolbar">
-        <button class="classic-tool-button" data-back type="button">← Frente de caixa</button>
-        <strong>Ferramentas fiscais</strong>
-      </div>
+      ${renderScreenContextBar("Consulta de NFC-e")}
       <section class="settings-content">
         ${renderSuccessFeedback(message, escapeHtml)}
-        <div class="backoffice-home-heading">
-          <p class="eyebrow">Teste de integração</p>
-          <h1>Consulta de NFC-e</h1>
-          <p>Confira os dados exibidos pelo portal oficial antes de usar a nota em uma futura entrada de compras.</p>
-        </div>
+        ${renderNavigationIntro("nfce-query", "Consulta de NFC-e", "Confira os dados exibidos pelo portal oficial antes de usar a nota em uma futura entrada de compras.")}
         <section class="classic-form-panel">
           <div class="classic-panel-header">Consulta oficial</div>
           <div class="classic-form-body">

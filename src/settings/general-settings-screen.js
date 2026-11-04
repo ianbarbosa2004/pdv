@@ -1,4 +1,6 @@
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
+import { renderScreenContextBar } from "../ui/screen-context.js";
+import { renderNavigationIntro } from "../ui/navigation-intro.js";
 import { apiFetch, clearConfiguredApiUrl,
   getApiUrl,
   getConfiguredApiUrl,
@@ -54,24 +56,17 @@ export function createGeneralSettingsScreen({
   };
 
   const render = () => {
-    root.className = "catalog-screen settings-screen";
+    root.className = "catalog-screen settings-screen general-settings-screen";
     root.innerHTML = `
       <header class="classic-titlebar">
         <strong>PDV - Configurações Gerais</strong>
         <span>Operador: Operador</span>
       </header>
       ${renderMainMenu()}
-      <div class="classic-toolbar">
-        <button class="classic-tool-button" data-back type="button">← Frente de caixa</button>
-        <strong>Configurações Gerais</strong>
-      </div>
-      <section class="settings-content">
+      ${renderScreenContextBar("Configurações Gerais")}
+      <section class="settings-content general-settings-content">
         ${renderSuccessFeedback(message || apiUrlMessage, escapeHtml)}
-        <div class="backoffice-home-heading">
-          <p class="eyebrow">Sistema</p>
-          <h1>Configurações Gerais</h1>
-          <p>Defina regras gerais de funcionamento compartilhadas por todos os terminais do PDV.</p>
-        </div>
+        ${renderNavigationIntro("general-settings", "Configurações Gerais", "Defina regras gerais de funcionamento compartilhadas por todos os terminais do PDV.")}
         <form class="classic-form-panel settings-form" data-form>
           <div class="classic-panel-header">Preferências operacionais</div>
           <div class="classic-form-body">

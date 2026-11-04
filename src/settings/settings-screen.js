@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
+import { renderScreenContextBar } from "../ui/screen-context.js";
+import { renderNavigationIntro } from "../ui/navigation-intro.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { apiFetch, getApiUrl  } from "../shared/api.js";
 
@@ -48,24 +50,17 @@ export function createSettingsScreen({
   };
 
   const render = () => {
-    root.className = "catalog-screen settings-screen";
+    root.className = "catalog-screen settings-screen printer-settings-screen";
     root.innerHTML = `
       <header class="classic-titlebar">
         <strong>PDV - Impressoras</strong>
         <span>Operador: Operador</span>
       </header>
       ${renderMainMenu()}
-      <div class="classic-toolbar">
-        <button class="classic-tool-button" data-back type="button">← Frente de caixa</button>
-        <strong>Configurações do sistema</strong>
-      </div>
-      <section class="settings-content">
+      ${renderScreenContextBar("Impressoras")}
+      <section class="settings-content printer-settings-content">
         ${renderSuccessFeedback(message, escapeHtml)}
-        <div class="backoffice-home-heading">
-          <p class="eyebrow">Sistema</p>
-          <h1>Impressoras</h1>
-          <p>Defina as impressoras padrão usadas pelo PDV. As escolhas são compartilhadas por todos os terminais que usam esta base.</p>
-        </div>
+        ${renderNavigationIntro("settings", "Impressoras", "Defina as impressoras padrão usadas pelo PDV em cupons, comprovantes e relatórios.")}
         <form class="classic-form-panel settings-form" data-form>
           <div class="classic-panel-header">Impressoras padrão</div>
           <div class="classic-form-body">

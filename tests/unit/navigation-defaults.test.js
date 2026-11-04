@@ -5,12 +5,13 @@ import {
   ensureApiStatusNavigation,
   isNavigationKey,
   mergeNavigationDefaults,
+  normalizePersistedNavigation,
   normalizeNavigationKey
 } from "../../src/shared/navigation-defaults.js";
 import { selectContextualNavigationItems } from "../../src/ui/contextual-navigation.js";
 import { resolveNavigationHandler } from "../../src/ui/navigation-routing.js";
 import { renderMainMenu } from "../../src/ui/main-menu.js";
-import { getNavigationBuilderDividerIdsBeforeChildren } from "../../src/shared/navigation-builder-order.js";
+import { renderNavigationIntro } from "../../src/ui/navigation-intro.js";
 
 test("normaliza chaves de navegação independentemente da caixa", () => {
   assert.equal(normalizeNavigationKey("Cadastros"), "cadastros");
@@ -20,6 +21,101 @@ test("normaliza chaves de navegação independentemente da caixa", () => {
 
 test("mantém o contrato sem criar navegação artificial", () => {
   assert.equal(isNavigationKey("registrations", "cadastros"), false);
+});
+
+test("define barras contextuais singleton para telas operacionais", () => {
+  const singletonKeys = [
+    "suppliers",
+    "customers",
+    "consumers",
+    "settings",
+    "general-settings",
+    "company",
+    "nfce",
+    "navigation-builder",
+    "ncm-cest-update",
+    "api-status",
+    "nfce-query",
+    "backup"
+  ];
+  const items = new Map(DEFAULT_NAVIGATION.items.map((item) => [item.keyNavigationItem, item]));
+  for (const key of singletonKeys) {
+    assert.equal(items.get(key)?.typeNavigationItem, "bar", key);
+    assert.equal(items.get(key)?.idParentNavigationItem ?? null, null, key);
+  }
+});
+
+test("define textos introdutórios persistíveis para telas operacionais", () => {
+  const keys = [
+    "suppliers",
+    "customers",
+    "consumers",
+    "settings",
+    "general-settings",
+    "company",
+    "nfce",
+    "navigation-builder",
+    "ncm-cest-update",
+    "api-status",
+    "thermal-print",
+    "nfce-query",
+    "import-catalogs",
+    "backup",
+    "views",
+    "groups-products",
+    "no-cost",
+    "no-physical-state"
+  ];
+  const items = new Map(DEFAULT_NAVIGATION.items.map((item) => [item.keyNavigationItem, item]));
+  for (const key of keys) {
+    assert.ok(items.get(key)?.descriptionNavigationItem, key);
+  }
+});
+
+test("renderiza o texto introdutório persistido do item de navegação", () => {
+  const previousWindow = globalThis.window;
+  globalThis.window = {
+    __PDV_NAVIGATION__: {
+      items: [{
+        keyNavigationItem: "company",
+        labelNavigationItem: "Dados cadastrais",
+        descriptionNavigationItem: "Texto personalizado da empresa."
+      }]
+    }
+  };
+  try {
+    const markup = renderNavigationIntro("company", "Dados da Empresa", "Texto padrão.");
+    assert.match(markup, /Dados cadastrais/);
+    assert.match(markup, /Texto personalizado da empresa\./);
+    assert.doesNotMatch(markup, /Texto padrão\./);
+  } finally {
+    globalThis.window = previousWindow;
+  }
+});
+
+test("a leitura persistida não cria nem corrige itens com defaults", () => {
+  const persisted = {
+    menus: [{
+      idNavigationMenu: 1,
+      keyNavigationMenu: "custom",
+      labelNavigationMenu: "Menu salvo",
+      orderNavigationMenu: 9,
+      isActiveNavigationMenu: 0
+    }],
+    items: [{
+      idNavigationItem: 10,
+      idNavigationMenu: 1,
+      idParentNavigationItem: null,
+      typeNavigationItem: "item",
+      keyNavigationItem: "suppliers",
+      labelNavigationItem: "Parceiros",
+      routeNavigationItem: "rota-salva",
+      orderNavigationItem: 4,
+      isActiveNavigationItem: 0
+    }]
+  };
+
+  assert.deepEqual(normalizePersistedNavigation(persisted), persisted);
 });
 
 test("preserva menus persistidos personalizados inativos no construtor", () => {
@@ -198,35 +294,81 @@ test("usa a barra contextual persistida sem duplicar o item pai", () => {
   assert.equal(items.filter(([, label]) => label === "Operações Fiscais").length, 1);
 });
 
-test("posiciona divisor após o item e antes das categorias filhas no construtor", () => {
-  const dividerIds = getNavigationBuilderDividerIdsBeforeChildren([
-    {
-      idNavigationItem: 10,
-      idParentNavigationItem: null,
-      typeNavigationItem: "item",
-      orderNavigationItem: 1
-    },
-    {
-      idNavigationItem: 11,
-      idParentNavigationItem: 10,
-      typeNavigationItem: "bar",
-      orderNavigationItem: 1
-    },
-    {
-      idNavigationItem: 12,
-      idParentNavigationItem: null,
-      typeNavigationItem: "divider",
-      orderNavigationItem: 2
-    },
-    {
-      idNavigationItem: 13,
-      idParentNavigationItem: null,
-      typeNavigationItem: "item",
-      orderNavigationItem: 3
-    }
-  ]);
+test("preserva a ordem persistida dos itens personalizados", () => {
+  const navigation = mergeNavigationDefaults({
+    menus: [
+      { idNavigationMenu: 1, keyNavigationMenu: "cadastros", labelNavigationMenu: "Cadastros" }
+    ],
+    items: [
+      {
+        idNavigationItem: 10,
+        idNavigationMenu: 1,
+        keyNavigationItem: "technical-sheet",
+        labelNavigationItem: "Ficha Técnica",
+        orderNavigationItem: 2
+      },
+      {
+        idNavigationItem: 11,
+        idNavigationMenu: 1,
+        keyNavigationItem: "custom-divider",
+        labelNavigationItem: "Divisor",
+        typeNavigationItem: "divider",
+        orderNavigationItem: 7
+      }
+    ]
+  });
 
-  assert.deepEqual([...dividerIds], ["12"]);
+  assert.equal(
+    navigation.items.find((item) => item.keyNavigationItem === "custom-divider")?.orderNavigationItem,
+    7
+  );
+});
+
+test("preserva rota editada de item padrão após nova leitura", () => {
+  const navigation = mergeNavigationDefaults({
+    menus: [
+      { idNavigationMenu: 1, keyNavigationMenu: "cadastros", labelNavigationMenu: "Cadastros" }
+    ],
+    items: [{
+      idNavigationItem: 10,
+      idNavigationMenu: 1,
+      idParentNavigationItem: null,
+      keyNavigationItem: "suppliers",
+      labelNavigationItem: "Fornecedores",
+      routeNavigationItem: "fornecedores-personalizado",
+      typeNavigationItem: "item",
+      orderNavigationItem: 4
+    }]
+  });
+
+  assert.equal(
+    navigation.items.find((item) => item.keyNavigationItem === "suppliers")?.routeNavigationItem,
+    "fornecedores-personalizado"
+  );
+});
+
+test("preserva menu e pai persistidos quando item padrão foi movido", () => {
+  const navigation = mergeNavigationDefaults({
+    menus: [
+      { idNavigationMenu: 1, keyNavigationMenu: "cadastros", labelNavigationMenu: "Cadastros" },
+      { idNavigationMenu: 2, keyNavigationMenu: "tools", labelNavigationMenu: "Ferramentas" }
+    ],
+    items: [{
+      idNavigationItem: 10,
+      idNavigationMenu: 2,
+      idParentNavigationItem: null,
+      keyNavigationItem: "suppliers",
+      labelNavigationItem: "Fornecedores",
+      routeNavigationItem: "suppliers",
+      typeNavigationItem: "item",
+      orderNavigationItem: 8
+    }]
+  });
+
+  const moved = navigation.items.find((item) => item.keyNavigationItem === "suppliers");
+  assert.equal(moved?.idNavigationMenu, 2);
+  assert.equal(moved?.idParentNavigationItem, null);
+  assert.equal(moved?.orderNavigationItem, 8);
 });
 
 test("seleciona filhos ativos com rota independentemente do tipo", () => {
@@ -340,6 +482,26 @@ test("prioriza handler da chave quando a rota persistida é diferente", () => {
   };
 
   assert.equal(resolveNavigationHandler({}, "fiscal-operations"), keyHandler);
+});
+
+test("resolve rotas persistidas pelo handler onX correspondente", () => {
+  const updateHandler = () => "ncm-cest-update";
+  global.window = {
+    __PDV_NAVIGATION__: {
+      items: [{
+        idNavigationItem: 4,
+        keyNavigationItem: "ncm-cest-update",
+        routeNavigationItem: "ncm-cest-update",
+        isActiveNavigationItem: 1
+      }]
+    },
+    __PDV_NAVIGATION_HANDLERS__: {}
+  };
+
+  assert.equal(
+    resolveNavigationHandler({ onNcmCestUpdate: updateHandler }, "ncm-cest-update"),
+    updateHandler
+  );
 });
 
 test("mantém o handler global de saída quando a tela não o declara localmente", () => {

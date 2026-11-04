@@ -1,4 +1,5 @@
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
+import { renderNavigationIntro } from "../ui/navigation-intro.js";
 import { renderLucideIcons } from "../ui/icons.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { apiFetch, getApiUrl  } from "../shared/api.js";
@@ -81,13 +82,9 @@ export function createNcmCestUpdateScreen({ onBack, onTools, onProducts, onTherm
         <button class="classic-tool-button" data-back type="button">← Frente de caixa</button>
         <button class="classic-tool-button is-active" data-ncm-cest-update type="button">Atualizar NCM / CEST</button>
       </div>
-      <section class="classic-content">
+      <section class="classic-content ncm-cest-update-content">
         ${renderSuccessFeedback(message, escapeHtml)}
-        <div class="backoffice-home-heading">
-          <p class="eyebrow">Ferramentas</p>
-          <h1>Atualizar NCM / CEST</h1>
-          <p>Atualize os catálogos fiscais oficiais usados nas consultas e validações do PDV.</p>
-        </div>
+        ${renderNavigationIntro("ncm-cest-update", "Atualizar NCM / CEST", "Atualize os catálogos fiscais oficiais usados nas consultas e validações do PDV.")}
         <div class="classic-form-panel ncm-cest-update-panel">
           <div class="classic-panel-header">Atualização dos catálogos oficiais</div>
           <div class="classic-form-body">

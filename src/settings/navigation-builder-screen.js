@@ -1,10 +1,12 @@
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
+import { renderScreenContextBar } from "../ui/screen-context.js";
+import { renderNavigationIntro } from "../ui/navigation-intro.js";
 import { renderLucideIcons } from "../ui/icons.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
 import { apiFetch, getApiUrl  } from "../shared/api.js";
-import { mergeNavigationDefaults } from "../shared/navigation-defaults.js";
-import { getNavigationBuilderDividerIdsBeforeChildren } from "../shared/navigation-builder-order.js";
+import { normalizePersistedNavigation } from "../shared/navigation-defaults.js";
+import { moveNavigationSubtree } from "../shared/navigation-builder-state.js";
 import { renderPreservingScroll as preserveScroll } from "../ui/scroll-preservation.js";
 
 const escapeHtml = (value) => String(value ?? "")
@@ -35,7 +37,9 @@ export function createNavigationBuilderScreen({
   onNfce,
   onFinancial,
   onPaymentMethods,
-  onSuppliers
+  onSuppliers,
+  onCustomers,
+  onConsumers
 }) {
   const root = document.createElement("main");
   let navigation = { menus: [], items: [] };
@@ -78,7 +82,7 @@ export function createNavigationBuilderScreen({
     loading = true;
     render();
     try {
-      navigation = mergeNavigationDefaults(await request("/api/navigation?includeInactive=1"));
+      navigation = normalizePersistedNavigation(await request("/api/navigation?includeInactive=1"));
       syncPublishedNavigation();
       error = "";
     } catch (loadError) {
@@ -90,7 +94,7 @@ export function createNavigationBuilderScreen({
   };
 
   const syncPublishedNavigation = () => {
-    window.__PDV_NAVIGATION__ = mergeNavigationDefaults({
+    window.__PDV_NAVIGATION__ = normalizePersistedNavigation({
       menus: navigation.menus.filter((menu) => Number(menu.isActiveNavigationMenu) === 1),
       items: navigation.items.filter((item) => Number(item.isActiveNavigationItem) === 1)
     });
@@ -193,35 +197,26 @@ export function createNavigationBuilderScreen({
   const moveItemToMenu = (draggedId, targetMenuId) => {
     const item = navigation.items.find((entry) => String(entry.idNavigationItem) === String(draggedId));
     const targetMenu = navigation.menus.find((menu) => String(menu.idNavigationMenu) === String(targetMenuId));
-    if (!item || !targetMenu || item.idParentNavigationItem || ["bar", "divider"].includes(item.typeNavigationItem)
-      || String(item.idNavigationMenu) === String(targetMenu.idNavigationMenu)) return;
+    if (!item || !targetMenu) return;
+    const moved = moveNavigationSubtree(
+      navigation.items,
+      draggedId,
+      targetMenu.idNavigationMenu,
+      (entry) => getOrder(entry, "item")
+    );
+    if (!moved) return;
 
-    const sourceItems = navigation.items
-      .filter((entry) => String(entry.idNavigationMenu) === String(item.idNavigationMenu)
-        && !entry.idParentNavigationItem)
-      .sort((left, right) => getOrder(left, "item") - getOrder(right, "item"))
-      .filter((entry) => entry !== item);
-    item.idNavigationMenu = targetMenu.idNavigationMenu;
-    item.idParentNavigationItem = null;
-    const targetItems = navigation.items
-      .filter((entry) => String(entry.idNavigationMenu) === String(targetMenu.idNavigationMenu)
-        && !entry.idParentNavigationItem
-        && entry !== item)
-      .sort((left, right) => getOrder(left, "item") - getOrder(right, "item"));
-    targetItems.push(item);
-
-    [...sourceItems, ...targetItems].forEach((entry) => {
-      const entries = sourceItems.includes(entry) ? sourceItems : targetItems;
-      const order = entries.indexOf(entry) + 1;
-      pendingOrderChanges.set(orderKey("item", entry.idNavigationItem), order);
-      entry.orderNavigationItem = order;
-      setPendingItemOrder(entry.idNavigationItem, order);
+    [...moved.sourceRoots, ...moved.targetRoots].forEach((entry) => {
+      pendingOrderChanges.set(orderKey("item", entry.idNavigationItem), entry.orderNavigationItem);
+      setPendingItemOrder(entry.idNavigationItem, entry.orderNavigationItem);
     });
-    pendingItemChanges.set(orderKey("item", item.idNavigationItem), {
-      ...pendingItemChanges.get(orderKey("item", item.idNavigationItem)),
-      idNavigationMenu: targetMenu.idNavigationMenu,
-      idParentNavigationItem: null,
-      orderNavigationItem: targetItems.length
+    moved.subtree.forEach((entry) => {
+      pendingItemChanges.set(orderKey("item", entry.idNavigationItem), {
+        ...pendingItemChanges.get(orderKey("item", entry.idNavigationItem)),
+        idNavigationMenu: entry.idNavigationMenu,
+        idParentNavigationItem: entry.idParentNavigationItem || null,
+        orderNavigationItem: entry.orderNavigationItem
+      });
     });
     message = "Item movido. Clique em Salvar ordem para confirmar.";
     error = "";
@@ -251,7 +246,25 @@ export function createNavigationBuilderScreen({
           .map((key) => key.slice("item:".length)),
         ...[...pendingItemChanges.keys()].map((key) => key.slice("item:".length))
       ]);
-      for (const id of itemIds) {
+      const sortedItemIds = [...itemIds].sort((left, right) => {
+        const leftItem = navigation.items.find((entry) => String(entry.idNavigationItem) === String(left));
+        const rightItem = navigation.items.find((entry) => String(entry.idNavigationItem) === String(right));
+        const depth = (item) => {
+          let current = item;
+          let result = 0;
+          const seen = new Set();
+          while (current?.idParentNavigationItem && !seen.has(current.idNavigationItem)) {
+            seen.add(current.idNavigationItem);
+            current = navigation.items.find((entry) =>
+              String(entry.idNavigationItem) === String(current.idParentNavigationItem)
+            );
+            result += 1;
+          }
+          return result;
+        };
+        return depth(leftItem) - depth(rightItem);
+      });
+      for (const id of sortedItemIds) {
         const item = navigation.items.find((entry) => String(entry.idNavigationItem) === String(id));
         if (!item) continue;
         requests.push(request("/api/navigation/items", {
@@ -288,11 +301,8 @@ export function createNavigationBuilderScreen({
       return getOrder(a, "menu") - getOrder(b, "menu");
     });
     const items = [...navigation.items].sort((a, b) => getOrder(a, "item") - getOrder(b, "item"));
-    const renderNavigationItem = (item, childrenByParent, menuKey, siblings, index, dividerIdsBeforeChildren) => {
+    const renderNavigationItem = (item, childrenByParent, menuKey) => {
       const children = childrenByParent.get(String(item.idNavigationItem)) || [];
-      const nextSibling = siblings[index + 1];
-      const renderDividerBeforeChildren = nextSibling
-        && dividerIdsBeforeChildren.has(String(nextSibling.idNavigationItem));
       const isItemActive = Number(item.isActiveNavigationItem) === 1;
       const showsInBackofficeHome = Number(item.showsInBackofficeHomeNavigationItem) === 1;
       const isProtected = protectedNavigationMenuKeys.has(menuKey);
@@ -302,7 +312,7 @@ export function createNavigationBuilderScreen({
           <label class="form-field"><span>Nome exibido</span><input name="labelNavigationItem" value="${escapeHtml(item.labelNavigationItem)}" maxlength="120" required /></label>
           <label class="form-field"><span>Tipo</span><select name="typeNavigationItem">${itemTypes.map(([value, label]) => `<option value="${value}" ${value === item.typeNavigationItem ? "selected" : ""}>${label}</option>`).join("")}</select></label>
           <label class="form-field"><span>Rota</span><input name="routeNavigationItem" value="${escapeHtml(item.routeNavigationItem || "")}" maxlength="120" /></label>
-          <label class="form-field"><span>Descrição do atalho</span><textarea name="descriptionNavigationItem" maxlength="240" rows="2">${escapeHtml(item.descriptionNavigationItem || "")}</textarea></label>
+          <label class="form-field"><span>Texto introdutório da tela</span><textarea name="descriptionNavigationItem" maxlength="240" rows="3" placeholder="Explique a finalidade e o uso desta tela.">${escapeHtml(item.descriptionNavigationItem || "")}</textarea></label>
           <label class="form-field"><span>Ordem</span><input name="orderNavigationItem" type="number" min="1" value="${getOrder(item, "item")}" required /></label>
           <div class="navigation-builder-shortcut-field">
             <label class="navigation-builder-shortcut-switch">
@@ -344,33 +354,20 @@ export function createNavigationBuilderScreen({
           </div>
         </div>
       `;
-      const dividerRow = renderDividerBeforeChildren
-        ? renderNavigationItem(nextSibling, childrenByParent, menuKey, siblings, index + 1, dividerIdsBeforeChildren)
-        : "";
       const childrenMarkup = children.length
-        ? `<div class="navigation-builder-children">${renderNavigationItems(children, childrenByParent, menuKey, dividerIdsBeforeChildren)}</div>`
+        ? `<div class="navigation-builder-children">${renderNavigationItems(children, childrenByParent, menuKey)}</div>`
         : "";
-      return `${row}${dividerRow}${childrenMarkup}`;
+      return `${row}${childrenMarkup}`;
     };
-    const renderNavigationItems = (siblings, childrenByParent, menuKey, dividerIdsBeforeChildren) =>
-      siblings.map((item, index) => dividerIdsBeforeChildren.has(String(item.idNavigationItem))
-        ? ""
-        : renderNavigationItem(item, childrenByParent, menuKey, siblings, index, dividerIdsBeforeChildren)
-      ).join("");
+    const renderNavigationItems = (siblings, childrenByParent, menuKey) =>
+      siblings.map((item) => renderNavigationItem(item, childrenByParent, menuKey)).join("");
     root.className = "catalog-screen";
     root.innerHTML = `
       <header class="classic-titlebar"><strong>PDV - Construtor de Menu</strong><span>Operador: Operador</span></header>
       ${renderMainMenu()}
-      <div class="classic-toolbar">
-        <button class="classic-tool-button" data-back type="button">← Frente de caixa</button>
-        <strong>Construtor de menu principal</strong>
-      </div>
+      ${renderScreenContextBar("Construtor de navegação")}
       <section class="classic-content navigation-builder">
-        <div class="backoffice-home-heading navigation-builder-heading">
-          <p class="eyebrow">Configurações</p>
-          <h1>Menu principal</h1>
-          <p>Altere nomes, itens, submenus e a ordem da navegação. A barra contextual continua representando o terceiro nível do sistema.</p>
-        </div>
+        ${renderNavigationIntro("navigation-builder", "Construtor de navegação", "Edite menus, itens, submenus, divisores, rotas e ordens da navegação persistida do PDV.", "navigation-builder-heading")}
         ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}
         ${renderSuccessFeedback(message, escapeHtml)}
         <section class="classic-grid-panel">
@@ -402,12 +399,10 @@ export function createNavigationBuilderScreen({
                   if (!childrenByParent.has(key)) childrenByParent.set(key, []);
                   childrenByParent.get(key).push(item);
                 }
-                const dividerIdsBeforeChildren = getNavigationBuilderDividerIdsBeforeChildren(menuItems);
                 return renderNavigationItems(
                   childrenByParent.get("") || [],
                   childrenByParent,
-                  menu.keyNavigationMenu,
-                  dividerIdsBeforeChildren
+                  menu.keyNavigationMenu
                 );
               })()}
             </div>
@@ -426,7 +421,9 @@ export function createNavigationBuilderScreen({
       nfce: onNfce,
       financial: onFinancial,
       "payment-methods": onPaymentMethods,
-      suppliers: onSuppliers
+      suppliers: onSuppliers,
+      customers: onCustomers,
+      consumers: onConsumers
     });
     renderLucideIcons(root);
     bind();

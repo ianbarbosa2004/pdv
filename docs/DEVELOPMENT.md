@@ -26,6 +26,33 @@ O projeto não possui submenu visual. Menus principais devem abrir diretamente
 uma tela ou um agrupador técnico sem criar uma segunda camada visual dentro do
 menu. Quando uma área possuir telas relacionadas, elas devem ser exibidas em
 uma barra contextual própria da tela, seguindo o padrão de **Produtos**.
+Telas singleton também devem renderizar uma barra contextual com um único
+botão ativo, alinhado à esquerda. O texto desse botão, o título da tela e o
+título do painel introdutório devem ser idênticos. O conteúdo abaixo do menu
+principal deve manter centralização horizontal com `margin: 0 auto` e usar
+espaçamento lateral mínimo de `28px`, além de respeitar `max-width: 1440px` e
+`min-width: 1180px`, mantendo uma área de operação estável para as telas de
+retaguarda. O espaçamento vertical padrão dos contêineres é `28px` no topo e
+`40px` na base. A barra contextual
+deve ocupar a largura da tela e iniciar no extremo esquerdo, sem recuo baseado
+no conteúdo. O menu principal e a barra contextual não devem receber margem
+vertical adicional; painéis consecutivos devem manter espaçamento visual, e
+campos de URL devem ter largura suficiente para exibir endereços completos
+sem depender de expansão manual.
+Painéis irmãos na mesma tela devem usar separação vertical uniforme; no
+Construtor de navegação, linhas de menus e itens devem manter a mesma altura
+mínima para facilitar a leitura e o arraste.
+Nenhum menu pode receber `padding-top` especial por ser o primeiro; **Frente de
+Caixa** e os demais menus devem seguir exatamente o mesmo espaçamento.
+Nas telas de Status da API, Atualizar NCM / CEST, Backup e Restauração,
+Importar Cadastros, Configurações Gerais e Impressoras, o contêiner operacional
+deve seguir o limite de Dados da Empresa, com `min-width: 1180px` e
+`max-width: 1180px`, sem `width: 100%` explícito.
+Larguras internas de tabelas, campos e controles podem continuar ocupando sua
+própria área.
+O texto explicativo de cada tela deve vir de `descriptionNavigationItem` em
+`navigation_items`. A edição deve ser feita pelo campo **Texto introdutório da
+tela** do Construtor de navegação, sem duplicar a fonte de verdade nas telas.
 
 **Frente de Caixa** é o primeiro item fixo do menu principal. Ele fica sempre
 ativo, usa ordem `0` e abre diretamente a frente de caixa por meio de
@@ -219,12 +246,31 @@ ou capacidade emitida e validada pelo servidor, com autorização efetiva no
 backend. Até lá, recursos de servidor devem permanecer protegidos por suas
 rotas e configurações server-side existentes.
 
+### Consolidação da versão 0.10.0 — 2026-11-04
+
+O Construtor de navegação usa `navigation_menus` e `navigation_items` como
+fonte de verdade persistida. Leituras normais da API e do frontend não aplicam
+defaults sobre registros existentes e não reordenam itens salvos. Rotas,
+labels, menus, pais, tipos, status, divisores e ordens personalizados devem
+sobreviver à nova leitura e ao reinício da API.
+
+Defaults só podem criar registros ausentes no bootstrap ou montar o fallback
+quando a API estiver indisponível. O arraste entre menus deve mover a subárvore
+inteira, preservar os vínculos pai-filho e salvar pais antes dos filhos. A
+rotina antiga de normalização destrutiva não pode voltar ao caminho de startup.
+
+Esta etapa foi validada com 98 testes aprovados, `node --check` nos JavaScript
+alterados e `git diff --check`. Como houve alteração em `src/server/`, reinicie
+a API antes da validação operacional contra um banco de teste controlado. Não
+foi executado build completo, publicação ou reinício do serviço.
+
 ### Consolidação da versão 0.9.0 — 2026-11-03
 
 As alterações funcionais acumuladas em 2 e 3 de novembro devem ser tratadas
 como incremento **minor**, pois adicionam capacidades compatíveis ao produto:
 operadores e sessões, controle de caixa, cancelamento auditado, NFC-e em
-homologação, destino de impressão, importação de Status e regras de estoque.
+homologação, destino de impressão, importação de Status e Estado Físico, além
+das regras de estoque.
 O versionamento sincronizado deve permanecer em `package.json`,
 `package-lock.json`, `src-tauri/tauri.conf.json` e `src-tauri/Cargo.toml`.
 
@@ -236,7 +282,18 @@ positivo. Produtos com `controlsStockProduct = 0` permanecem visíveis em ambos
 os cenários. Chamadas administrativas com `includeInactive=1` não recebem esse
 filtro.
 
-Esta consolidação foi validada com 90 testes aprovados, `node --check` nos
+A importação CSV inclui `descriptionPhysicalState`, obrigatório para
+matérias-primas. A tela consulta `GET /api/physical-states`, aceita ID, nome,
+código ou descrição do estado físico ativo e oferece o download
+`referencia-estados-fisicos.md`. O servidor converte o valor para
+`idPhysicalStateProduct` e mantém `NULL` para os demais tipos de produto.
+O SKU continua obrigatório e único, mas não exige prefixos como `MP-`, `EMB-`
+ou `PROD-`. Após um erro de validação, o botão **Testar arquivo** permanece
+disponível para nova tentativa, a seleção anterior é descartada e o botão
+**Selecionar arquivo** permite escolher outro CSV; **Importar arquivo** só é
+habilitado depois de uma validação bem-sucedida.
+
+Esta consolidação foi validada com 94 testes aprovados, `node --check` nos
 JavaScript alterados e `git diff --check`. Como houve alteração em
 `src/server/`, a validação operacional exige publicar a API atualizada e
 reiniciar o serviço `PDV-API`; isso não foi executado nesta etapa. Não execute
@@ -906,9 +963,9 @@ tipo de produto **Produto Acabado** e operação fiscal padrão **Venda de
 produção**.
 
 Mercadoria para Revenda usa o prefixo inicial **REV-** para novos SKUs. A
-listagem é apresentada como **Mercadorias para Revenda**. Na migração para
-Produtos Acabados, os produtos existentes mantêm seus SKUs atuais, mas recebem
-o tipo **Produto Acabado** e a operação fiscal **Venda de produção**.
+listagem é apresentada como **Mercadorias para Revenda**. Produtos importados
+ou cadastrados como Mercadoria para Revenda devem permanecer nesse tipo e não
+podem ser convertidos automaticamente para Produtos Acabados.
 A barra é renderizada por `src/catalog/product-navigation.js`; o título
 permanece no cabeçalho da tela, sem repetir o título ou inserir separador
 vertical na barra.
@@ -955,7 +1012,8 @@ continuam disponíveis. Consultas administrativas com `includeInactive=1` não
 usam esse filtro.
 
 Na importação de produtos por CSV, o modelo inclui `printsPlace` e
-`isActiveProduct`. O local aceita `NÃO IMPRIMIR`, `BAR`, `COPA` ou `COZINHA`;
+`isActiveProduct`. O local aceita `NÃO IMPRIMIR`, `BAR`, `COPA` ou `COZINHA`,
+aceitando também a forma sem acento de `NÃO IMPRIMIR`;
 o status aceita `ATIVO` ou `INATIVO` (também `1`/`0`, `sim`/`não`) e usa
 `ATIVO` como padrão. A tela de importação disponibiliza os arquivos
 `referencia-locais-de-impressao.md` e `referencia-status-produtos.md`.
@@ -1159,8 +1217,8 @@ pelo roteamento compartilhado.
 
 Na tela **Matérias-primas**, um novo cadastro inicia com SKU `MP-`, sem operação
 fiscal de venda, **Controla estoque** desmarcado e **Exibe no PDV** desmarcado.
-O servidor também exige o prefixo `MP-` para produtos associados ao tipo
-**Matéria-Prima**. Nas quatro telas de produto, ao desmarcar **Controla
+O prefixo é apenas um valor inicial editável; o servidor não exige padrões como
+`MP-`, `EMB-`, `REV-` ou `PROD-`. Nas quatro telas de produto, ao desmarcar **Controla
 estoque**, o campo de estoque fica somente leitura e desabilitado; o valor
 existente é preservado ao salvar uma edição.
 

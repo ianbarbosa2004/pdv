@@ -1,4 +1,6 @@
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
+import { renderScreenContextBar } from "../ui/screen-context.js";
+import { renderNavigationIntro } from "../ui/navigation-intro.js";
 import { setProjectIcon } from "../ui/project-icon.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { renderPreservingFormDraft } from "../ui/form-draft.js";
@@ -170,17 +172,10 @@ export function createCompanyScreen({
         <span>Operador: Operador</span>
       </header>
       ${renderMainMenu()}
-      <div class="classic-toolbar">
-        <button class="classic-tool-button" data-back type="button">← Frente de caixa</button>
-        <strong>Configurações do sistema</strong>
-      </div>
+      ${renderScreenContextBar("Dados da Empresa")}
       <section class="classic-content company-content">
         ${renderSuccessFeedback(message, escapeHtml)}
-        <div class="backoffice-home-heading">
-          <p class="eyebrow">Configurações</p>
-          <h1>Cadastro da empresa</h1>
-          <p>Informe os dados cadastrais e a identidade visual usados pelo PDV e pelos documentos fiscais.</p>
-        </div>
+        ${renderNavigationIntro("company", "Dados da Empresa", "Informe os dados cadastrais e a identidade visual usados pelo PDV e pelos documentos fiscais.")}
         <form class="classic-form-panel company-form" data-form>
           <div class="classic-panel-header">Dados da empresa</div>
           <div class="classic-form-body">

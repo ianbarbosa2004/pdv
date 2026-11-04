@@ -1,4 +1,6 @@
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
+import { renderScreenContextBar } from "../ui/screen-context.js";
+import { renderNavigationIntro } from "../ui/navigation-intro.js";
 import { renderLucideIcons } from "../ui/icons.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { renderPreservingFormDraft } from "../ui/form-draft.js";
@@ -48,17 +50,10 @@ export function createNfceScreen({
         <span>Operador: Operador</span>
       </header>
       ${renderMainMenu()}
-      <div class="classic-toolbar">
-        <button class="classic-tool-button" data-back type="button">← Frente de caixa</button>
-        <strong>Configurações do sistema</strong>
-      </div>
+      ${renderScreenContextBar("NFC-e")}
       <section class="classic-content company-content">
         ${renderSuccessFeedback(message, escapeHtml)}
-        <div class="backoffice-home-heading">
-          <p class="eyebrow">Configurações</p>
-          <h1>Configuração NFC-e</h1>
-          <p>Defina os parâmetros fiscais e o certificado usados para emissão de NFC-e.</p>
-        </div>
+        ${renderNavigationIntro("nfce", "NFC-e", "Defina os parâmetros fiscais e o certificado usados para emissão de NFC-e.")}
         <form class="classic-form-panel company-form" data-form>
           <div class="classic-panel-header">Fiscal - NFC-e</div>
           <div class="classic-form-body">

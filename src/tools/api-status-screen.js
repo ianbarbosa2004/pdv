@@ -1,4 +1,6 @@
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
+import { renderScreenContextBar } from "../ui/screen-context.js";
+import { renderNavigationIntro } from "../ui/navigation-intro.js";
 import { apiFetch, getApiUrl  } from "../shared/api.js";
 import { buildInfo } from "../shared/build-info.js";
 
@@ -64,7 +66,7 @@ export function createApiStatusScreen({
   };
 
   const render = () => {
-    root.className = "catalog-screen settings-screen";
+    root.className = "catalog-screen settings-screen api-status-screen";
     const isConnected = status?.ok === true;
     root.innerHTML = `
       <header class="classic-titlebar">
@@ -72,16 +74,9 @@ export function createApiStatusScreen({
         <span>Operador: Operador</span>
       </header>
       ${renderMainMenu()}
-      <div class="classic-toolbar">
-        <button class="classic-tool-button" data-back type="button">← Frente de caixa</button>
-        <strong>Ferramentas do sistema</strong>
-      </div>
-      <section class="settings-content">
-        <div class="backoffice-home-heading">
-          <p class="eyebrow">Ferramentas</p>
-          <h1>Status da API</h1>
-          <p>Consulte a disponibilidade do servidor do PDV e da conexão com o MariaDB.</p>
-        </div>
+      ${renderScreenContextBar("Status da API")}
+      <section class="settings-content api-status-content">
+        ${renderNavigationIntro("api-status", "Status da API", "Consulte a disponibilidade do servidor do PDV e da conexão com o MariaDB.")}
         <section class="classic-form-panel api-status-panel" aria-live="polite">
           <div class="classic-panel-header">Disponibilidade do serviço</div>
           <div class="classic-form-body">

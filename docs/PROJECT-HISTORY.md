@@ -7,13 +7,49 @@ inicial do produto até o estado atual do workspace. Ele complementa o
 
 ## 0. Estado mais recente
 
+### Construtor de navegação persistido — 2026-11-04
+
+As tabelas `navigation_menus` e `navigation_items` passaram a ser a fonte de
+verdade das leituras normais. A API devolve as linhas persistidas e o frontend
+somente normaliza o formato do payload, sem criar, remover, reordenar ou
+corrigir itens depois de uma resposta válida.
+
+Rotas, labels, menus, pais, tipos, status, divisores e ordens personalizados
+agora sobrevivem à nova leitura e ao reinício da API. Defaults são usados
+somente para criar registros ausentes no bootstrap ou para montar o fallback
+quando a API está indisponível. O arraste entre menus move a subárvore inteira,
+mantém os vínculos pai-filho e salva pais antes dos descendentes.
+
+A rotina legada de normalização destrutiva foi retirada do caminho executado
+durante o startup. Esta etapa foi classificada como incremento compatível e
+versionada como **0.10.0**. A validação alcançou 99 testes aprovados,
+`node --check` nos JavaScript alterados e `git diff --check`.
+
+A API foi publicada e reiniciada pelo operador, o serviço `PDV-API` está em
+execução e os bundles do cliente foram gerados. A chamada sem o token
+compartilhado foi rejeitada com HTTP 401, confirmando a proteção da API. A
+validação autenticada de banco não foi repetida nesta sessão porque o token
+operacional não está disponível; ele não deve ser registrado ou exposto. O
+build oficial posterior ficou bloqueado por `EPERM` porque o aplicativo
+instalado mantém `dist\releases` em uso; a compilação Vite em diretório
+alternativo foi concluída com sucesso.
+
+Os textos introdutórios das telas passaram a usar `descriptionNavigationItem`
+em `navigation_items`, mantendo a tabela como fonte de verdade também para a
+apresentação. O Construtor de navegação expõe o campo **Texto introdutório da
+tela**, e a sincronização de defaults não substitui descrições editadas.
+Esta etapa foi validada com 101 testes, `node --check`, `git diff --check` e o
+detector visual do Impeccable. Como houve alteração em `src/server/`, a API
+publicada deve ser reiniciada depois da publicação; como houve alteração de
+frontend, um novo bundle será necessário para os terminais.
+
 ### Consolidação funcional e versionamento — 2026-11-03
 
 As alterações acumuladas em 2 e 3 de novembro consolidam uma nova capacidade
 compatível e justificam a versão **0.9.0**: autenticação e sessão de operadores,
 abertura e fechamento de caixa, cancelamento auditado, integração NFC-e em
-homologação, cadastro/importação de produtos e destino de impressão, além das
-regras de baixa e disponibilidade de estoque.
+homologação, cadastro/importação de produtos, Estado Físico e destino de
+impressão, além das regras de baixa e disponibilidade de estoque.
 
 Na regra de estoque, `controlsStockProduct` é lido antes da validação e da
 baixa. A configuração `allowNegativeStock` também é aplicada à consulta
@@ -25,9 +61,12 @@ preservam o catálogo completo.
 
 O campo de destino de impressão foi consolidado como `printsPlace`, com
 migração idempotente do campo booleano legado, valores fechados e padrão
-`NÃO IMPRIMIR`. A importação CSV aceita também Status, com referências
-operacionais geradas pela interface. A validação final desta etapa alcançou
-90 testes aprovados, verificação de sintaxe JavaScript e `git diff --check`.
+`NÃO IMPRIMIR`. A importação CSV aceita também Status e
+`descriptionPhysicalState`; para matérias-primas, o estado físico é resolvido
+por ID, nome, código ou descrição ativa e persistido em `idPhysicalStateProduct`.
+A interface oferece o download `referencia-estados-fisicos.md`. A validação
+final desta etapa alcançou 94 testes aprovados, verificação de sintaxe
+JavaScript e `git diff --check`.
 Não foi executado build, publicação ou reinício do serviço; alterações em
 `src/server/` exigem publicar a API e reiniciar `PDV-API`, enquanto alterações
 somente de frontend exigem novo bundle nos terminais.

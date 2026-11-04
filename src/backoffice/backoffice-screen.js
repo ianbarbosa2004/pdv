@@ -76,6 +76,7 @@ export function createBackofficeScreen({
   onThermalPrint,
   onNcmCestUpdate,
   onApiStatus,
+  onBackup,
   onSettings,
   onGeneralSettings,
   onCompany,
@@ -164,7 +165,15 @@ export function createBackofficeScreen({
     company: onCompany,
     nfce: onNfce,
     "nfce-query": onNfceQuery,
-    "payment-methods": onPaymentMethods
+    "payment-methods": onPaymentMethods,
+    suppliers: onSuppliers,
+    customers: onCustomers,
+    consumers: onConsumers,
+    "api-status": onApiStatus,
+    "thermal-print": onThermalPrint,
+    "ncm-cest-update": onNcmCestUpdate,
+    "navigation-builder": onNavigationBuilder,
+    backup: onBackup
   });
   root.querySelector("[data-back]")?.addEventListener("click", onBack);
   root.querySelectorAll("[data-shortcut-key]").forEach((button) => {
@@ -194,7 +203,15 @@ export function createBackofficeScreen({
       company: onCompany,
       nfce: onNfce,
       "nfce-query": onNfceQuery,
-      "payment-methods": onPaymentMethods
+      "payment-methods": onPaymentMethods,
+      suppliers: onSuppliers,
+      customers: onCustomers,
+      consumers: onConsumers,
+      "api-status": onApiStatus,
+      "thermal-print": onThermalPrint,
+      "ncm-cest-update": onNcmCestUpdate,
+      "navigation-builder": onNavigationBuilder,
+      backup: onBackup
     });
     root.querySelector("[data-back]")?.addEventListener("click", onBack);
     root.querySelectorAll("[data-shortcut-key]").forEach((button) => {

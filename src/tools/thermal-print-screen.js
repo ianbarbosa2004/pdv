@@ -1,5 +1,6 @@
 import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
+import { renderNavigationIntro } from "../ui/navigation-intro.js";
 import { invoke } from "@tauri-apps/api/core";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { apiFetch, getApiUrl  } from "../shared/api.js";
@@ -132,11 +133,7 @@ export function createThermalPrintScreen({
       <div class="classic-toolbar"><button class="classic-tool-button" data-back type="button">← Frente de caixa</button><button class="classic-tool-button is-active" data-thermal-print type="button">Montagem de cupom</button></div>
       <section class="thermal-print-content">
         ${renderSuccessFeedback(message, escapeHtml)}
-        <div class="backoffice-home-heading">
-          <p class="eyebrow">Ferramentas</p>
-          <h1>Montagem de cupom</h1>
-          <p>Escolha os campos, organize a sequência e defina a formatação de cada linha para a impressora térmica de 80 mm.</p>
-        </div>
+        ${renderNavigationIntro("thermal-print", "Impressão térmica", "Configure a montagem e a impressão local dos comprovantes do PDV.")}
         <div class="receipt-builder-layout">
           <section class="classic-form-panel receipt-library-panel">
             <div class="classic-panel-header">Campos disponíveis</div>

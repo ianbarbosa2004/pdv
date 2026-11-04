@@ -34,7 +34,10 @@ import {
   getApiUrl,
   loadConfiguredApiUrl
 } from "./shared/api.js";
-import { ensureApiStatusNavigation } from "./shared/navigation-defaults.js";
+import {
+  buildFallbackNavigation,
+  normalizePersistedNavigation
+} from "./shared/navigation-defaults.js";
 import {
   createEnvironmentSelectionScreen,
   createOperatorLoginScreen
@@ -168,8 +171,12 @@ const showEnvironmentSelection = () => mount(createEnvironmentSelectionScreen({
     showLogin();
   }
 }));
+let startupReady = Promise.resolve();
 const showLogin = () => mount(createOperatorLoginScreen({
-  onAuthenticated: showEnvironmentSelection
+  onAuthenticated: async () => {
+    await startupReady;
+    showEnvironmentSelection();
+  }
 }));
 const showSettings = () =>
   mount(createSettingsScreen({ onBack: showBackoffice, ...common() }));
@@ -526,7 +533,7 @@ const loadNavigation = async () => {
   if (!response.ok || !Array.isArray(payload.menus) || !Array.isArray(payload.items)) {
     throw new Error("A API retornou uma navegação inválida.");
   }
-  window.__PDV_NAVIGATION__ = ensureApiStatusNavigation(payload);
+  window.__PDV_NAVIGATION__ = normalizePersistedNavigation(payload);
   window.__PDV_NAVIGATION_SOURCE__ = "api";
 };
 
@@ -545,17 +552,21 @@ const checkApiHealth = async () => {
 
 const startApplication = async () => {
   installCloseBackupPrompt();
-  try {
-    await loadNavigation();
-  } catch {
-    window.__PDV_NAVIGATION__ = ensureApiStatusNavigation({ menus: [], items: [] });
-    window.__PDV_NAVIGATION_SOURCE__ = "unavailable";
-  }
-  await loadProjectIcon(getApiUrl()).catch(() => {});
-  showLogin();
+  startupReady = loadConfiguredApiUrl()
+    .catch(() => {})
+    .then(() => {
+      const apiUrlField = app.querySelector("[data-api-config-form] input[name='apiUrl']");
+      if (apiUrlField) apiUrlField.value = getApiUrl();
+      return Promise.all([
+        loadNavigation().catch(() => {
+          window.__PDV_NAVIGATION__ = buildFallbackNavigation({ menus: [], items: [] });
+          window.__PDV_NAVIGATION_SOURCE__ = "unavailable";
+        }),
+        loadProjectIcon(getApiUrl()).catch(() => {})
+      ]);
+    });
+    showLogin();
+    await startupReady;
 };
 
-void loadConfiguredApiUrl()
-  .catch(() => {})
-  .then(startApplication)
-  .catch(() => showSales({ initialApiError: true }));
+void startApplication().catch(() => showSales({ initialApiError: true }));

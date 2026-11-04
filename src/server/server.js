@@ -13,9 +13,7 @@ import {
   runNfceHomologationTest
 } from "./nfce-test-service.js";
 import {
-  DEFAULT_NAVIGATION,
   isNavigationKey,
-  mergeNavigationDefaults,
   normalizeNavigationKey
 } from "../shared/navigation-defaults.js";
 import {
@@ -52,6 +50,10 @@ import {
   openCashSession,
   requireOperatorSession
 } from "./cash-service.js";
+import {
+  DEFAULT_PRINT_PLACE,
+  normalizePrintPlace
+} from "../shared/print-place.js";
 
 const packageJson = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
 const applicationVersion = String(packageJson.version);
@@ -380,8 +382,6 @@ const parseBooleanFlag = (value, fieldName, fallback = false) => {
   return value === true || value === 1 || value === "1" || value === "true" ? 1 : 0;
 };
 
-const PRINT_PLACES = ["NÃO IMPRIMIR", "BAR", "COPA", "COZINHA"];
-const DEFAULT_PRINT_PLACE = "NÃO IMPRIMIR";
 const CONFIGURABLE_PRINT_PLACE_TYPES = new Set([
   "MERCADORIA PARA REVENDA",
   "PRODUTO ACABADO",
@@ -389,10 +389,12 @@ const CONFIGURABLE_PRINT_PLACE_TYPES = new Set([
 ]);
 
 const parsePrintPlace = (value, fieldName = "Local de impressão", fallback = DEFAULT_PRINT_PLACE) => {
-  const normalized = value === undefined || value === null || value === ""
-    ? fallback
-    : String(value).trim().toLocaleUpperCase("pt-BR");
-  if (!PRINT_PLACES.includes(normalized)) throw new SaleValidationError(`${fieldName} inválido.`);
+  const normalized = normalizePrintPlace(value, fallback);
+  if (!normalized) {
+    throw new SaleValidationError(
+      `${fieldName} inválido. Use: NÃO IMPRIMIR, BAR, COPA ou COZINHA.`
+    );
+  }
   return normalized;
 };
 
@@ -1074,9 +1076,7 @@ const server = createServer(async (request, response) => {
          ${includeInactive ? "" : "WHERE isActiveNavigationItem = 1"}
          ORDER BY idNavigationMenu, COALESCE(idParentNavigationItem, 0), orderNavigationItem, idNavigationItem`
       );
-      json(response, 200, includeInactive
-        ? mergeNavigationDefaults({ menus, items })
-        : { menus, items });
+      json(response, 200, { menus, items });
     } catch (error) {
       handleError(response, error, {
         log: "Falha ao consultar a estrutura de navegação:",
@@ -3129,6 +3129,7 @@ const server = createServer(async (request, response) => {
       const idUnitProduct = parsePositiveId(payload.idUnitProduct);
       if (!nameProduct || nameProduct.length > 180 || !skuProduct || skuProduct.length > 64 || !idGroup || (ncmProduct && !/^\d{8}$/.test(ncmProduct)) || (cestProduct && !/^\d{7}$/.test(cestProduct))) throw new SaleValidationError("Nome, SKU, grupo, NCM ou CEST inválidos.");
       await ensureProductCatalogSchema();
+      await ensureCulinarySchema();
       const allowNegativeStock = await getGeneralSettingBoolean("allowNegativeStock");
       const costPriceProduct = parseMoney(payload.costPriceProduct ?? "0", "Preço de custo");
       const controlsStockProduct = parseBooleanFlag(payload.controlsStockProduct, "Controla estoque", true);
@@ -3160,9 +3161,6 @@ const server = createServer(async (request, response) => {
       const priceProduct = nonSaleProduct
         ? costPriceProduct
         : parseMoney(payload.priceProduct, "Preço");
-      if (uppercaseText(productTypeRows[0]?.descriptionProductType) === "MATÉRIA-PRIMA" && !/^MP-/i.test(skuProduct)) {
-        throw new SaleValidationError("O SKU de matéria-prima deve começar com MP-.");
-      }
       const [unitRows] = await pool.query("SELECT idUnit FROM units WHERE idUnit = ? AND isActiveUnit = 1", [idUnitProduct]);
       if (idUnitProduct && !unitRows.length) throw new SaleValidationError("Unidade tributável não encontrada.", 409);
       if (idFiscalOperationSaleProduct) {
@@ -3215,6 +3213,7 @@ const server = createServer(async (request, response) => {
         throw new SaleValidationError("Informe entre 1 e 1000 produtos para importar.");
       }
       await ensureProductCatalogSchema();
+      await ensureCulinarySchema();
       const allowNegativeStock = await getGeneralSettingBoolean("allowNegativeStock");
       connection = await pool.getConnection();
       await connection.beginTransaction();
@@ -3229,6 +3228,7 @@ const server = createServer(async (request, response) => {
         const descriptionGroup = typeof row.descriptionGroup === "string" ? uppercaseText(row.descriptionGroup) : "";
         const descriptionFiscalOperation = typeof row.descriptionFiscalOperation === "string" ? uppercaseText(row.descriptionFiscalOperation) : "";
         const descriptionProductType = typeof row.descriptionProductType === "string" ? uppercaseText(row.descriptionProductType) : "";
+        const descriptionPhysicalState = typeof row.descriptionPhysicalState === "string" ? uppercaseText(row.descriptionPhysicalState) : "";
         const codeUnit = typeof row.codeUnit === "string" ? row.codeUnit.trim().toUpperCase() : "";
         const ncmProduct = typeof row.ncmProduct === "string" ? row.ncmProduct.replace(/\D/g, "") : "";
         const cestProduct = typeof row.cestProduct === "string" ? row.cestProduct.replace(/\D/g, "") : "";
@@ -3313,15 +3313,30 @@ const server = createServer(async (request, response) => {
         if (descriptionProductType && !typeRows.length) {
           throw new SaleValidationError(`Linha ${line}: tipo de produto ou Código SPED "${descriptionProductType}" não encontrado.`);
         }
+        const isRawMaterial = uppercaseText(typeRows[0]?.descriptionProductType) === "MATÉRIA-PRIMA";
+        const physicalStateId = parsePositiveId(descriptionPhysicalState);
+        const [physicalStateRows] = descriptionPhysicalState
+          ? await connection.query(
+            `SELECT idPhysicalState, namePhysicalState, codePhysicalState, descriptionPhysicalState
+             FROM physical_states
+             WHERE isActivePhysicalState = 1
+               AND (idPhysicalState = ? OR namePhysicalState = ? OR codePhysicalState = ? OR descriptionPhysicalState = ?)
+             LIMIT 1`,
+            [physicalStateId, descriptionPhysicalState, descriptionPhysicalState, descriptionPhysicalState]
+          )
+          : [[]];
+        if (descriptionPhysicalState && !physicalStateRows.length) {
+          throw new SaleValidationError(`Linha ${line}: estado físico "${descriptionPhysicalState}" não encontrado.`);
+        }
+        if (isRawMaterial && !physicalStateRows.length) {
+          throw new SaleValidationError(`Linha ${line}: Estado Físico é obrigatório para matéria-prima.`);
+        }
         const printsPlace = resolvePrintPlace(
           row.printsPlace,
           typeRows[0]?.descriptionProductType,
           parseImportBoolean(row.printsKitchenProduct, 0, "Imprime na cozinha")
         );
         const nonSaleProduct = isNonSaleProductType(typeRows[0]?.descriptionProductType);
-        if (uppercaseText(typeRows[0]?.descriptionProductType) === "MATÉRIA-PRIMA" && !/^MP-/i.test(skuProduct)) {
-          throw new SaleValidationError(`Linha ${line}: o SKU de matéria-prima deve começar com MP-.`);
-        }
         const [unitRows] = codeUnit
           ? await connection.query(
             `SELECT idUnit FROM units
@@ -3379,7 +3394,8 @@ const server = createServer(async (request, response) => {
           [
             groupRows[0].idGroup, skuProduct, pdvCodeProduct, nameProduct,
             fiscalRows[0]?.idFiscalOperation || null, typeRows[0]?.idProductType || null,
-            null, unitRows[0]?.idUnit || null, ncmProduct || null, cestProduct || null,
+            isRawMaterial ? physicalStateRows[0].idPhysicalState : null,
+            unitRows[0]?.idUnit || null, ncmProduct || null, cestProduct || null,
             priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct,
             printsPlace, showsInPdvProduct, isActiveProduct
           ]
@@ -3422,6 +3438,7 @@ const server = createServer(async (request, response) => {
       const idUnitProduct = parsePositiveId(payload.idUnitProduct);
       if (!idProduct || !nameProduct || nameProduct.length > 180 || !skuProduct || skuProduct.length > 64 || !idGroup || (ncmProduct && !/^\d{8}$/.test(ncmProduct)) || (cestProduct && !/^\d{7}$/.test(cestProduct))) throw new SaleValidationError("Produto, nome, SKU, grupo, NCM ou CEST inválidos.");
       await ensureProductCatalogSchema();
+      await ensureCulinarySchema();
       const allowNegativeStock = await getGeneralSettingBoolean("allowNegativeStock");
       const costPriceProduct = parseMoney(payload.costPriceProduct ?? "0", "Preço de custo");
       const controlsStockProduct = parseBooleanFlag(payload.controlsStockProduct, "Controla estoque", true);
@@ -3453,9 +3470,6 @@ const server = createServer(async (request, response) => {
       const priceProduct = nonSaleProduct
         ? costPriceProduct
         : parseMoney(payload.priceProduct, "Preço");
-      if (uppercaseText(productTypeRows[0]?.descriptionProductType) === "MATÉRIA-PRIMA" && !/^MP-/i.test(skuProduct)) {
-        throw new SaleValidationError("O SKU de matéria-prima deve começar com MP-.");
-      }
       const [unitRows] = await pool.query("SELECT idUnit FROM units WHERE idUnit = ? AND isActiveUnit = 1", [idUnitProduct]);
       if (idUnitProduct && !unitRows.length) throw new SaleValidationError("Unidade tributável não encontrada.", 409);
       if (idFiscalOperationSaleProduct) {
@@ -4049,6 +4063,7 @@ server.listen(config.apiPort, config.apiHost, () => {
     ensureNcmCestSchema(),
     ensureProductFiscalSchema(),
     ensureProductCatalogSchema(),
+    ensureCulinarySchema(),
     ensurePrinterSettingsSchema(),
     ensureGeneralSettingsSchema().then(loadGeneralSourceSettings),
     ensureCompanySchema(),

@@ -9,7 +9,8 @@ const financialNavigation = [
 ];
 
 export const renderFinancialNavigation = (active) => {
-  const items = getContextualNavigationItems("financial", financialNavigation);
+  const items = getContextualNavigationItems("financial", financialNavigation)
+    .filter(([key]) => key !== "financial");
   return `
     <div class="classic-toolbar">
       ${renderContextualNavigationItems(items, active, "financial-nav")}
