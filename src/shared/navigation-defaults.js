@@ -10,7 +10,7 @@ const menu = (key, label, order) => ({
   isActiveNavigationMenu: 1
 });
 
-const item = (menuKey, key, label, route, order, parentKey = null, type = "item") => ({
+const item = (menuKey, key, label, route, order, parentKey = null, type = "item", description = null) => ({
   menuKey,
   keyNavigationItem: key,
   labelNavigationItem: label,
@@ -18,7 +18,7 @@ const item = (menuKey, key, label, route, order, parentKey = null, type = "item"
   orderNavigationItem: order,
   parentKey,
   typeNavigationItem: type,
-  descriptionNavigationItem: null,
+  descriptionNavigationItem: description,
   isActiveNavigationItem: 1,
   showsInBackofficeHomeNavigationItem: 0
 });
@@ -70,28 +70,33 @@ export const DEFAULT_NAVIGATION = Object.freeze({
     item("cadastros", "exemption-reasons", "Desoneração", "exemption-reasons", 12, "fiscal-operations", "bar"),
     item("cadastros", "financial", "Financeiros", "financial", 3),
     item("cadastros", "payment-methods", "Formas de pagamento", "payment-methods", 1, "financial", "bar"),
-    item("cadastros", "suppliers", "Fornecedores", "suppliers", 4),
-    item("cadastros", "customers", "Clientes", "customers", 5),
-    item("cadastros", "consumers", "Consumidores", "consumers", 6),
-    item("settings", "settings", "Impressoras", "settings", 1),
-    item("settings", "general-settings", "Configurações Gerais", "general-settings", 2),
-    item("settings", "company", "Dados da Empresa", "company", 3),
-    item("settings", "nfce", "NFC-e", "nfce", 4),
-    item("settings", "navigation-builder", "Construtor de navegação", "navigation-builder", 5),
-    item("tools", "ncm-cest-update", "Atualizar NCM / CEST", "ncm-cest-update", 1),
-    item("tools", "api-status", "Status da API", "api-status", 2),
-    item("tools", "thermal-print", "Impressão térmica", "thermal-print", 3),
-    item("tools", "nfce-query", "Consulta de NFC-e", "nfce-query", 4),
-    item("tools", "import-catalogs", "Importar cadastros", "import-catalogs", 5),
-    item("tools", "backup", "Backup e restauração", "backup", 6),
-    item("tools", "views", "Views", null, 7),
-    item("tools", "groups-products", "Grupos x Produtos", "groups-products", 1, "views", "bar"),
-    item("tools", "no-cost", "Sem Custo", "no-cost", 2, "views", "bar"),
-    item("tools", "no-physical-state", "Sem Estado Físico", "no-physical-state", 3, "views", "bar")
+    item("cadastros", "suppliers", "Fornecedores", "suppliers", 4, null, "bar", "Cadastre e consulte fornecedores, contatos e dados fiscais usados nas compras e no estoque."),
+    item("cadastros", "customers", "Clientes", "customers", 5, null, "bar", "Cadastre e consulte clientes para identificar vendas, contatos e condições comerciais."),
+    item("cadastros", "consumers", "Consumidores", "consumers", 6, null, "bar", "Cadastre e consulte consumidores para identificar atendimentos e vínculos com clientes."),
+    item("settings", "settings", "Impressoras", "settings", 1, null, "bar", "Defina as impressoras padrão usadas pelo PDV em cupons, comprovantes e relatórios."),
+    item("settings", "general-settings", "Configurações Gerais", "general-settings", 2, null, "bar", "Defina regras gerais de funcionamento compartilhadas por todos os terminais do PDV."),
+    item("settings", "company", "Dados da Empresa", "company", 3, null, "bar", "Informe os dados cadastrais e a identidade visual usados pelo PDV e pelos documentos fiscais."),
+    item("settings", "nfce", "NFC-e", "nfce", 4, null, "bar", "Defina os parâmetros fiscais e o certificado usados para emissão de NFC-e."),
+    item("settings", "navigation-builder", "Construtor de navegação", "navigation-builder", 5, null, "bar", "Edite menus, itens, submenus, divisores, rotas e ordens da navegação persistida do PDV."),
+    item("tools", "ncm-cest-update", "Atualizar NCM / CEST", "ncm-cest-update", 1, null, "bar", "Atualize os catálogos fiscais oficiais usados nas consultas e validações do PDV."),
+    item("tools", "api-status", "Status da API", "api-status", 2, null, "bar", "Consulte a disponibilidade do servidor do PDV e da conexão com o MariaDB."),
+    item("tools", "thermal-print", "Impressão térmica", "thermal-print", 3, null, "bar", "Configure a montagem e a impressão local dos comprovantes do PDV."),
+    item("tools", "nfce-query", "Consulta de NFC-e", "nfce-query", 4, null, "bar", "Confira os dados exibidos pelo portal oficial antes de usar a nota em uma futura entrada de compras."),
+    item("tools", "import-catalogs", "Importar cadastros", "import-catalogs", 5, null, "bar", "Use o modelo CSV para validar e importar produtos em lote."),
+    item("tools", "backup", "Backup e restauração", "backup", 6, null, "bar", "Crie, baixe e restaure cópias compactadas do banco de dados."),
+    item("tools", "views", "Views", null, 7, null, "item", "Consulte e trate listas operacionais de produtos com filtros específicos."),
+    item("tools", "groups-products", "Grupos x Produtos", "groups-products", 1, "views", "bar", "Organize, pesquise e mantenha os produtos por classe e grupo."),
+    item("tools", "no-cost", "Sem Custo", "no-cost", 2, "views", "bar", "Localize produtos ativos sem preço de custo informado."),
+    item("tools", "no-physical-state", "Sem Estado Físico", "no-physical-state", 3, "views", "bar", "Localize matérias-primas sem estado físico definido para conversões culinárias.")
   ]
 });
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
+
+export const normalizePersistedNavigation = (navigation) => ({
+  menus: Array.isArray(navigation?.menus) ? navigation.menus.map((menu) => ({ ...menu })) : [],
+  items: Array.isArray(navigation?.items) ? navigation.items.map((item) => ({ ...item })) : []
+});
 
 const matches = (entry, definition) =>
   normalizeNavigationKey(entry.keyNavigationItem) === normalizeNavigationKey(definition.keyNavigationItem)
@@ -143,27 +148,42 @@ export const mergeNavigationDefaults = (navigation) => {
 
   for (const definition of DEFAULT_NAVIGATION.items) {
     const menuId = menuIds.get(definition.menuKey);
-    const persistedIndex = persistedItems.findIndex((entry, index) =>
-      !consumedPersistedItems.has(index)
-      && String(entry.idNavigationMenu) === String(menuId)
-      && matches(entry, definition)
+    const findPersistedIndex = (matcher) => persistedItems.findIndex((entry, index) =>
+      !consumedPersistedItems.has(index) && matcher(entry)
     );
-    const fallbackPersistedIndex = persistedIndex >= 0
+    const canonical = (entry) =>
+      normalizeNavigationKey(entry.keyNavigationItem) === normalizeNavigationKey(definition.keyNavigationItem);
+    const sameMenu = (entry) => String(entry.idNavigationMenu) === String(menuId);
+    const persistedIndex = findPersistedIndex((entry) => sameMenu(entry) && canonical(entry));
+    const movedPersistedIndex = persistedIndex >= 0
       ? persistedIndex
-      : persistedItems.findIndex((entry, index) =>
-        !consumedPersistedItems.has(index) && matches(entry, definition)
-      );
+      : findPersistedIndex(canonical);
+    const legacyPersistedIndex = movedPersistedIndex >= 0
+      ? movedPersistedIndex
+      : findPersistedIndex((entry) => sameMenu(entry) && matches(entry, definition));
+    const fallbackPersistedIndex = legacyPersistedIndex >= 0
+      ? legacyPersistedIndex
+      : findPersistedIndex((entry) => matches(entry, definition));
     const persisted = fallbackPersistedIndex >= 0 ? persistedItems[fallbackPersistedIndex] : null;
     if (fallbackPersistedIndex >= 0) consumedPersistedItems.add(fallbackPersistedIndex);
-    const parentId = definition.parentKey ? itemIds.get(`${definition.menuKey}:${definition.parentKey}`) : null;
+    const defaultParentId = definition.parentKey
+      ? itemIds.get(`${definition.menuKey}:${definition.parentKey}`)
+      : null;
+    const hasCanonicalIdentity = persisted
+      && normalizeNavigationKey(persisted.keyNavigationItem) === normalizeNavigationKey(definition.keyNavigationItem);
+    const hasPersistedParent = hasCanonicalIdentity
+      && Object.hasOwn(persisted, "idParentNavigationItem");
+    const hasPersistedMenu = hasCanonicalIdentity
+      && Object.hasOwn(persisted, "idNavigationMenu");
     const merged = {
       ...clone(definition),
       ...(persisted || {}),
-      idNavigationMenu: menuId,
-      idParentNavigationItem: parentId,
+      idNavigationMenu: hasPersistedMenu ? persisted.idNavigationMenu : menuId,
+      idParentNavigationItem: hasPersistedParent
+        ? persisted.idParentNavigationItem
+        : defaultParentId,
       keyNavigationItem: definition.keyNavigationItem,
-      routeNavigationItem: definition.routeNavigationItem,
-      typeNavigationItem: definition.typeNavigationItem,
+      routeNavigationItem: persisted?.routeNavigationItem || definition.routeNavigationItem,
       idNavigationItem: persisted?.idNavigationItem || `default-item-${definition.menuKey}-${definition.keyNavigationItem}-${definition.orderNavigationItem}`
     };
     items.push(merged);
@@ -191,4 +211,5 @@ export const mergeNavigationDefaults = (navigation) => {
   return { menus, items };
 };
 
-export const ensureApiStatusNavigation = mergeNavigationDefaults;
+export const buildFallbackNavigation = mergeNavigationDefaults;
+export const ensureApiStatusNavigation = buildFallbackNavigation;

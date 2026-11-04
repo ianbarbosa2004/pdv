@@ -22,6 +22,27 @@ sessão:
 > navegação, fiscal, NFC-e, impressão e a decisão de não usar cargas padrão,
 > está em `docs/PROJECT-HISTORY.md`. Leia esse documento junto com
 > `README.md` e `docs/DEVELOPMENT.md` antes de continuar uma etapa relevante.
+> Os textos introdutórios das telas são persistidos em
+> `navigation_items.descriptionNavigationItem` e editados no Construtor de
+> navegação; não recrie esses textos como fonte hardcoded nas telas.
+> O layout de retaguarda usa `min-width: 1180px` e `max-width: 1440px` no
+> conteúdo operacional. Os contêineres principais devem permanecer
+> centralizados com `margin: 0 auto`, respeitar espaçamento lateral mínimo de
+> `28px` e usar `28px` no topo e `40px` na base. Barras contextuais
+> devem ocupar a largura da tela e
+> iniciar no extremo esquerdo, sem recuo baseado no conteúdo. Não adicionar
+> margem vertical entre o menu principal e a barra contextual. Painéis
+> consecutivos devem manter espaçamento e campos que recebem URLs devem ter
+> largura suficiente para leitura. Painéis irmãos devem manter separação
+> vertical uniforme, e as linhas de menus e itens do Construtor de navegação
+> devem compartilhar a mesma altura mínima.
+> O primeiro menu não recebe `padding-top` especial: **Frente de Caixa** deve
+> ter o mesmo espaçamento dos demais menus.
+> Status da API, Atualizar NCM / CEST, Backup e Restauração, Importar Cadastros,
+> Configurações Gerais e Impressoras não devem forçar `width: 100%` no
+> contêiner operacional. Essas telas seguem o padrão de Dados da Empresa, com
+> `min-width: 1180px` e `max-width: 1180px`; larguras internas ficam para
+> tabelas e controles específicos.
 >
 > A API fica em `src/server/`. Ela deve validar entradas, usar SQL
 > parametrizado, executar operações compostas em transações MariaDB e retornar
@@ -139,6 +160,28 @@ API.
 A ordem dos menus, itens e divisores do Construtor é configuração persistida.
 Não normalize ou renumere automaticamente itens existentes durante o startup
 da API, pois isso sobrescreve ajustes feitos no Construtor.
+
+A mesclagem dos defaults deve preservar rota, label, menu, pai e ordem de um
+registro persistido quando sua chave canônica permanece a mesma. Aliases
+legados podem ser normalizados somente para recuperar a identidade essencial.
+Ao mover um item principal entre menus, mova também todos os descendentes e
+salve o pai antes dos filhos para que a validação de menu/pai permaneça válida.
+O endpoint de criação de divisor já deve inserir no mesmo menu e nível do item
+de referência, imediatamente após sua ordem; não corrija a posição depois por
+heurística de renderização.
+
+Em leituras normais, a API e o frontend devem consumir diretamente as linhas
+persistidas de `navigation_menus` e `navigation_items`. A função
+`normalizePersistedNavigation` apenas copia o payload; ela não cria, remove,
+reordena ou corrige itens. `buildFallbackNavigation` só pode ser usado no
+bootstrap ou quando a API estiver indisponível, nunca depois de uma resposta
+válida da API.
+
+O resolvedor de navegação deve aceitar tanto handlers indexados pela chave ou
+rota (`ncm-cest-update`) quanto handlers no padrão de componentes
+(`onNcmCestUpdate`). Isso é necessário para que o menu principal continue
+funcionando depois da entrada em Views e em outras telas que repassam handlers
+com nomes `onX`.
 
 Operações Fiscais usa dois registros de navegação: o item principal do menu é
 `item` de ordem 6; a entrada homônima da barra contextual é um filho `bar` de
@@ -643,6 +686,42 @@ continua aceitando o campo com a mesma regra de validação.
 O modelo CSV de importação também contém `printsPlace` e `isActiveProduct`.
 O painel introdutório informa os valores aceitos e oferece os downloads
 `referencia-locais-de-impressao.md` e `referencia-status-produtos.md`.
+Na importação, `NÃO IMPRIMIR` também pode ser informado como `NAO IMPRIMIR`;
+o servidor normaliza a gravação para o valor oficial.
+
+O modelo CSV também inclui `descriptionPhysicalState`, obrigatório para
+matérias-primas. A tela consulta `GET /api/physical-states`, aceita ID, nome,
+código ou descrição do estado físico ativo e oferece o download
+`referencia-estados-fisicos.md`. A API converte o valor para
+`idPhysicalStateProduct` e grava `NULL` para tipos que não usam estado físico.
+A preparação do schema não deve converter produtos entre tipos; em especial,
+Mercadoria para Revenda deve continuar com seu tipo e operação fiscal
+informados no cadastro ou na importação.
+A inicialização do frontend exibe a tela de login imediatamente. A navegação e
+o ícone são carregados em segundo plano e devem estar prontos antes de mostrar
+o ambiente após a autenticação, evitando uma janela vazia durante o startup.
+A leitura da configuração offline ocorre depois da montagem do login e atualiza
+o campo de endereço da API sem bloquear a primeira tela. A janela Tauri usa o
+mesmo fundo claro da autenticação durante o carregamento do WebView.
+A janela nativa permanece visível no desenvolvimento, com maximização e fundo
+claro configurados no Tauri; não usar `visible: false` sem uma rotina nativa
+garantida para exibi-la depois.
+A navegação do construtor deve repassar handlers próprios para Fornecedores,
+Clientes e Consumidores. A preparação do schema deve localizar Fornecedores
+somente no menu Cadastros e no nível principal. A barra de Formas de pagamento
+exibe apenas o destino da tela, sem o link-pai Financeiros.
+Na tela de Backup e restauração, `api-status` deve usar `onApiStatus`;
+`onTools` é reservado para retornar ao próprio fluxo de ferramentas e não pode
+ser usado como alias de Status da API.
+O construtor de menus deve renderizar cada item pai seguido de suas barras
+contextuais e só então o próximo irmão; divisores visuais respeitam a ordem
+persistida e não podem ser movidos para antes dos filhos. A preparação do
+schema não deve reordenar automaticamente itens irmãos de Produtos.
+O SKU da importação permanece obrigatório e único, sem exigir prefixos como
+`MP-`, `EMB-` ou `PROD-`. Depois de um erro, **Testar arquivo** pode ser
+executado novamente, a seleção anterior é descartada e **Selecionar arquivo**
+permite escolher outro CSV, enquanto **Importar arquivo** fica bloqueado até
+uma validação bem-sucedida.
 
 No fechamento de uma venda, `src/server/sale-service.js` lê
 `controlsStockProduct` de cada produto antes de validar disponibilidade ou
@@ -658,15 +737,23 @@ catálogo administrativo completo.
 
 ### Versão e continuidade — 2026-11-03
 
-As alterações acumuladas ontem e hoje foram classificadas como incremento
-compatível de funcionalidade e devem usar a versão **0.9.0**. O conjunto
+As alterações acumuladas em 2 e 3 de novembro foram classificadas como
+incremento compatível de funcionalidade e usaram a versão **0.9.0**. A etapa
+seguinte, de persistência confiável do Construtor de navegação, foi classificada
+como incremento compatível e versionada como **0.10.0**. O conjunto
 inclui operadores/sessões, caixa, cancelamento auditado, NFC-e em homologação,
-`printsPlace`, importação de Status e regras de disponibilidade/baixa de
-estoque.
+`printsPlace`, importação de Status e Estado Físico, além das regras de
+disponibilidade/baixa de estoque.
 
 A documentação canônica foi atualizada em `docs/CHANGELOG.md`,
 `docs/PROJECT-HISTORY.md` e `docs/DEVELOPMENT.md`. A validação final registrada
-é de 90 testes aprovados, `node --check` e `git diff --check`. Não houve
-publicação nem reinício do serviço. Antes da validação operacional, publique
-o conteúdo de `src/server/` e reinicie `PDV-API`; para mudanças somente de
-frontend, gere e distribua um novo bundle aos terminais.
+é de 99 testes aprovados, `node --check` e `git diff --check`. A API publicada
+foi reiniciada pelo operador e o serviço `PDV-API` está em execução; os bundles
+do cliente também foram gerados. A chamada sem o token compartilhado foi
+rejeitada com HTTP 401 e `Autenticação obrigatória.`, confirmando que a
+proteção da API permanece ativa. A validação autenticada de banco ainda depende
+do token configurado no ambiente operacional e não deve registrar ou expor esse
+segredo. O build oficial posterior do frontend ficou bloqueado por `EPERM`
+porque o aplicativo instalado mantém `dist\releases` em uso; uma compilação
+Vite em diretório alternativo foi concluída com sucesso. Feche o aplicativo
+instalado antes de gerar o bundle oficial novamente.

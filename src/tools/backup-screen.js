@@ -1,5 +1,7 @@
 import { apiFetch, getApiUrl } from "../shared/api.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
+import { renderScreenContextBar } from "../ui/screen-context.js";
+import { renderNavigationIntro } from "../ui/navigation-intro.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
 
@@ -45,7 +47,7 @@ const toBase64 = (buffer) => {
 
 export function createBackupScreen({
   onBack, onTools, onProducts, onFiscalOperations, onThermalPrint, onNcmCestUpdate,
-  onSettings, onCompany, onNfce, onFinancial, onPaymentMethods
+  onApiStatus, onSettings, onCompany, onNfce, onFinancial, onPaymentMethods
 }) {
   const root = document.createElement("main");
   let backups = [];
@@ -159,17 +161,13 @@ export function createBackupScreen({
   };
 
   const render = () => {
-    root.className = "catalog-screen settings-screen";
+    root.className = "catalog-screen settings-screen backup-screen";
     root.innerHTML = `
       <header class="classic-titlebar"><strong>PDV - Backup e restauração</strong><span>Operador: Operador</span></header>
       ${renderMainMenu()}
-      <div class="classic-toolbar"><button class="classic-tool-button" data-back type="button">← Frente de caixa</button><strong>Ferramentas do sistema</strong></div>
-      <section class="settings-content">
-        <div class="backoffice-home-heading">
-          <p class="eyebrow">Ferramentas</p>
-          <h1>Backup e restauração</h1>
-          <p>Crie backups compactados do banco de dados e restaure uma cópia validada quando necessário.</p>
-        </div>
+      ${renderScreenContextBar("Backup e restauração")}
+      <section class="settings-content backup-content">
+        ${renderNavigationIntro("backup", "Backup e restauração", "Crie backups compactados do banco de dados e restaure uma cópia validada quando necessário.")}
         <section class="classic-form-panel">
           <div class="classic-panel-header">Operações de backup</div>
           <div class="classic-form-body">
@@ -196,7 +194,7 @@ export function createBackupScreen({
     `;
     bindMainMenu(root, {
       products: onProducts, "fiscal-operations": onFiscalOperations, "thermal-print": onThermalPrint,
-      "ncm-cest-update": onNcmCestUpdate, "api-status": onTools, settings: onSettings,
+      "ncm-cest-update": onNcmCestUpdate, "api-status": onApiStatus, settings: onSettings,
       company: onCompany, nfce: onNfce, financial: onFinancial, "payment-methods": onPaymentMethods,
       backup: onTools
     });

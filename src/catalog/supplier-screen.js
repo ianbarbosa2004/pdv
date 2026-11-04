@@ -1,5 +1,7 @@
 import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
+import { renderScreenContextBar } from "../ui/screen-context.js";
+import { renderNavigationIntro } from "../ui/navigation-intro.js";
 import { bindFormRowPreview } from "../ui/form-row-preview.js";
 import { renderPreservingFormDraft } from "../ui/form-draft.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
@@ -200,8 +202,10 @@ export function createSupplierScreen({
     root.innerHTML = `
       <header class="classic-titlebar"><strong>PDV - Cadastro de fornecedores</strong><span>Operador: Operador</span></header>
       ${renderMainMenu()}
+      ${renderScreenContextBar("Fornecedores")}
       <section class="classic-content">
         ${renderSuccessFeedback(message, escapeHtml)}
+        ${renderNavigationIntro("suppliers", "Fornecedores", "Cadastre e consulte fornecedores, contatos e dados fiscais usados nas compras e no estoque.")}
         <form class="classic-form-panel supplier-form" data-supplier-form>
           <div class="classic-panel-header">Novo fornecedor</div>
           <div class="classic-form-body">

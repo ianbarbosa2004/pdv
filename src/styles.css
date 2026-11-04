@@ -577,6 +577,11 @@
 body {
   margin: 0;
   min-width: 1024px;
+  background: #f4f6f8;
+}
+
+#app {
+  min-height: 100vh;
 }
 
 button,
@@ -1545,10 +1550,28 @@ h2 {
   font-size: 0.86rem;
 }
 
+.screen-context-bar {
+  justify-content: flex-start;
+}
+
+.screen-context-bar .classic-tool-button {
+  margin-left: 0;
+}
+
+.backoffice-home,
+.classic-content,
+.settings-content,
+.views-content,
+.navigation-builder {
+  box-sizing: border-box;
+}
+
 .backoffice-home {
-  max-width: 1120px;
+  width: min(1440px, calc(100% - 56px));
+  min-width: 1180px;
+  max-width: 1440px;
   margin: 0 auto;
-  padding: 34px 24px;
+  padding: 28px 0 40px;
 }
 
 .backoffice-home-heading {
@@ -1562,6 +1585,10 @@ h2 {
 .settings-content > .backoffice-home-heading,
 .thermal-print-content > .backoffice-home-heading {
   margin-bottom: 20px;
+}
+
+.classic-content > .backoffice-home-heading {
+  grid-column: 1 / -1;
 }
 
 .backoffice-home-heading h1 {
@@ -1625,9 +1652,10 @@ h2 {
 }
 
 .settings-content {
-  width: min(100% - 48px, 760px);
+  width: min(1440px, calc(100% - 56px));
+  max-width: 1440px;
   margin: 0 auto;
-  padding: 34px 0;
+  padding: 28px 0 40px;
 }
 
 .settings-form {
@@ -1726,20 +1754,18 @@ h2 {
   grid-template-columns: minmax(480px, 560px) minmax(0, 1fr);
   gap: 22px;
   align-items: start;
-  max-width: 1680px;
+  width: min(1440px, calc(100% - 56px));
+  min-width: 1180px;
+  max-width: 1440px;
   margin: 0 auto;
-  padding: 18px;
+  padding: 28px 0 40px;
 }
 
 .views-content {
-  width: min(1440px, calc(100% - 36px));
+  width: min(1440px, calc(100% - 56px));
+  min-width: 1180px;
   margin: 0 auto;
-  padding: 18px 0 32px;
-}
-
-.views-screen > .classic-toolbar {
-  padding-right: max(14px, calc((100% - 1440px) / 2));
-  padding-left: max(14px, calc((100% - 1440px) / 2));
+  padding: 28px 0 40px;
 }
 
 .views-intro {
@@ -1837,7 +1863,7 @@ h2 {
 
 @media (max-width: 1100px) {
   .views-content {
-    width: calc(100% - 36px);
+    width: calc(100% - 56px);
   }
 
   .views-intro {
@@ -1853,15 +1879,13 @@ h2 {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.catalog-import-screen .backoffice-home-heading,
-.catalog-import-screen .classic-form-panel {
-  width: 100%;
-}
-
 .navigation-builder {
   display: block;
-  max-width: 1680px;
-  padding: 28px clamp(18px, 3vw, 48px) 48px;
+  width: min(1440px, calc(100% - 56px));
+  min-width: 1180px;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 28px 0 40px;
 }
 
 .navigation-builder-heading {
@@ -1902,7 +1926,8 @@ h2 {
   display: flex;
   gap: 14px;
   justify-content: flex-start;
-  min-height: 52px;
+  min-height: 58px;
+  box-sizing: border-box;
 }
 
 .navigation-builder-draggable {
@@ -1949,7 +1974,6 @@ h2 {
 }
 
 .navigation-builder-menu > .navigation-builder-row {
-  min-height: 58px;
   border-bottom: 1px solid #d5dde6;
 }
 
@@ -1980,6 +2004,10 @@ h2 {
 .navigation-builder-context-item {
   margin-left: 42px;
   padding-left: 16px;
+}
+
+.nfce-query-result {
+  margin-top: 20px;
 }
 
 .navigation-builder-context-item .navigation-builder-label {
@@ -2142,7 +2170,7 @@ h2 {
 
 .navigation-builder .classic-grid-wrapper {
   min-height: 0;
-  padding: 0 16px 16px;
+  padding: 10px 16px 16px;
 }
 
 .navigation-builder-panel-header {
@@ -2176,10 +2204,6 @@ h2 {
   min-height: 26px;
   padding: 4px 10px;
   font-size: 0.72rem;
-}
-
-.navigation-builder .navigation-builder-menu:first-child {
-  padding-top: 16px;
 }
 
 .navigation-builder .navigation-builder-menu:last-child {
@@ -2222,9 +2246,10 @@ h2 {
 }
 
 .thermal-print-content {
-  width: min(100% - 36px, 1440px);
+  width: min(100% - 56px, 1440px);
+  min-width: 1180px;
   margin: 0 auto;
-  padding: 28px 0 42px;
+  padding: 28px 0 40px;
 }
 
 .thermal-print-content .backoffice-home-heading {
@@ -2627,13 +2652,9 @@ h2 {
   grid-column: 1 / -1;
 }
 
-.fiscal-content > .backoffice-home-heading {
-  width: 100%;
-}
-
 .ncm-cest-update-panel {
   grid-column: 1 / -1;
-  width: 100%;
+  min-width: 1180px;
 }
 
 .fiscal-catalog-content {
@@ -2646,6 +2667,35 @@ h2 {
   border: 1px solid #b8c1cc;
   background: #fff;
   box-shadow: 0 1px 2px rgb(35 49 64 / 8%);
+}
+
+.settings-content {
+  min-width: 1180px;
+}
+
+.api-status-content,
+.backup-content,
+.general-settings-content,
+.printer-settings-content {
+  min-width: 1180px;
+  max-width: 1180px;
+}
+
+.catalog-import-content,
+.ncm-cest-update-content {
+  min-width: 1180px;
+  max-width: 1180px;
+}
+
+.settings-content input[type="url"],
+.general-settings-table input[type="url"] {
+  width: min(100%, 760px);
+  min-width: 520px;
+  box-sizing: border-box;
+}
+
+.settings-content > .classic-form-panel + .classic-form-panel {
+  margin-top: 20px;
 }
 
 .ncm-cest-catalog-panel {

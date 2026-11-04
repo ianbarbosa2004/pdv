@@ -1,5 +1,7 @@
 import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
+import { renderScreenContextBar } from "../ui/screen-context.js";
+import { renderNavigationIntro } from "../ui/navigation-intro.js";
 import { bindFormRowPreview } from "../ui/form-row-preview.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { apiFetch, getApiUrl } from "../shared/api.js";
@@ -143,8 +145,12 @@ export function createCustomerConsumerScreen({
     root.innerHTML = `
       <header class="classic-titlebar"><strong>PDV - Cadastro de ${title.toLocaleLowerCase("pt-BR")}</strong><span>Operador: Operador</span></header>
       ${renderMainMenu()}
+      ${renderScreenContextBar(title)}
       <section class="classic-content">
         ${renderSuccessFeedback(message, escapeHtml)}
+        ${renderNavigationIntro(isCustomer ? "customers" : "consumers", title, isCustomer
+          ? "Cadastre e consulte clientes para identificar vendas, contatos e condições comerciais."
+          : "Cadastre e consulte consumidores para identificar atendimentos e vínculos com clientes.")}
         <form class="classic-form-panel supplier-form" data-${entity}-form>
           <div class="classic-panel-header">Novo ${singular}</div>
           <div class="classic-form-body"><div class="classic-form-grid">${renderFields(newDraft)}</div>${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}</div>

@@ -100,6 +100,29 @@ test("preparação NCM/CEST usa uma única definição de schema", async () => {
   );
 });
 
+test("preparação do catálogo não converte mercadoria para revenda em produto acabado", async () => {
+  const statements = [];
+  const pool = {
+    async query(statement) {
+      statements.push(String(statement));
+      return [[]];
+    }
+  };
+  const schema = createSchemaManager({
+    pool,
+    config: { database: { name: "pdv" } }
+  });
+
+  await schema.ensureProductCatalogSchema();
+
+  assert.equal(
+    statements.some((statement) =>
+      statement.includes("UPDATE products") && statement.includes("SET idProductTypeProduct")
+    ),
+    false
+  );
+});
+
 test("migração de movimentos remove índice único antes de recriar a FK", async () => {
   const statements = [];
   const pool = {

@@ -436,38 +436,6 @@ const ensureProductCatalogSchema = async () => {
   ) ENGINE=InnoDB`);
   await ensureProductFiscalSchema();
   await ensureFiscalOperationSchema();
-  const [migrationTypes] = await pool.query(
-    `SELECT
-       (SELECT idProductType
-        FROM product_types
-        WHERE descriptionProductType = 'MERCADORIA PARA REVENDA'
-        LIMIT 1) AS sourceProductType,
-       (SELECT idProductType
-        FROM product_types
-        WHERE descriptionProductType = 'PRODUTO ACABADO'
-        LIMIT 1) AS targetProductType,
-       (SELECT idFiscalOperation
-        FROM fiscal_operations
-        WHERE descriptionFiscalOperation = 'VENDA DE PRODUÇÃO'
-          AND typeFiscalOperation = 'exit'
-          AND isActiveFiscalOperation = 1
-        ORDER BY idFiscalOperation
-        LIMIT 1) AS targetFiscalOperation`
-  );
-  const migration = migrationTypes[0];
-  if (migration?.sourceProductType && migration?.targetProductType && migration?.targetFiscalOperation) {
-    await pool.query(
-      `UPDATE products
-       SET idProductTypeProduct = ?,
-           idFiscalOperationSaleProduct = ?
-       WHERE idProductTypeProduct = ?`,
-      [
-        migration.targetProductType,
-        migration.targetFiscalOperation,
-        migration.sourceProductType
-      ]
-    );
-  }
   const [columns] = await pool.query(
     `SELECT COLUMN_NAME
      FROM information_schema.COLUMNS
@@ -792,6 +760,10 @@ const prepareNavigationSchema = async () => {
       "ALTER TABLE navigation_items ADD COLUMN descriptionNavigationItem VARCHAR(240) NULL AFTER routeNavigationItem"
     );
   }
+  return;
+
+  // Navigation data is bootstrapped by synchronizeNavigationDefaults below.
+  // Existing rows must not be normalized during API startup.
   const defaultToolMenuKey = normalizeNavigationKey("tools");
   const defaultCatalogMenuKey = normalizeNavigationKey("cadastros");
 
@@ -846,7 +818,7 @@ const prepareNavigationSchema = async () => {
              keyNavigationItem = 'api-status',
              labelNavigationItem = 'Status da API',
              routeNavigationItem = 'api-status',
-             descriptionNavigationItem = 'Consulte a disponibilidade da API e do MariaDB.',
+             descriptionNavigationItem = COALESCE(descriptionNavigationItem, 'Consulte a disponibilidade da API e do MariaDB.'),
              isActiveNavigationItem = 1,
              showsInBackofficeHomeNavigationItem = 0
          WHERE idNavigationItem = ?`,
@@ -1104,19 +1076,6 @@ const prepareNavigationSchema = async () => {
       [catalogMenuId, productParentId]
     );
     const finishedProduct = finishedProductItems[0];
-    if (!finishedProduct || Number(finishedProduct.orderNavigationItem) !== 2
-      || Number(finishedProduct.isActiveNavigationItem) === 0) {
-      await pool.query(
-        `UPDATE navigation_items
-         SET orderNavigationItem = orderNavigationItem + 1
-         WHERE idNavigationMenu = ?
-           AND idParentNavigationItem = ?
-           AND keyNavigationItem <> 'finished-goods'
-           AND keyNavigationItem <> 'finished-products'
-           AND orderNavigationItem >= 2`,
-        [catalogMenuId, productParentId]
-      );
-    }
     if (finishedProduct) {
       await pool.query(
         `UPDATE navigation_items
@@ -1124,7 +1083,6 @@ const prepareNavigationSchema = async () => {
              keyNavigationItem = 'finished-products',
              labelNavigationItem = 'Produtos Acabados',
              routeNavigationItem = 'finished-products',
-             orderNavigationItem = 2,
              isActiveNavigationItem = 1
          WHERE idNavigationItem = ?`,
         [finishedProduct.idNavigationItem]
@@ -1147,11 +1105,14 @@ const prepareNavigationSchema = async () => {
   const [supplierItems] = await pool.query(
     `SELECT idNavigationItem
      FROM navigation_items
-     WHERE keyNavigationItem = 'suppliers'
-        OR routeNavigationItem = 'suppliers'
-        OR labelNavigationItem = 'Fornecedores'
+     WHERE idNavigationMenu = ?
+       AND idParentNavigationItem IS NULL
+       AND (keyNavigationItem = 'suppliers'
+            OR routeNavigationItem = 'suppliers'
+            OR labelNavigationItem = 'Fornecedores')
      ORDER BY idNavigationItem
      LIMIT 1`,
+    [catalogMenuId]
   );
   if (supplierItems[0]) {
     await pool.query(
@@ -1162,7 +1123,7 @@ const prepareNavigationSchema = async () => {
            keyNavigationItem = 'suppliers',
            labelNavigationItem = 'Fornecedores',
            routeNavigationItem = 'suppliers',
-           descriptionNavigationItem = 'Cadastre e mantenha os fornecedores da loja.',
+           descriptionNavigationItem = COALESCE(descriptionNavigationItem, 'Cadastre e mantenha os fornecedores da loja.'),
            isActiveNavigationItem = 1
        WHERE idNavigationItem = ?`,
       [catalogMenuId, supplierItems[0].idNavigationItem]
@@ -1201,7 +1162,7 @@ const prepareNavigationSchema = async () => {
       await pool.query(
         `UPDATE navigation_items SET idNavigationMenu = ?, idParentNavigationItem = NULL,
           typeNavigationItem = 'item', keyNavigationItem = ?, labelNavigationItem = ?,
-          routeNavigationItem = ?, descriptionNavigationItem = ?, isActiveNavigationItem = 1,
+          routeNavigationItem = ?, descriptionNavigationItem = COALESCE(descriptionNavigationItem, ?), isActiveNavigationItem = 1,
           orderNavigationItem = ? WHERE idNavigationItem = ?`,
         [catalogMenuId, key, label, key, description, order, existingItems[0].idNavigationItem]
       );
@@ -1281,39 +1242,66 @@ const synchronizeNavigationDefaults = async () => {
      FROM navigation_items`
   );
   const itemIds = new Map();
+  const itemMenus = new Map();
   for (const definition of DEFAULT_NAVIGATION.items) {
     const menuId = menuIds.get(definition.menuKey);
-    const parentId = definition.parentKey
+    const defaultParentId = definition.parentKey
       ? itemIds.get(`${definition.menuKey}:${definition.parentKey}`)
       : null;
-    const stored = storedItems.find((entry) =>
+    const parentId = defaultParentId;
+    const parentMenuId = definition.parentKey
+      ? itemMenus.get(`${definition.menuKey}:${definition.parentKey}`)
+      : null;
+    const insertionMenuId = parentMenuId || menuId;
+    const sameStructure = (entry) =>
+      String(entry.idNavigationMenu) === String(insertionMenuId)
+      && String(entry.idParentNavigationItem || "") === String(parentId || "");
+    const canonicalStored = storedItems.find((entry) =>
+      sameStructure(entry)
+      && normalizeNavigationKey(entry.keyNavigationItem) === definition.keyNavigationItem
+    ) || storedItems.find((entry) =>
+      normalizeNavigationKey(entry.keyNavigationItem) === definition.keyNavigationItem
+    );
+    const stored = canonicalStored || storedItems.find((entry) =>
       String(entry.idNavigationMenu) === String(menuId)
       && String(entry.idParentNavigationItem || "") === String(parentId || "")
       && (
-        normalizeNavigationKey(entry.keyNavigationItem) === definition.keyNavigationItem
-        || normalizeNavigationKey(entry.labelNavigationItem) === normalizeNavigationKey(definition.labelNavigationItem)
+        normalizeNavigationKey(entry.labelNavigationItem) === normalizeNavigationKey(definition.labelNavigationItem)
         || (definition.routeNavigationItem
           && normalizeNavigationKey(entry.routeNavigationItem) === definition.routeNavigationItem)
       )
     );
     if (stored) {
-      await pool.query(
-        `UPDATE navigation_items
-         SET idNavigationMenu = ?, idParentNavigationItem = ?, typeNavigationItem = ?,
-             keyNavigationItem = ?, routeNavigationItem = ?,
-             descriptionNavigationItem = COALESCE(descriptionNavigationItem, ?)
-         WHERE idNavigationItem = ?`,
-        [
-          menuId,
-          parentId || null,
-          definition.typeNavigationItem,
-          definition.keyNavigationItem,
-          definition.routeNavigationItem,
-          definition.descriptionNavigationItem,
-          stored.idNavigationItem
-        ]
-      );
+      if (canonicalStored) {
+        await pool.query(
+          `UPDATE navigation_items
+           SET descriptionNavigationItem = COALESCE(descriptionNavigationItem, ?)
+           WHERE idNavigationItem = ?`,
+          [definition.descriptionNavigationItem, stored.idNavigationItem]
+        );
+      } else {
+        await pool.query(
+          `UPDATE navigation_items
+           SET idNavigationMenu = ?, idParentNavigationItem = ?, typeNavigationItem = ?,
+               keyNavigationItem = ?, routeNavigationItem = ?,
+               descriptionNavigationItem = COALESCE(descriptionNavigationItem, ?)
+           WHERE idNavigationItem = ?`,
+          [
+            menuId,
+            parentId || null,
+            definition.typeNavigationItem,
+            definition.keyNavigationItem,
+            definition.routeNavigationItem,
+            definition.descriptionNavigationItem,
+            stored.idNavigationItem
+          ]
+        );
+      }
       itemIds.set(`${definition.menuKey}:${definition.keyNavigationItem}`, stored.idNavigationItem);
+      itemMenus.set(
+        `${definition.menuKey}:${definition.keyNavigationItem}`,
+        stored.idNavigationMenu
+      );
       continue;
     }
     const [result] = await pool.query(
@@ -1324,7 +1312,7 @@ const synchronizeNavigationDefaults = async () => {
          showsInBackofficeHomeNavigationItem)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0)`,
       [
-        menuId,
+        insertionMenuId,
         parentId || null,
         definition.typeNavigationItem,
         definition.keyNavigationItem,
@@ -1335,6 +1323,7 @@ const synchronizeNavigationDefaults = async () => {
       ]
     );
     itemIds.set(`${definition.menuKey}:${definition.keyNavigationItem}`, result.insertId);
+    itemMenus.set(`${definition.menuKey}:${definition.keyNavigationItem}`, insertionMenuId);
   }
 };
 

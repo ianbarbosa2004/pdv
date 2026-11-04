@@ -5,10 +5,82 @@ O número da versão deve ser incrementado antes da compilação quando a altera
 for distribuível. O hook `prebuild` e o fluxo `prerelease:client` podem acionar
 o versionamento automático quando o build é executado.
 
-## 0.9.0 - 2026-11-03
+## 0.10.0 - 2026-11-04
+
+### Persistência do Construtor de navegação
+
+- `navigation_menus` e `navigation_items` passaram a ser a fonte de verdade
+  das leituras normais da navegação. O frontend e a API não completam uma
+  resposta válida com defaults nem reordenam registros persistidos.
+- Rotas, labels, menus, pais, tipos, status, divisores e ordens personalizados
+  permanecem como foram salvos pelo usuário.
+- Defaults ficaram restritos ao bootstrap de registros ausentes e ao fallback
+  explícito quando a API está indisponível.
+- O arraste entre menus move a subárvore inteira e salva pais antes dos filhos,
+  preservando a hierarquia durante a validação.
+- A inicialização da API deixou de executar a rotina legada de normalização
+  destrutiva da navegação.
+- Corrigida a resolução de rotas persistidas no menu principal: chaves como
+  `ncm-cest-update` agora encontram handlers no padrão `onNcmCestUpdate`,
+  inclusive quando o acesso ocorre depois de entrar em Views.
+
+### Validação e operação
+
+- A etapa foi validada com 99 testes automatizados aprovados, `node --check`
+  nos arquivos JavaScript alterados e `git diff --check`.
+- A API foi publicada e reiniciada pelo operador; o serviço `PDV-API` está em
+  execução e os bundles do cliente foram gerados. A chamada sem o token
+  compartilhado foi rejeitada com HTTP 401, confirmando a proteção da API.
+- O build oficial posterior ficou bloqueado por `EPERM` porque o aplicativo
+  instalado mantém `dist\releases` em uso; a compilação Vite em diretório
+  alternativo foi concluída com sucesso.
+- A validação autenticada de banco não foi repetida neste ambiente porque o
+  token operacional não está disponível nesta sessão; ele não deve ser
+  registrado ou exposto.
 
 ### Correções de interface
 
+- Corrigida a persistência do Construtor de navegação: rotas editadas,
+  menus/pais movidos e ordens personalizadas não são substituídos pela
+  mesclagem dos defaults nem pela inicialização da API.
+- Corrigido o alinhamento da barra contextual de Views: ela ocupa a largura
+  da tela e começa no extremo esquerdo, como as demais barras.
+- Estabelecida largura mínima de operação de `1180px` para os conteúdos de
+  retaguarda, sem alterar o limite máximo de `1440px`.
+- Adicionado espaçamento entre painéis e ampliados os campos de URL de
+  configurações; não há margem vertical adicional entre menu e barra contextual.
+- Padronizado o espaçamento dos contêineres principais, preservando a
+  centralização horizontal (`margin: 0 auto`) e os limites específicos de
+  largura quando necessários para a composição de cada tela.
+- Separados os painéis **Consulta oficial** e **Resultado demonstrativo** da
+  NFC-e e uniformizada a altura mínima das linhas do Construtor de navegação.
+- Removido o `padding-top` exclusivo do primeiro menu do Construtor, que
+  deslocava **Frente de Caixa** em relação aos demais itens.
+- Removido o `width: 100%` forçado dos painéis de Importar Cadastros e
+  Atualizar NCM / CEST; os contêineres dessas telas preservam apenas o
+  `min-width: 1180px`, assim como as demais telas operacionais indicadas.
+- Corrigida a aplicação da regra: Status da API, Backup e Restauração,
+  Configurações Gerais e Impressoras passaram a ter classes próprias para não
+  herdar larguras inadequadas dos contêineres compartilhados.
+- Ajustadas as seis telas para seguirem o limite operacional de Dados da
+  Empresa, com `min-width: 1180px` e `max-width: 1180px`, em vez de
+  expandirem até `1440px`.
+- Padronizadas as barras contextuais singleton de Clientes, Consumidores,
+  Fornecedores, Status da API, Consulta de NFC-e, Backup e restauração,
+  Configurações Gerais, Dados da Empresa, NFC-e, Impressoras e Construtor de
+  navegação.
+- Os títulos da barra contextual e do painel introdutório agora usam o mesmo
+  nome operacional da tela; o conteúdo das telas foi limitado a 1440px e a
+  barra de Views permanece alinhada à esquerda.
+- Os textos introdutórios passaram a ser lidos de `descriptionNavigationItem`
+  em `navigation_items`; o Construtor de navegação permite editar esse texto
+  para cada item que abre uma tela.
+- A leitura normal da navegação passou a usar diretamente o estado persistido
+  por `navigation_menus` e `navigation_items`. Defaults são usados somente no
+  bootstrap do schema e no fallback explícito quando a API está indisponível.
+- O arraste de um item principal para outro menu agora move também toda a sua
+  subárvore, preserva a relação pai-filho e recalcula as ordens dos menus de
+  origem e destino.
 - Transformadas as mensagens de sucesso das telas administrativas em overlays
   modais temporários, centralizados e fora do fluxo de layout, com duração de
   aproximadamente 2,5 segundos.
@@ -95,13 +167,41 @@ o versionamento automático quando o build é executado.
   padrão `NÃO IMPRIMIR`.
 - A importação CSV passou a aceitar Local de Impressão e Status, com validação
   server-side, painel introdutório atualizado e referências para download.
+- A importação CSV passou a aceitar Estado Físico para matérias-primas por ID,
+  nome, código ou descrição, carregando os valores ativos pela API e
+  oferecendo o download `referencia-estados-fisicos.md` com o ID de cada
+  cadastro; o servidor grava o identificador do estado físico no produto.
+- Após erro no teste do CSV, a seleção anterior é descartada e o painel oferece
+  **Selecionar arquivo** para escolher outro arquivo ou selecionar novamente o
+  mesmo arquivo.
+- A importação normaliza `NAO IMPRIMIR` para `NÃO IMPRIMIR` e informa os valores
+  aceitos quando um local de impressão realmente não for reconhecido.
+- Removida a migração automática que alterava produtos de **Mercadoria para
+  Revenda** para **Produto Acabado** durante a preparação do catálogo.
+- A tela de login agora é exibida imediatamente na inicialização; navegação e
+  ícone são carregados em segundo plano antes da entrada no ambiente autenticado,
+  evitando a janela branca durante o carregamento inicial.
+- A leitura da configuração offline deixou de bloquear a montagem inicial do
+  login, e a janela Tauri recebeu fundo compatível com a tela de autenticação
+  durante o carregamento do WebView.
+- A configuração da janela Tauri mantém a maximização e o fundo compatível sem
+  ocultar a janela durante o desenvolvimento, preservando a abertura do PDV.
+- Corrigida a resolução dos itens de navegação de Fornecedores e Clientes no
+  construtor de menus; a barra de Formas de pagamento não exibe mais o link
+  redundante Financeiros.
+- Corrigido o alias de Status da API na tela de Backup e restauração, que
+  podia manter o usuário na própria tela de backup em vez de abrir o status.
+- Corrigida a renderização dos divisores do construtor: eles respeitam a ordem
+  persistida e não são mais deslocados para dentro da barra contextual de
+  Ficha Técnica. A inicialização do schema deixou de reordenar automaticamente
+  Produtos Acabados e os demais itens irmãos.
 - Vendas só validam e baixam estoque quando `controlsStockProduct` está ativo.
   Produtos sem controle de estoque não são bloqueados por estoque insuficiente.
 - A Frente de Caixa respeita `allowNegativeStock` na listagem: com a opção
   ativada, produtos controlados com estoque zero ou negativo continuam
   disponíveis; com a opção desativada, somente produtos com estoque positivo
   são exibidos.
-- A suíte de testes foi consolidada com 90 casos aprovados, incluindo os
+- A suíte de testes foi consolidada com 94 casos aprovados, incluindo os
   cenários de estoque e importação.
 
 ## 0.8.10 - 2026-11-01

@@ -1,6 +1,7 @@
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
+import { renderNavigationIntro } from "../ui/navigation-intro.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
-import { getApiUrl } from "../shared/api.js";
+import { apiFetch, getApiUrl } from "../shared/api.js";
 
 const escapeHtml = (value) => String(value ?? "")
   .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
@@ -8,32 +9,36 @@ const escapeHtml = (value) => String(value ?? "")
 
 const csvHeaders = [
   "skuProduct", "pdvCodeProduct", "nameProduct", "descriptionGroup",
-  "descriptionFiscalOperation", "descriptionProductType", "codeUnit",
+  "descriptionFiscalOperation", "descriptionProductType", "descriptionPhysicalState", "codeUnit",
   "ncmProduct", "cestProduct", "priceProduct", "costPriceProduct", "stockQuantityProduct",
   "controlsStockProduct", "isFractionalProduct", "printsPlace",
-  "isActiveProduct", "showsInPdvProduct"
+  "showsInPdvProduct", "isActiveProduct"
 ];
 
 const csvHeaderLabels = [
   "SKU", "Código PDV", "Nome", "Grupo",
-  "Operação fiscal de venda", "Tipo de produto", "Unidade",
+  "Operação fiscal de venda", "Tipo de produto", "Estado Físico", "Unidade",
   "NCM", "CEST", "Preço de venda", "Preço de custo", "Estoque",
-  "Controla estoque", "Produto fracionado", "Local de impressão", "Status",
-  "Exibe no PDV"
+  "Controla estoque", "Produto fracionado", "Local de impressão", "Exibe no PDV",
+  "Status"
 ];
 
-const csvExample = [
+export const csvExample = [
   csvHeaderLabels.join(";"),
-  "PROD-001;789000000001;Café torrado;Mercearia;;;;0201.30.00;0603.10.00;19,90;12,50;10;sim;não;NÃO IMPRIMIR;ATIVO;sim"
+  "PROD-001;789000000001;Café torrado;Mercearia;;;;;0201.30.00;0603.10.00;19,90;12,50;10;sim;não;NÃO IMPRIMIR;sim;ATIVO"
 ].join("\r\n");
 
+export const canImportCatalogRows = ({ rows, validationPassed, loading }) =>
+  !loading && validationPassed && rows.length > 0;
+
 export const csvValueReference = [
-  ["SKU", "Obrigatório; texto livre, até 64 caracteres."],
+  ["SKU", "Obrigatório e único; texto livre, até 64 caracteres. Não há prefixo obrigatório."],
   ["Código PDV", "Opcional; texto livre, até 64 caracteres. Deve ser único quando informado."],
   ["Nome", "Obrigatório; texto livre, até 180 caracteres."],
   ["Grupo", "Obrigatório; use exatamente a descrição do grupo na referência de Grupos."],
   ["Operação fiscal de venda", "Opcional; aceite a descrição da operação fiscal de saída ativa ou o CFOP correspondente, conforme a referência."],
   ["Tipo de produto", "Opcional; aceite a descrição do tipo de produto ativo ou o Código SPED correspondente, conforme a referência."],
+  ["Estado Físico", "Obrigatório para matéria-prima; aceite o ID, nome, código ou descrição do estado físico ativo conforme a referência."],
   ["Unidade", "Opcional; aceite o código ou a descrição de uma unidade tributável ativa, conforme a referência."],
   ["NCM", "Opcional; 8 dígitos. Pontuação pode ser usada, pois será removida na validação."],
   ["CEST", "Opcional; 7 dígitos. Pontuação pode ser usada, pois será removida na validação."],
@@ -129,15 +134,18 @@ export function createCatalogImportScreen({
   const root = document.createElement("main");
   let selectedFile = null;
   let rows = [];
+  let validationPassed = false;
   let error = "";
   let message = "";
   let loading = false;
+  let testing = false;
   let referenceLoading = true;
   let referenceError = "";
   let references = {
     groups: [],
     fiscalOperations: [],
     productTypes: [],
+    physicalStates: [],
     units: []
   };
   const scheduleMessageClear = createFeedbackTimer();
@@ -151,14 +159,16 @@ export function createCatalogImportScreen({
         apiFetch(`${getApiUrl()}/api/groups`),
         apiFetch(`${getApiUrl()}/api/fiscal-operations`),
         apiFetch(`${getApiUrl()}/api/product-types`),
+        apiFetch(`${getApiUrl()}/api/physical-states`),
         apiFetch(`${getApiUrl()}/api/units`)
       ]);
       const payloads = await Promise.all(responses.map((response) => response.json()));
-      const [groupsPayload, fiscalPayload, productTypesPayload, unitsPayload] = payloads;
+      const [groupsPayload, fiscalPayload, productTypesPayload, physicalStatesPayload, unitsPayload] = payloads;
       if (responses.some((response) => !response.ok)
         || !Array.isArray(groupsPayload.groups)
         || !Array.isArray(fiscalPayload.fiscalOperations)
         || !Array.isArray(productTypesPayload.productTypes)
+        || !Array.isArray(physicalStatesPayload.physicalStates)
         || !Array.isArray(unitsPayload.units)) {
         throw new Error("Não foi possível carregar as listas auxiliares para o CSV.");
       }
@@ -166,6 +176,7 @@ export function createCatalogImportScreen({
         groups: groupsPayload.groups,
         fiscalOperations: fiscalPayload.fiscalOperations,
         productTypes: productTypesPayload.productTypes,
+        physicalStates: physicalStatesPayload.physicalStates,
         units: unitsPayload.units
       };
     } catch (loadError) {
@@ -227,6 +238,21 @@ export function createCatalogImportScreen({
       rows: references.units.map((item) => [item.codeUnit, item.descriptionUnit])
     },
     {
+      key: "physicalStates",
+      title: "Estados Físicos",
+      fileName: "referencia-estados-fisicos.md",
+      intro: "Use o ID, nome, código ou descrição cadastrada no campo `descriptionPhysicalState`.",
+      field: "descriptionPhysicalState",
+      fieldLabel: "ID, nome, código ou descrição exata do estado físico ativo",
+      columns: ["ID", "Valor para o CSV", "Código", "Descrição"],
+      rows: references.physicalStates.map((item) => [
+        item.idPhysicalState,
+        item.namePhysicalState,
+        item.codePhysicalState,
+        item.descriptionPhysicalState || "-"
+      ])
+    },
+    {
       key: "printPlaces",
       title: "Locais de Impressão",
       fileName: "referencia-locais-de-impressao.md",
@@ -283,13 +309,9 @@ export function createCatalogImportScreen({
         <button class="classic-tool-button" data-back type="button">← Frente de caixa</button>
         <button class="classic-tool-button is-active" data-import-catalogs type="button">Importar cadastros</button>
       </div>
-      <section class="classic-content">
+      <section class="classic-content catalog-import-content">
         ${renderSuccessFeedback(message, escapeHtml)}
-        <div class="backoffice-home-heading">
-          <p class="eyebrow">Ferramentas</p>
-          <h1>Importar cadastros</h1>
-          <p>Use o modelo CSV para testar e importar produtos em lote sem cadastrar cada item manualmente.</p>
-        </div>
+        ${renderNavigationIntro("import-catalogs", "Importar cadastros", "Use o modelo CSV para validar e importar produtos em lote.")}
         <section class="classic-form-panel">
           <div class="classic-panel-header">Importar Produtos</div>
           <div class="classic-form-body">
@@ -300,14 +322,15 @@ export function createCatalogImportScreen({
           </div>
           <div class="classic-form-actions">
             <button class="classic-button" data-download-model type="button">Baixar modelo CSV</button>
-            <button class="classic-button" data-test-file type="button" ${loading ? "disabled" : ""}>Testar arquivo</button>
-            <button class="classic-button primary" data-import-file type="button" ${loading || !rows.length ? "disabled" : ""}>${loading ? "Importando..." : "Importar arquivo"}</button>
+            <button class="classic-button" data-select-file type="button" ${loading || testing ? "disabled" : ""}>Selecionar arquivo</button>
+            <button class="classic-button" data-test-file type="button" ${loading || testing ? "disabled" : ""}>Testar arquivo</button>
+            <button class="classic-button primary" data-import-file type="button" ${!canImportCatalogRows({ rows, validationPassed, loading }) ? "disabled" : ""}>${loading ? "Importando..." : "Importar arquivo"}</button>
           </div>
         </section>
         <section class="classic-form-panel">
           <div class="classic-panel-header">Listas para preenchimento do CSV</div>
           <div class="classic-form-body">
-            <p class="form-help">O modelo CSV inclui Local de impressão e Status. Use <strong>ATIVO</strong> ou <strong>INATIVO</strong> para o status e, para o local de impressão, escolha um dos valores aceitos. Para Grupo, Operação fiscal de venda, Tipo de produto e Unidade, use também as referências com os valores exatos cadastrados.</p>
+            <p class="form-help">Este painel reúne as referências necessárias para preencher o modelo CSV corretamente. Consulte os valores cadastrados antes de importar para evitar divergências de descrição, código ou identificação nos campos relacionados ao catálogo.</p>
             <div class="csv-values-table-wrapper">
               <table class="classic-table csv-values-table">
                 <thead><tr><th>Coluna</th><th>Valores aceitos</th></tr></thead>
@@ -345,8 +368,14 @@ export function createCatalogImportScreen({
     if (clearSelection) {
       selectedFile = null;
       rows = [];
-      input.value = "";
+      validationPassed = false;
+      error = "";
+      message = "";
+      render();
+      root.querySelector("[data-file-input]")?.click();
+      return;
     }
+    input.value = "";
     input.click();
   };
 
@@ -371,6 +400,7 @@ export function createCatalogImportScreen({
     root.querySelector("[data-file-input]")?.addEventListener("change", async (event) => {
       selectedFile = event.currentTarget.files?.[0] || null;
       rows = [];
+      validationPassed = false;
       error = "";
       message = "";
       if (selectedFile) {
@@ -406,6 +436,9 @@ export function createCatalogImportScreen({
         render();
       }
     });
+    root.querySelector("[data-select-file]")?.addEventListener("click", () => {
+      selectFile({ clearSelection: true });
+    });
     root.querySelectorAll("[data-download-reference]").forEach((button) => {
       button.addEventListener("click", () => {
         const reference = getReferenceDownloads().find((item) => item.key === button.dataset.downloadReference);
@@ -427,22 +460,35 @@ export function createCatalogImportScreen({
     });
     root.querySelector("[data-test-file]")?.addEventListener("click", async () => {
       if (!selectedFile || !rows.length) {
+        validationPassed = false;
         selectFile({ clearSelection: true });
         return;
       }
+      testing = true;
+      validationPassed = false;
+      error = "";
+      message = "";
+      render();
       try {
         await validateRowsWithApi();
+        validationPassed = true;
         error = "";
         message = `Arquivo válido: ${rows.length} produto(s) pronto(s) para importação.`;
         scheduleMessageClear(() => { message = ""; clearRenderedFeedback(root); });
       } catch (testError) {
+        validationPassed = false;
         error = testError instanceof Error ? testError.message : String(testError);
         message = "";
+        selectedFile = null;
+        rows = [];
+      } finally {
+        testing = false;
+        render();
       }
-      render();
     });
     root.querySelector("[data-import-file]")?.addEventListener("click", async () => {
       loading = true;
+      validationPassed = false;
       error = "";
       message = "";
       render();
@@ -456,6 +502,7 @@ export function createCatalogImportScreen({
         if (!response.ok) throw new Error(payload.error || "Não foi possível importar os produtos.");
         message = `${payload.importedCount} produto(s) importado(s) com sucesso.`;
         rows = [];
+        validationPassed = false;
         scheduleMessageClear(() => { message = ""; clearRenderedFeedback(root); });
       } catch (importError) {
         error = importError instanceof Error ? importError.message : String(importError);
