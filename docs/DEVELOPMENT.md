@@ -246,6 +246,28 @@ ou capacidade emitida e validada pelo servidor, com autorização efetiva no
 backend. Até lá, recursos de servidor devem permanecer protegidos por suas
 rotas e configurações server-side existentes.
 
+### Consolidação da versão 0.11.0 — 2026-11-04
+
+Receitas de Produção e Composições de Produto são estruturas nomeadas,
+reutilizáveis e independentes de Produto comercial. Componentes podem apontar
+para Produtos ou outras Receitas; o cadastro do Produto mantém os vínculos com
+quantidade e perda. A API valida ciclos, componentes ativos e persistência
+transacional, e as revisões pendentes ficam disponíveis em Views.
+
+Produtos Buffet são Produtos comerciais com preço próprio. A venda não baixa
+estoque, não exige Cardápio e não impede o fechamento do caixa.
+
+As telas de Ficha Técnica, Views, Produtos, Operações Fiscais, Financeiros e
+Ferramentas consultam as barras contextuais persistidas. Arrays locais existem
+somente como fallback quando a API está indisponível ou incompleta; uma resposta
+válida do banco não deve receber itens locais adicionais nem perder sua ordem,
+label, rota, divisor ou relação pai-filho.
+
+Esta etapa foi validada com 112 testes aprovados, `node --check` e
+`git diff --check`. Como houve alterações em `src/server/`, publique e reinicie
+a API antes da validação operacional; como houve alterações no frontend, gere
+novo bundle para os terminais. O build não foi executado nesta etapa.
+
 ### Consolidação da versão 0.10.0 — 2026-11-04
 
 O Construtor de navegação usa `navigation_menus` e `navigation_items` como

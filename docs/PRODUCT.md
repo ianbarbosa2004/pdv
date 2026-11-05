@@ -9,7 +9,8 @@ web
 ## Users
 
 Operadores e administradores de lojas que cadastram produtos, insumos,
-unidades culinárias, estados físicos e regras de navegação do PDV.
+unidades culinárias, estados físicos, Receitas, Composições e regras de
+navegação do PDV.
 
 ## Product Purpose
 
@@ -32,6 +33,11 @@ e navegação configurável sem expor credenciais do banco aos terminais.
 
 - Produtos, matérias-primas, grupos, unidades e operações fiscais.
 - Unidades culinárias, estados físicos e conversões para apoio a fichas técnicas.
+- Receitas de Produção e Composições de Produto independentes de Produto
+  comercial, com componentes, perdas, custos e revisões.
+- Vínculos quantificados entre Produtos comerciais e Receitas ou Composições.
+- Produtos Buffet com venda sem baixa de estoque e sem bloqueio do fechamento
+  de caixa por Cardápio.
 - Views reutilizáveis para listas operacionais.
 - Construtor de Navegação para itens e divisores visuais configuráveis.
 - Regras compartilhadas ficam em `src/shared`; API e banco em `src/server`.

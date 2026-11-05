@@ -127,6 +127,24 @@ sessão:
 > Consulte também a seção “Dificuldades e workarounds registrados” em
 > `docs/DEVELOPMENT.md`.
 
+Estado da última etapa implementada (2026-11-04, versão 0.11.0): Receitas de
+Produção e Composições de Produto podem existir sem Produto comercial
+resultante. Componentes podem ser Produtos ou outras Receitas; o Produto
+comercial recebe vínculos quantificados e perdas no próprio cadastro. A API
+persiste definições, componentes, revisões e vínculos, valida ciclos e usa
+transações para gravações compostas. Produtos Buffet são vendidos pelo preço
+próprio sem baixa de estoque, sem Cardápio obrigatório e sem bloquear o
+fechamento do caixa.
+
+As barras contextuais dos grupos operacionais revisados usam a navegação
+persistida como fonte principal. Fallbacks locais só podem ser usados quando a
+API estiver indisponível ou incompleta; não injete o primeiro item fallback
+depois de uma resposta válida com filhos ativos. Preserve ordem, labels, rotas,
+divisores, status e relações pai-filho. A etapa foi validada com 112 testes,
+`node --check` e `git diff --check`; não houve build. Como `src/server/` foi
+alterado, a API publicada precisa ser reiniciada após a publicação e o
+frontend precisa receber novo bundle.
+
 Estado da última etapa de auditoria (2026-11-02): as rotinas de preparação
 idempotente foram extraídas para `src/server/schema-manager.js`, e a DDL das
 quatro tabelas NCM/CEST foi centralizada em

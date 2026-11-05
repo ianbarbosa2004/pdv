@@ -159,6 +159,13 @@ npm.cmd run release:client -- --api-url=http://IP_DO_SERVIDOR:3000 --refresh-ico
 Para gerar somente um build Tauri sem instaladores, defina
 `VITE_PDV_API_URL` e use `npm.cmd run tauri -- build --no-bundle`.
 
+As tabelas de Receitas, Composições, componentes, revisões e vínculos
+Produto–Receita são garantidas idempotentemente por `src/server/schema-manager.js`
+durante o startup e nas rotas do domínio. Depois de publicar uma versão que
+altere `src/server/`, reinicie o serviço `PDV-API` para executar essa preparação
+no banco existente antes de validar as telas de Ficha Técnica ou os vínculos do
+cadastro de Produtos. Não execute SQL destrutivo nem remova tabelas existentes.
+
 Não use o endereço do frontend Vite como endereço da API. Se a aplicação
 receber uma página HTML no lugar de JSON, confirme essa variável e valide
 `http://IP_DO_SERVIDOR:3000/api/health`.

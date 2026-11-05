@@ -53,6 +53,11 @@ A fundação inicial já está criada:
 - configuração de empresa e NFC-e, incluindo diagnóstico local e teste de
   autorização em homologação;
 - catálogos NCM/CEST persistidos e atualização controlada pela API;
+- Receitas de Produção e Composições de Produto independentes de Produto
+  comercial, com componentes, perdas, custos e revisões persistidos;
+- vínculos quantificados entre Produtos comerciais e Receitas ou Composições;
+- marcação de Produto Buffet, cuja venda não baixa estoque nem bloqueia o
+  fechamento de caixa;
 - impressão térmica de 80 mm com modelo de cupom persistido no servidor.
 - visualização de cadastros por seleção da linha, com preenchimento do
   formulário e bloqueio das ações de gravação durante a consulta.
@@ -330,6 +335,9 @@ auxiliares ao projeto.
 | `GET` | `/api/general-settings` | Consulta configurações operacionais |
 | `GET` | `/api/navigation` | Consulta a navegação publicada |
 | `GET` | `/api/navigation?includeInactive=1` | Consulta a navegação completa para manutenção |
+| `GET` | `/api/recipes` | Lista Receitas e Composições com seus componentes |
+| `GET` | `/api/recipe-reviews` | Lista revisões pendentes de Fichas |
+| `GET` | `/api/product-recipes?productId=...` | Consulta vínculos de Receitas de um Produto |
 | `POST` | `/api/classes` | Cria uma classe |
 | `POST` | `/api/groups` | Cria um grupo vinculado a uma classe |
 | `POST` | `/api/products` | Cadastra um produto |
@@ -340,6 +348,8 @@ auxiliares ao projeto.
 | `POST` | `/api/ncm-cest/update` | Atualiza os catálogos NCM / CEST |
 | `POST` | `/api/fiscal-operations` | Cadastra uma operação fiscal |
 | `POST` | `/api/fiscal-catalogs` | Cadastra um item de catálogo fiscal |
+| `POST` | `/api/recipes` | Cria uma Receita ou Composição com componentes |
+| `PUT` | `/api/product-recipes` | Substitui os vínculos de Receitas de um Produto |
 | `POST` | `/api/sales` | Registra uma venda e pagamentos; baixa o estoque somente para itens controlados |
 | `POST` | `/api/company/nfce/diagnostic` | Gera XML NFC-e assinado sem transmitir |
 | `POST` | `/api/company/nfce/test` | Testa autorização NFC-e somente em homologação |
@@ -410,6 +420,14 @@ MariaDB. CFOP, CST/CSOSN, alíquotas de ICMS, regimes, contextos, origens,
 situações tributárias de IPI/PIS/COFINS, modalidades de base e motivos de
 desoneração são administrados em telas separadas e consumidos pela tela da
 operação fiscal.
+
+Em **Cadastros > Ficha Técnica > Receitas e Composições**, uma Receita de
+Produção ou Composição de Produto recebe nome próprio e pode usar Produtos ou
+outras Receitas como componentes. O Produto comercial não é obrigatório para
+criar a estrutura; o vínculo é definido posteriormente no cadastro do Produto,
+com quantidade e perda. Produtos marcados como **Produto Buffet** registram a
+venda pelo preço cadastrado sem baixar estoque e sem exigir Cardápio para o
+fechamento do caixa.
 
 Exemplo de fechamento de venda:
 
