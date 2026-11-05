@@ -324,6 +324,20 @@ test("preserva a ordem persistida dos itens personalizados", () => {
   );
 });
 
+test("não injeta item fallback quando a barra persistida possui itens ativos", () => {
+  const navigation = mergeNavigationDefaults({ menus: [], items: [] });
+  const items = selectContextualNavigationItems(
+    navigation,
+    "technical-sheet",
+    [["recipes", "Receitas e Composições"], ["culinary-units", "Unidades Culinárias"]]
+  );
+
+  assert.deepEqual(
+    items.slice(1).map(([key]) => key),
+    ["recipes", "culinary-units", "physical-states", "culinary-conversions"]
+  );
+});
+
 test("preserva rota editada de item padrão após nova leitura", () => {
   const navigation = mergeNavigationDefaults({
     menus: [
@@ -638,7 +652,8 @@ test("inclui Views no menu Ferramentas", () => {
     [
       { keyNavigationItem: "groups-products", labelNavigationItem: "Grupos x Produtos", routeNavigationItem: "groups-products", orderNavigationItem: 1 },
       { keyNavigationItem: "no-cost", labelNavigationItem: "Sem Custo", routeNavigationItem: "no-cost", orderNavigationItem: 2 },
-      { keyNavigationItem: "no-physical-state", labelNavigationItem: "Sem Estado Físico", routeNavigationItem: "no-physical-state", orderNavigationItem: 3 }
+      { keyNavigationItem: "no-physical-state", labelNavigationItem: "Sem Estado Físico", routeNavigationItem: "no-physical-state", orderNavigationItem: 3 },
+      { keyNavigationItem: "recipe-revisions", labelNavigationItem: "Revisões de Fichas", routeNavigationItem: "recipe-revisions", orderNavigationItem: 4 }
     ]
   );
 });
@@ -652,6 +667,7 @@ test("inclui Ficha Técnica com os cadastros culinários", () => {
       .filter((item) => item.parentKey === "technical-sheet")
       .map(({ keyNavigationItem, routeNavigationItem }) => ({ keyNavigationItem, routeNavigationItem })),
     [
+      { keyNavigationItem: "recipes", routeNavigationItem: "recipes" },
       { keyNavigationItem: "culinary-units", routeNavigationItem: "culinary-units" },
       { keyNavigationItem: "physical-states", routeNavigationItem: "physical-states" },
       { keyNavigationItem: "culinary-conversions", routeNavigationItem: "culinary-conversions" }

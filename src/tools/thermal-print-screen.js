@@ -4,6 +4,7 @@ import { renderNavigationIntro } from "../ui/navigation-intro.js";
 import { invoke } from "@tauri-apps/api/core";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { apiFetch, getApiUrl  } from "../shared/api.js";
+import { getScreenContextLabel } from "../ui/screen-context.js";
 
 const escapeHtml = (value) => String(value ?? "")
   .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
@@ -130,7 +131,7 @@ export function createThermalPrintScreen({
     root.innerHTML = `
       <header class="classic-titlebar"><strong>PDV - Montagem de cupom</strong><span>Operador: Operador</span></header>
       ${renderMainMenu()}
-      <div class="classic-toolbar"><button class="classic-tool-button" data-back type="button">← Frente de caixa</button><button class="classic-tool-button is-active" data-thermal-print type="button">Montagem de cupom</button></div>
+      <div class="classic-toolbar"><button class="classic-tool-button" data-back type="button">← Frente de caixa</button><button class="classic-tool-button is-active" data-thermal-print type="button">${escapeHtml(getScreenContextLabel("Impressão térmica", "thermal-print"))}</button></div>
       <section class="thermal-print-content">
         ${renderSuccessFeedback(message, escapeHtml)}
         ${renderNavigationIntro("thermal-print", "Impressão térmica", "Configure a montagem e a impressão local dos comprovantes do PDV.")}

@@ -54,6 +54,7 @@ import {
   DEFAULT_PRINT_PLACE,
   normalizePrintPlace
 } from "../shared/print-place.js";
+import { findRecipeCycles, validateRecipeDefinition } from "../shared/recipe.js";
 
 const packageJson = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
 const applicationVersion = String(packageJson.version);
@@ -72,6 +73,7 @@ const {
   loadGeneralSourceSettings,
   ensureCustomerConsumerSchema,
   migrateCustomerConsumerSchema,
+  ensureRecipeSchema,
   getGeneralSettingBoolean,
   ensureCompanySchema,
   ensureSaleFiscalSchema,
@@ -2171,9 +2173,99 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "GET" && request.url.startsWith("/api/product-recipes")) {
+    try {
+      await ensureRecipeSchema();
+      const requestUrl = new URL(request.url, "http://localhost");
+      const productId = parsePositiveId(requestUrl.searchParams.get("productId"));
+      if (!productId) throw new SaleValidationError("Produto inválido.");
+      const [links] = await pool.query(
+        `SELECT links.idProductRecipeLink, links.idProduct, links.idRecipe,
+                links.quantityProductRecipeLink, links.lossPercentProductRecipeLink,
+                recipes.nameRecipe, recipes.kindRecipe, recipes.statusRecipe
+         FROM product_recipe_links links
+         INNER JOIN recipe_definitions recipes ON recipes.idRecipe = links.idRecipe
+         WHERE links.idProduct = ?
+         ORDER BY recipes.nameRecipe`,
+        [productId]
+      );
+      json(response, 200, { links });
+    } catch (error) {
+      handleError(response, error, {
+        log: "Falha ao listar receitas do produto:",
+        message: "Não foi possível consultar as receitas do produto.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
+  if (request.method === "PUT" && request.url === "/api/product-recipes") {
+    let connection;
+    try {
+      await ensureRecipeSchema();
+      const payload = await readJsonBody(request);
+      const productId = parsePositiveId(payload.idProduct);
+      const links = Array.isArray(payload.links) ? payload.links : [];
+      if (!productId) throw new SaleValidationError("Produto inválido.");
+      if (links.length > 100) throw new SaleValidationError("A composição do produto excede o limite permitido.");
+      connection = await pool.getConnection();
+      await connection.beginTransaction();
+      const [products] = await connection.query(
+        "SELECT idProduct FROM products WHERE idProduct = ?",
+        [productId]
+      );
+      if (!products.length) throw new SaleValidationError("Produto não encontrado.", 404);
+      const normalizedLinks = links.map((link) => ({
+        recipeId: parsePositiveId(link.idRecipe || link.recipeId),
+        quantity: Number(link.quantityProductRecipeLink ?? link.quantity ?? 1),
+        lossPercent: Number(link.lossPercentProductRecipeLink ?? link.lossPercent ?? 0)
+      }));
+      if (normalizedLinks.some((link) =>
+        !link.recipeId || !Number.isFinite(link.quantity) || link.quantity <= 0
+        || !Number.isFinite(link.lossPercent) || link.lossPercent < 0 || link.lossPercent >= 100
+      )) {
+        throw new SaleValidationError("Receita, quantidade ou perda inválida.");
+      }
+      const recipeIds = [...new Set(normalizedLinks.map((link) => link.recipeId))];
+      if (recipeIds.length) {
+        const [recipes] = await connection.query(
+          `SELECT idRecipe FROM recipe_definitions
+           WHERE idRecipe IN (?) AND statusRecipe = 'active'`,
+          [recipeIds]
+        );
+        if (recipes.length !== recipeIds.length) {
+          throw new SaleValidationError("Somente Receitas ou Composições ativas podem ser vinculadas ao produto.", 409);
+        }
+      }
+      await connection.query("DELETE FROM product_recipe_links WHERE idProduct = ?", [productId]);
+      for (const link of normalizedLinks) {
+        await connection.query(
+          `INSERT INTO product_recipe_links
+            (idProduct, idRecipe, quantityProductRecipeLink, lossPercentProductRecipeLink)
+           VALUES (?, ?, ?, ?)`,
+          [productId, link.recipeId, link.quantity, link.lossPercent]
+        );
+      }
+      await connection.commit();
+      json(response, 200, { ok: true, idProduct, links: normalizedLinks });
+    } catch (error) {
+      if (connection) await connection.rollback();
+      handleError(response, error, {
+        log: "Falha ao salvar receitas do produto:",
+        message: "Não foi possível salvar as receitas do produto.",
+        duplicate: ""
+      });
+    } finally {
+      connection?.release();
+    }
+    return;
+  }
+
   if (request.method === "GET" && request.url.startsWith("/api/products")) {
     try {
       await ensureProductCatalogSchema();
+      await ensureRecipeSchema();
       const requestUrl = new URL(request.url, "http://localhost");
       const includeInactive = requestUrl.searchParams.get("includeInactive") === "1";
       const productTypeDescription = uppercaseText(requestUrl.searchParams.get("productType") || "");
@@ -2185,6 +2277,7 @@ const server = createServer(async (request, response) => {
                 products.idPhysicalStateProduct, products.idUnitProduct, products.ncmProduct,
                 products.cestProduct, products.priceProduct, products.costPriceProduct,
                 products.stockQuantityProduct, products.controlsStockProduct,
+                products.isBuffetProduct,
                 products.isFractionalProduct, products.printsPlace,
                 products.showsInPdvProduct,
                 products.isActiveProduct,
@@ -2205,6 +2298,215 @@ const server = createServer(async (request, response) => {
       handleError(response, error, {
         log: "Falha ao listar produtos:",
         message: "Não foi possível consultar os produtos.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && request.url.startsWith("/api/recipes")) {
+    try {
+      await ensureRecipeSchema();
+      const requestUrl = new URL(request.url, "http://localhost");
+      const includeArchived = requestUrl.searchParams.get("includeArchived") === "1";
+      const kind = requestUrl.searchParams.get("kind");
+      const parameters = [];
+      const conditions = [];
+      if (!includeArchived) conditions.push("recipes.statusRecipe <> 'archived'");
+      if (kind === "production" || kind === "composition") {
+        conditions.push("recipes.kindRecipe = ?");
+        parameters.push(kind);
+      }
+      const [recipes] = await pool.query(
+        `SELECT recipes.idRecipe, recipes.nameRecipe, recipes.kindRecipe, recipes.idResultProductRecipe,
+                recipes.statusRecipe, recipes.versionRecipe, recipes.yieldQuantityRecipe,
+                recipes.notesRecipe, recipes.createdAtRecipe, recipes.updatedAtRecipe,
+                result.nameProduct AS resultProductName
+         FROM recipe_definitions recipes
+         LEFT JOIN products result ON result.idProduct = recipes.idResultProductRecipe
+         ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
+         ORDER BY result.nameProduct, recipes.kindRecipe`,
+        parameters
+      );
+      const recipeIds = recipes.map(({ idRecipe }) => idRecipe);
+      const components = recipeIds.length
+        ? (await pool.query(
+          `SELECT components.idRecipe, components.componentTypeRecipe,
+                  components.idComponentProductRecipe, components.idComponentRecipe,
+                  components.quantityRecipeComponent, components.lossPercentRecipeComponent,
+                  products.nameProduct AS componentProductName,
+                  nested.nameRecipe AS componentRecipeName,
+                  products.costPriceProduct, products.controlsStockProduct
+           FROM recipe_components components
+           LEFT JOIN products ON products.idProduct = components.idComponentProductRecipe
+           LEFT JOIN recipe_definitions nested ON nested.idRecipe = components.idComponentRecipe
+           WHERE components.idRecipe IN (?) ORDER BY components.idRecipe, components.idRecipeComponent`,
+          [recipeIds]
+        ))[0]
+        : [];
+      const componentsByRecipe = new Map();
+      for (const component of components) {
+        const list = componentsByRecipe.get(component.idRecipe) || [];
+        list.push(component);
+        componentsByRecipe.set(component.idRecipe, list);
+      }
+      json(response, 200, {
+        recipes: recipes.map((recipe) => ({
+          ...recipe,
+          components: componentsByRecipe.get(recipe.idRecipe) || []
+        }))
+      });
+    } catch (error) {
+      handleError(response, error, {
+        log: "Falha ao listar receitas:",
+        message: "Não foi possível consultar as receitas.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/api/recipes") {
+    let connection;
+    try {
+      await ensureRecipeSchema();
+      const payload = await readJsonBody(request);
+      const definition = {
+        kind: payload.kindRecipe || payload.kind,
+        name: payload.nameRecipe || payload.name,
+        components: Array.isArray(payload.components)
+          ? payload.components.map((component) => ({
+            productId: component.idComponentProductRecipe || component.productId,
+            recipeId: component.idComponentRecipe || component.recipeId,
+            quantity: component.quantityRecipeComponent ?? component.quantity,
+            lossPercent: component.lossPercentRecipeComponent ?? component.lossPercent ?? 0
+          }))
+          : []
+      };
+      const validationErrors = validateRecipeDefinition(definition);
+      if (validationErrors.length) throw new SaleValidationError(validationErrors.join(" "));
+      const requestedStatus = payload.statusRecipe === "active" ? "active" : "draft";
+      connection = await pool.getConnection();
+      await connection.beginTransaction();
+      const productIds = [...new Set(
+        definition.components
+          .map(({ productId }) => Number(productId))
+          .filter((id) => Number.isInteger(id) && id > 0)
+      )];
+      if (productIds.length) {
+        const [products] = await connection.query(
+          `SELECT idProduct FROM products WHERE idProduct IN (?) AND isActiveProduct = 1`,
+          [productIds]
+        );
+        if (products.length !== productIds.length) {
+          throw new SaleValidationError("Produto componente não encontrado.", 409);
+        }
+      }
+      const recipeIds = [...new Set(
+        definition.components
+          .map(({ recipeId }) => Number(recipeId))
+          .filter((id) => Number.isInteger(id) && id > 0)
+      )];
+      if (recipeIds.length) {
+        const [componentRecipes] = await connection.query(
+          `SELECT idRecipe FROM recipe_definitions
+           WHERE idRecipe IN (?) AND statusRecipe <> 'archived'`,
+          [recipeIds]
+        );
+        if (componentRecipes.length !== recipeIds.length) {
+          throw new SaleValidationError("Receita componente não encontrada.", 409);
+        }
+      }
+      const recipeName = String(definition.name || "").trim().slice(0, 180);
+      if (!recipeName) throw new SaleValidationError("Informe o nome da Receita ou Composição.");
+      const [duplicates] = await connection.query(
+        `SELECT idRecipe FROM recipe_definitions
+         WHERE nameRecipe = ? AND kindRecipe = ? AND statusRecipe <> 'archived'`,
+        [recipeName, definition.kind]
+      );
+      if (duplicates.length) throw new SaleValidationError("Já existe uma Receita ou Composição com este nome.", 409);
+      const [existingDefinitions] = await connection.query(
+        `SELECT recipes.idRecipe, components.idComponentRecipe
+         FROM recipe_definitions recipes
+         LEFT JOIN recipe_components components ON components.idRecipe = recipes.idRecipe
+         WHERE recipes.statusRecipe <> 'archived'`
+      );
+      const definitionsByKey = new Map();
+      for (const entry of existingDefinitions) {
+        const key = String(entry.idRecipe);
+        const current = definitionsByKey.get(key) || {
+          recipeId: entry.idRecipe,
+          components: []
+        };
+        if (entry.idComponentRecipe) {
+          current.components.push({ recipeId: entry.idComponentRecipe });
+        }
+        definitionsByKey.set(key, current);
+      }
+      const cycleDefinitions = [...definitionsByKey.values()];
+      const cycles = findRecipeCycles(cycleDefinitions);
+      if (cycles.length) throw new SaleValidationError("A estrutura contém um ciclo de composição.", 409);
+      const [result] = await connection.query(
+        `INSERT INTO recipe_definitions
+          (nameRecipe, kindRecipe, statusRecipe, yieldQuantityRecipe, notesRecipe)
+         VALUES (?, ?, ?, ?, ?)`,
+        [
+          recipeName,
+          definition.kind,
+          requestedStatus,
+          Number(payload.yieldQuantityRecipe || 1),
+          payload.notesRecipe ? String(payload.notesRecipe).trim().slice(0, 500) : null
+        ]
+      );
+      for (const component of definition.components) {
+        await connection.query(
+          `INSERT INTO recipe_components
+            (idRecipe, componentTypeRecipe, idComponentProductRecipe, idComponentRecipe,
+             quantityRecipeComponent, lossPercentRecipeComponent)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [
+            result.insertId,
+            component.recipeId ? "recipe" : "product",
+            component.productId || null,
+            component.recipeId || null,
+            component.quantity,
+            component.lossPercent
+          ]
+        );
+      }
+      await connection.commit();
+      json(response, 201, { ok: true, idRecipe: result.insertId, statusRecipe: requestedStatus });
+    } catch (error) {
+      if (connection) await connection.rollback();
+      handleError(response, error, {
+        log: "Falha ao criar receita:",
+        message: "Não foi possível salvar a Receita ou Composição.",
+        duplicate: "Já existe uma Receita ou Composição com este nome."
+      });
+    } finally {
+      connection?.release();
+    }
+    return;
+  }
+
+  if (request.method === "GET" && request.url.startsWith("/api/recipe-reviews")) {
+    try {
+      await ensureRecipeSchema();
+      const [reviews] = await pool.query(
+        `SELECT reviews.idRecipeReview, reviews.idRecipe, reviews.reasonRecipeReview,
+                reviews.statusRecipeReview, reviews.createdAtRecipeReview,
+                recipes.nameRecipe, recipes.kindRecipe, products.nameProduct AS resultProductName
+         FROM recipe_reviews reviews
+         INNER JOIN recipe_definitions recipes ON recipes.idRecipe = reviews.idRecipe
+         LEFT JOIN products ON products.idProduct = recipes.idResultProductRecipe
+         WHERE reviews.statusRecipeReview = 'pending'
+         ORDER BY reviews.createdAtRecipeReview DESC, products.nameProduct`
+      );
+      json(response, 200, { reviews });
+    } catch (error) {
+      handleError(response, error, {
+        log: "Falha ao listar revisões de fichas:",
+        message: "Não foi possível consultar as revisões.",
         duplicate: ""
       });
     }
@@ -3130,9 +3432,11 @@ const server = createServer(async (request, response) => {
       if (!nameProduct || nameProduct.length > 180 || !skuProduct || skuProduct.length > 64 || !idGroup || (ncmProduct && !/^\d{8}$/.test(ncmProduct)) || (cestProduct && !/^\d{7}$/.test(cestProduct))) throw new SaleValidationError("Nome, SKU, grupo, NCM ou CEST inválidos.");
       await ensureProductCatalogSchema();
       await ensureCulinarySchema();
+      await ensureRecipeSchema();
       const allowNegativeStock = await getGeneralSettingBoolean("allowNegativeStock");
       const costPriceProduct = parseMoney(payload.costPriceProduct ?? "0", "Preço de custo");
       const controlsStockProduct = parseBooleanFlag(payload.controlsStockProduct, "Controla estoque", true);
+      const isBuffetProduct = parseBooleanFlag(payload.isBuffetProduct, "Produto Buffet", false);
       const isFractionalProduct = parseBooleanFlag(payload.isFractionalProduct, "Produto fracionado");
       const showsInPdvProduct = parseBooleanFlag(payload.showsInPdvProduct, "Exibe no PDV", true);
       const stockQuantityProduct = parseProductQuantity(payload.stockQuantityProduct, allowNegativeStock, Boolean(isFractionalProduct));
@@ -3188,15 +3492,15 @@ const server = createServer(async (request, response) => {
         `INSERT INTO products
           (idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct,
            idProductTypeProduct, idPhysicalStateProduct, idUnitProduct, ncmProduct, cestProduct, priceProduct, costPriceProduct,
-           stockQuantityProduct, controlsStockProduct, isFractionalProduct, printsPlace,
+           stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct, printsPlace,
            showsInPdvProduct)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
         [idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct,
           idProductTypeProduct, normalizedPhysicalStateProduct, idUnitProduct, ncmProduct || null, cestProduct || null,
-          priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct,
+          priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct,
           printsPlace, showsInPdvProduct]
       );
-      json(response, 201, { product: { idProduct: result.insertId, idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct, idProductTypeProduct, idPhysicalStateProduct: normalizedPhysicalStateProduct, idUnitProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct, printsPlace, showsInPdvProduct } });
+      json(response, 201, { product: { idProduct: result.insertId, idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct, idProductTypeProduct, idPhysicalStateProduct: normalizedPhysicalStateProduct, idUnitProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct, printsPlace, showsInPdvProduct } });
     } catch (error) {
       handleError(response, error, { log: "Falha ao criar produto:", message: "Não foi possível criar o produto.", duplicate: "SKU ou código PDV já cadastrado." });
     }
@@ -3214,6 +3518,7 @@ const server = createServer(async (request, response) => {
       }
       await ensureProductCatalogSchema();
       await ensureCulinarySchema();
+      await ensureRecipeSchema();
       const allowNegativeStock = await getGeneralSettingBoolean("allowNegativeStock");
       connection = await pool.getConnection();
       await connection.beginTransaction();
@@ -3442,6 +3747,7 @@ const server = createServer(async (request, response) => {
       const allowNegativeStock = await getGeneralSettingBoolean("allowNegativeStock");
       const costPriceProduct = parseMoney(payload.costPriceProduct ?? "0", "Preço de custo");
       const controlsStockProduct = parseBooleanFlag(payload.controlsStockProduct, "Controla estoque", true);
+      const isBuffetProduct = parseBooleanFlag(payload.isBuffetProduct, "Produto Buffet", false);
       const isFractionalProduct = parseBooleanFlag(payload.isFractionalProduct, "Produto fracionado");
       const showsInPdvProduct = parseBooleanFlag(payload.showsInPdvProduct, "Exibe no PDV", true);
       const stockQuantityProduct = parseProductQuantity(payload.stockQuantityProduct, allowNegativeStock, Boolean(isFractionalProduct));
@@ -3497,16 +3803,16 @@ const server = createServer(async (request, response) => {
         `UPDATE products SET idGroup = ?, skuProduct = ?, pdvCodeProduct = ?, nameProduct = ?,
            idFiscalOperationSaleProduct = ?, idProductTypeProduct = ?, idPhysicalStateProduct = ?, idUnitProduct = ?,
            ncmProduct = ?, cestProduct = ?, priceProduct = ?, costPriceProduct = ?, stockQuantityProduct = ?,
-           controlsStockProduct = ?, isFractionalProduct = ?, printsPlace = ?,
+           controlsStockProduct = ?, isBuffetProduct = ?, isFractionalProduct = ?, printsPlace = ?,
            showsInPdvProduct = ?
          WHERE idProduct = ?`,
         [idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct,
           idProductTypeProduct, normalizedPhysicalStateProduct, idUnitProduct, ncmProduct || null, cestProduct || null,
-          priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct,
+          priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct,
           printsPlace, showsInPdvProduct, idProduct]
       );
       if (!result.affectedRows) throw new SaleValidationError("Produto não encontrado.", 404);
-      json(response, 200, { product: { idProduct, idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct, idProductTypeProduct, idPhysicalStateProduct: normalizedPhysicalStateProduct, idUnitProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct, printsPlace, showsInPdvProduct } });
+      json(response, 200, { product: { idProduct, idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct, idProductTypeProduct, idPhysicalStateProduct: normalizedPhysicalStateProduct, idUnitProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct, printsPlace, showsInPdvProduct } });
     } catch (error) {
       handleError(response, error, { log: "Falha ao editar produto:", message: "Não foi possível editar o produto.", duplicate: "SKU ou código PDV já cadastrado." });
     }
@@ -4070,6 +4376,7 @@ server.listen(config.apiPort, config.apiHost, () => {
     ensureSaleFiscalSchema(),
     ensureSupplierSchema(),
     ensureCustomerConsumerSchema().then(migrateCustomerConsumerSchema),
+    ensureRecipeSchema(),
     ensureNavigationSchema(),
     ensureOperatorCashSchema()
   ]).then(() => ensureUppercaseTextData()).catch((error) => {

@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS products (
   costPriceProduct DECIMAL(12,2) NOT NULL DEFAULT 0,
   stockQuantityProduct DECIMAL(12,3) NOT NULL DEFAULT 0,
   controlsStockProduct TINYINT(1) NOT NULL DEFAULT 1,
+  isBuffetProduct TINYINT(1) NOT NULL DEFAULT 0,
   isFractionalProduct TINYINT(1) NOT NULL DEFAULT 0,
   printsPlace VARCHAR(20) NOT NULL DEFAULT 'NÃO IMPRIMIR',
   showsInPdvProduct TINYINT(1) NOT NULL DEFAULT 1,
@@ -74,6 +75,81 @@ CREATE TABLE IF NOT EXISTS products (
   CONSTRAINT fkProductsPhysicalState
     FOREIGN KEY (idPhysicalStateProduct) REFERENCES physical_states (idPhysicalState)
     ON DELETE RESTRICT
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS recipe_definitions (
+  idRecipe BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  nameRecipe VARCHAR(180) NOT NULL,
+  kindRecipe ENUM('production', 'composition') NOT NULL,
+  idResultProductRecipe BIGINT UNSIGNED NULL,
+  statusRecipe ENUM('draft', 'active', 'review_required', 'archived') NOT NULL DEFAULT 'draft',
+  versionRecipe INT UNSIGNED NOT NULL DEFAULT 1,
+  yieldQuantityRecipe DECIMAL(12,3) NOT NULL DEFAULT 1,
+  notesRecipe VARCHAR(500) NULL,
+  createdAtRecipe TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAtRecipe TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (idRecipe),
+  UNIQUE KEY uqRecipeNameKind (nameRecipe, kindRecipe),
+  KEY idxRecipeStatus (statusRecipe, kindRecipe),
+  KEY idxRecipeResultProduct (idResultProductRecipe),
+  CONSTRAINT fkRecipeResultProduct
+    FOREIGN KEY (idResultProductRecipe) REFERENCES products (idProduct)
+    ON DELETE RESTRICT
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS recipe_components (
+  idRecipeComponent BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  idRecipe BIGINT UNSIGNED NOT NULL,
+  componentTypeRecipe ENUM('product', 'recipe') NOT NULL DEFAULT 'product',
+  idComponentProductRecipe BIGINT UNSIGNED NULL,
+  idComponentRecipe BIGINT UNSIGNED NULL,
+  quantityRecipeComponent DECIMAL(12,4) NOT NULL,
+  lossPercentRecipeComponent DECIMAL(7,4) NOT NULL DEFAULT 0,
+  createdAtRecipeComponent TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (idRecipeComponent),
+  KEY idxRecipeComponentsRecipe (idRecipe),
+  KEY idxRecipeComponentsProduct (idComponentProductRecipe),
+  CONSTRAINT fkRecipeComponentsDefinition
+    FOREIGN KEY (idRecipe) REFERENCES recipe_definitions (idRecipe)
+    ON DELETE CASCADE,
+  CONSTRAINT fkRecipeComponentsProduct
+    FOREIGN KEY (idComponentProductRecipe) REFERENCES products (idProduct)
+    ON DELETE RESTRICT,
+  CONSTRAINT fkRecipeComponentsRecipe
+    FOREIGN KEY (idComponentRecipe) REFERENCES recipe_definitions (idRecipe)
+    ON DELETE RESTRICT
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS product_recipe_links (
+  idProductRecipeLink BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  idProduct BIGINT UNSIGNED NOT NULL,
+  idRecipe BIGINT UNSIGNED NOT NULL,
+  quantityProductRecipeLink DECIMAL(12,4) NOT NULL DEFAULT 1,
+  lossPercentProductRecipeLink DECIMAL(7,4) NOT NULL DEFAULT 0,
+  createdAtProductRecipeLink TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (idProductRecipeLink),
+  UNIQUE KEY uqProductRecipeLink (idProduct, idRecipe),
+  KEY idxProductRecipeLinksRecipe (idRecipe),
+  CONSTRAINT fkProductRecipeLinksProduct
+    FOREIGN KEY (idProduct) REFERENCES products (idProduct)
+    ON DELETE CASCADE,
+  CONSTRAINT fkProductRecipeLinksRecipe
+    FOREIGN KEY (idRecipe) REFERENCES recipe_definitions (idRecipe)
+    ON DELETE RESTRICT
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS recipe_reviews (
+  idRecipeReview BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  idRecipe BIGINT UNSIGNED NOT NULL,
+  reasonRecipeReview VARCHAR(240) NOT NULL,
+  statusRecipeReview ENUM('pending', 'confirmed', 'dismissed') NOT NULL DEFAULT 'pending',
+  createdAtRecipeReview TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  confirmedAtRecipeReview TIMESTAMP NULL,
+  PRIMARY KEY (idRecipeReview),
+  KEY idxRecipeReviewsStatus (statusRecipeReview, createdAtRecipeReview),
+  CONSTRAINT fkRecipeReviewsRecipe
+    FOREIGN KEY (idRecipe) REFERENCES recipe_definitions (idRecipe)
+    ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS product_types (

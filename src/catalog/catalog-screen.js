@@ -10,6 +10,7 @@ import {
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { apiFetch, getApiUrl } from "../shared/api.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
+import { parseBrazilianDecimal } from "../shared/decimal.js";
 
 const escapeHtml = (value) =>
   String(value)
@@ -70,6 +71,9 @@ export function createCatalogScreen({
   const root = document.createElement("main");
   let groups = [];
   let products = [];
+  let recipes = [];
+  let productRecipeLinks = [];
+  let productRecipesLoading = false;
   let fiscalOperations = [];
   let productTypes = [];
   let units = [];
@@ -101,6 +105,7 @@ export function createCatalogScreen({
     costPriceProduct: "0,00",
     stockQuantityProduct: "0",
     controlsStockProduct: defaultControlsStock,
+    isBuffetProduct: false,
     isFractionalProduct: defaultIsFractionalProduct,
     printsPlace: "NÃO IMPRIMIR",
     showsInPdvProduct: defaultShowsInPdv
@@ -110,6 +115,7 @@ export function createCatalogScreen({
   let ncmLookupField = "code";
   let sortState = { key: "nameProduct", direction: "asc" };
   let searchTerm = "";
+  let recipeLinkDraft = { idRecipe: "", quantity: "1", lossPercent: "0" };
 
   const getVisibleProducts = () =>
     [...products]
@@ -128,6 +134,48 @@ export function createCatalogScreen({
             { sensitivity: "base" }
           );
       return sortState.direction === "asc" ? comparison : -comparison;
+      });
+      root.querySelector("[data-product-recipe-target]")?.addEventListener("change", (event) => {
+        recipeLinkDraft.idRecipe = event.currentTarget.value;
+      });
+      root.querySelector("[data-product-recipe-quantity]")?.addEventListener("input", (event) => {
+        recipeLinkDraft.quantity = event.currentTarget.value;
+      });
+      root.querySelector("[data-product-recipe-loss]")?.addEventListener("input", (event) => {
+        recipeLinkDraft.lossPercent = event.currentTarget.value;
+      });
+      root.querySelector("[data-add-product-recipe]")?.addEventListener("click", () => {
+        const recipeId = Number(recipeLinkDraft.idRecipe);
+        const quantity = parseBrazilianDecimal(recipeLinkDraft.quantity);
+        const lossPercent = parseBrazilianDecimal(recipeLinkDraft.lossPercent);
+        const recipe = recipes.find(({ idRecipe }) => Number(idRecipe) === recipeId);
+        if (!recipeId || !recipe || recipe.statusRecipe !== "active"
+          || !Number.isFinite(quantity) || quantity <= 0
+          || !Number.isFinite(lossPercent) || lossPercent < 0 || lossPercent >= 100) {
+          error = "Informe uma Receita ou Composição ativa, quantidade maior que zero e perda entre 0 e 99,99%.";
+          render();
+          return;
+        }
+        if (productRecipeLinks.some((link) => Number(link.idRecipe) === recipeId)) {
+          error = "Esta Receita ou Composição já está vinculada ao produto.";
+          render();
+          return;
+        }
+        productRecipeLinks.push({
+          idRecipe: recipeId,
+          nameRecipe: recipe.nameRecipe,
+          quantityProductRecipeLink: quantity,
+          lossPercentProductRecipeLink: lossPercent
+        });
+        recipeLinkDraft = { idRecipe: "", quantity: "1", lossPercent: "0" };
+        error = "";
+        render();
+      });
+      root.querySelectorAll("[data-remove-product-recipe]").forEach((button) => {
+        button.addEventListener("click", () => {
+          productRecipeLinks.splice(Number(button.dataset.removeProductRecipe), 1);
+          render();
+        });
       });
 
   const sortIndicator = (key) =>
@@ -148,6 +196,40 @@ export function createCatalogScreen({
         </div>
       </label>
     `;
+
+    const renderProductRecipeLinks = () => {
+      if (isNonSaleCatalog) return "";
+      return `
+        <div class="classic-panel-header nested-panel-header">Receitas e Composições do produto</div>
+        <p class="form-help">Vincule as estruturas que fazem parte deste produto comercial.</p>
+        <div class="recipe-component-list">
+          ${productRecipesLoading
+            ? '<p class="classic-empty">Carregando vínculos...</p>'
+            : productRecipeLinks.length
+              ? productRecipeLinks.map((link, index) => `
+                <div class="recipe-component-row">
+                  <span>${escapeHtml(link.nameRecipe || "Receita não encontrada")}</span>
+                  <span>${escapeHtml(link.quantityProductRecipeLink)} un.</span>
+                  <span>Perda: ${escapeHtml(link.lossPercentProductRecipeLink)}%</span>
+                  <button class="icon-button delete" type="button" data-remove-product-recipe="${index}" aria-label="Remover vínculo"><i data-lucide="trash-2"></i></button>
+                </div>
+              `).join("")
+              : '<p class="classic-empty">Nenhuma Receita ou Composição vinculada.</p>'}
+        </div>
+        <div class="classic-form-grid">
+          <label class="form-field"><span>Receita ou Composição</span><select data-product-recipe-target>
+            <option value="">Selecione</option>
+            ${recipes
+              .filter(({ statusRecipe }) => statusRecipe === "active")
+              .map((recipe) => `<option value="${recipe.idRecipe}" ${String(recipeLinkDraft.idRecipe) === String(recipe.idRecipe) ? "selected" : ""}>${escapeHtml(recipe.nameRecipe)}</option>`)
+              .join("")}
+          </select></label>
+          <label class="form-field"><span>Quantidade</span><input data-product-recipe-quantity inputmode="decimal" value="${escapeHtml(recipeLinkDraft.quantity)}" /></label>
+          <label class="form-field"><span>Perda (%)</span><input data-product-recipe-loss inputmode="decimal" value="${escapeHtml(recipeLinkDraft.lossPercent)}" /></label>
+          <button class="classic-button" data-add-product-recipe type="button">Adicionar vínculo</button>
+        </div>
+      `;
+    };
   };
 
   const renderCestOptions = (selectedValue) =>
@@ -172,6 +254,7 @@ export function createCatalogScreen({
         formData.get("stockQuantityProduct") ?? newProductDraft.stockQuantityProduct ?? "0"
       ) || "0",
       controlsStockProduct: formData.get("controlsStockProduct") === "on",
+      isBuffetProduct: formData.get("isBuffetProduct") === "on",
       isFractionalProduct: formData.get("isFractionalProduct") === "on",
       printsPlace: formData.get("printsPlace") || "NÃO IMPRIMIR",
       showsInPdvProduct: formData.get("showsInPdvProduct") === "on"
@@ -260,6 +343,7 @@ export function createCatalogScreen({
       costPriceProduct: "0,00",
       stockQuantityProduct: "0",
       controlsStockProduct: defaultControlsStock,
+      isBuffetProduct: false,
       isFractionalProduct: defaultIsFractionalProduct,
       printsPlace: "NÃO IMPRIMIR",
       showsInPdvProduct: defaultShowsInPdv
@@ -293,6 +377,7 @@ export function createCatalogScreen({
   const renderProductFlags = (product = newProductDraft) => `
     <div class="classic-form-grid">
       <label class="form-field checkbox-field"><span>Controla estoque</span><input name="controlsStockProduct" type="checkbox" ${Number(product.controlsStockProduct) !== 0 ? "checked" : ""} /></label>
+      <label class="form-field checkbox-field"><span>Produto Buffet</span><input name="isBuffetProduct" type="checkbox" ${product.isBuffetProduct ? "checked" : ""} /></label>
       <label class="form-field checkbox-field"><span>Produto fracionado</span><input name="isFractionalProduct" type="checkbox" ${product.isFractionalProduct ? "checked" : ""} /></label>
       <label class="form-field checkbox-field"><span>Exibir no PDV</span><input name="showsInPdvProduct" type="checkbox" ${product.showsInPdvProduct !== false && product.showsInPdvProduct !== 0 ? "checked" : ""} /></label>
     </div>
@@ -461,6 +546,7 @@ export function createCatalogScreen({
                   ${renderPrintPlaceField(editingProduct)}
                 </div>
                 ${renderProductFlags(editingProduct)}
+                ${renderProductRecipeLinks()}
                 ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}
               </div>
               <div class="classic-form-actions">
@@ -619,9 +705,12 @@ export function createCatalogScreen({
     root.querySelectorAll("[data-edit]").forEach((button) => {
       button.addEventListener("click", () => {
         editingProduct = products.find(({ idProduct }) => String(idProduct) === button.dataset.edit) || null;
+        productRecipeLinks = [];
+        recipeLinkDraft = { idRecipe: "", quantity: "1", lossPercent: "0" };
         cestOptions = [];
         render();
         void loadCestOptions(editingProduct?.ncmProduct);
+        void loadProductRecipeLinks(editingProduct?.idProduct);
         root.querySelector("[data-edit-product-form] [name='nameProduct']")?.focus();
       });
     });
@@ -752,7 +841,7 @@ export function createCatalogScreen({
     loading = true;
     render();
     try {
-      const [groupResponse, productResponse, operationResponse, typeResponse, unitResponse, physicalStateResponse, generalSettingsResponse] = await Promise.all([
+      const [groupResponse, productResponse, operationResponse, typeResponse, unitResponse, physicalStateResponse, generalSettingsResponse, recipeResponse] = await Promise.all([
         apiFetch(`${getApiUrl()}/api/groups?includeInactive=1`),
         apiFetch(`${getApiUrl()}/api/products?includeInactive=1&productType=${encodeURIComponent(productTypeDescription)}`),
         apiFetch(`${getApiUrl()}/api/fiscal-operations`),
@@ -761,7 +850,10 @@ export function createCatalogScreen({
         isRawMaterialsCatalog
           ? apiFetch(`${getApiUrl()}/api/physical-states`)
           : Promise.resolve({ ok: true, json: async () => ({ physicalStates: [] }) }),
-        apiFetch(`${getApiUrl()}/api/general-settings`)
+        apiFetch(`${getApiUrl()}/api/general-settings`),
+        isNonSaleCatalog
+          ? Promise.resolve({ ok: true, json: async () => ({ recipes: [] }) })
+          : apiFetch(`${getApiUrl()}/api/recipes`)
       ]);
       const groupPayload = await groupResponse.json();
       const productPayload = await productResponse.json();
@@ -770,6 +862,7 @@ export function createCatalogScreen({
       const unitPayload = await unitResponse.json();
       const physicalStatePayload = await physicalStateResponse.json();
       const generalSettingsPayload = await generalSettingsResponse.json();
+      const recipePayload = await recipeResponse.json();
       if (!groupResponse.ok || !Array.isArray(groupPayload.groups)) {
         throw new Error(groupPayload.error || "Não foi possível carregar os grupos.");
       }
@@ -791,10 +884,15 @@ export function createCatalogScreen({
       if (!generalSettingsResponse.ok || !Array.isArray(generalSettingsPayload.settings)) {
         throw new Error(generalSettingsPayload.error || "Não foi possível carregar as configurações gerais.");
       }
+      if (!recipeResponse.ok || !Array.isArray(recipePayload.recipes)) {
+        throw new Error(recipePayload.error || "Não foi possível carregar as receitas.");
+      }
       groups = groupPayload.groups;
       products = productPayload.products;
+      recipes = recipePayload.recipes;
       if (initialProductId && !editingProduct) {
         editingProduct = products.find(({ idProduct }) => String(idProduct) === String(initialProductId)) || null;
+        if (editingProduct) void loadProductRecipeLinks(editingProduct.idProduct);
       }
       fiscalOperations = operationPayload.fiscalOperations.filter(({ typeFiscalOperation }) => typeFiscalOperation === "exit");
       productTypes = typePayload.productTypes;
@@ -842,6 +940,46 @@ export function createCatalogScreen({
     render();
   };
 
+  const loadProductRecipeLinks = async (productId) => {
+    if (!productId || isNonSaleCatalog) return;
+    productRecipesLoading = true;
+    render();
+    try {
+      const response = await apiFetch(`${getApiUrl()}/api/product-recipes?productId=${encodeURIComponent(productId)}`);
+      const payload = await response.json();
+      if (!response.ok || !Array.isArray(payload.links)) {
+        throw new Error(payload.error || "Não foi possível consultar as receitas do produto.");
+      }
+      if (editingProduct && String(editingProduct.idProduct) === String(productId)) {
+        productRecipeLinks = payload.links;
+      }
+    } catch (loadError) {
+      error = loadError instanceof Error ? loadError.message : "Falha ao carregar as receitas do produto.";
+    } finally {
+      productRecipesLoading = false;
+      render();
+    }
+  };
+
+  const saveProductRecipeLinks = async (productId) => {
+    const response = await apiFetch(`${getApiUrl()}/api/product-recipes`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        idProduct: productId,
+        links: productRecipeLinks.map((link) => ({
+          idRecipe: link.idRecipe,
+          quantity: link.quantityProductRecipeLink,
+          lossPercent: link.lossPercentProductRecipeLink
+        }))
+      })
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error || "Não foi possível salvar as receitas do produto.");
+    }
+  };
+
   const createProduct = async (formData, productId = null) => {
     submitting = true;
     error = "";
@@ -873,6 +1011,7 @@ export function createCatalogScreen({
             ?? (productId ? editingProduct?.stockQuantityProduct : newProductDraft.stockQuantityProduct)
             ?? "0",
           controlsStockProduct: formData.get("controlsStockProduct") === "on",
+          isBuffetProduct: formData.get("isBuffetProduct") === "on",
           isFractionalProduct: formData.get("isFractionalProduct") === "on",
           printsPlace: formData.get("printsPlace") || "NÃO IMPRIMIR",
           showsInPdvProduct: formData.get("showsInPdvProduct") === "on"
@@ -883,6 +1022,9 @@ export function createCatalogScreen({
         throw new Error(payload.error || "Não foi possível cadastrar o produto.");
       }
       const wasEditing = Boolean(productId);
+      if (wasEditing && !isNonSaleCatalog) {
+        await saveProductRecipeLinks(productId);
+      }
       message = wasEditing ? "Produto alterado com sucesso." : "Produto cadastrado com sucesso.";
       if (!wasEditing) resetNewProductDraft();
       editingProduct = null;

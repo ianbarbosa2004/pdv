@@ -195,6 +195,149 @@ const ensureCustomerConsumerSchema = async () => {
   ) ENGINE=InnoDB`);
 };
 
+const ensureRecipeSchema = async () => {
+  const [productColumns] = await pool.query(
+    `SELECT COLUMN_NAME
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'products'`
+  );
+  if (!productColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "isBuffetProduct")) {
+    await pool.query(
+      "ALTER TABLE products ADD COLUMN isBuffetProduct TINYINT(1) NOT NULL DEFAULT 0 AFTER controlsStockProduct"
+    );
+  }
+  await pool.query(`CREATE TABLE IF NOT EXISTS recipe_definitions (
+    idRecipe BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    nameRecipe VARCHAR(180) NOT NULL,
+    kindRecipe ENUM('production', 'composition') NOT NULL,
+    idResultProductRecipe BIGINT UNSIGNED NULL,
+    statusRecipe ENUM('draft', 'active', 'review_required', 'archived') NOT NULL DEFAULT 'draft',
+    versionRecipe INT UNSIGNED NOT NULL DEFAULT 1,
+    yieldQuantityRecipe DECIMAL(12,3) NOT NULL DEFAULT 1,
+    notesRecipe VARCHAR(500) NULL,
+    createdAtRecipe TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updatedAtRecipe TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (idRecipe),
+    UNIQUE KEY uqRecipeNameKind (nameRecipe, kindRecipe),
+    KEY idxRecipeStatus (statusRecipe, kindRecipe),
+    CONSTRAINT fkRecipeResultProduct
+      FOREIGN KEY (idResultProductRecipe) REFERENCES products (idProduct)
+      ON DELETE RESTRICT
+  ) ENGINE=InnoDB`);
+  const [recipeColumns] = await pool.query(
+    `SELECT COLUMN_NAME
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'recipe_definitions'`
+  );
+  if (!recipeColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "nameRecipe")) {
+    await pool.query("ALTER TABLE recipe_definitions ADD COLUMN nameRecipe VARCHAR(180) NULL AFTER idRecipe");
+    await pool.query(
+      `UPDATE recipe_definitions recipes
+       LEFT JOIN products ON products.idProduct = recipes.idResultProductRecipe
+       SET recipes.nameRecipe = COALESCE(NULLIF(products.nameProduct, ''), CONCAT('Receita ', recipes.idRecipe))
+       WHERE recipes.nameRecipe IS NULL OR recipes.nameRecipe = ''`
+    );
+    await pool.query("ALTER TABLE recipe_definitions MODIFY COLUMN nameRecipe VARCHAR(180) NOT NULL");
+  }
+  if (recipeColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "idResultProductRecipe")) {
+    await pool.query("ALTER TABLE recipe_definitions MODIFY COLUMN idResultProductRecipe BIGINT UNSIGNED NULL");
+  }
+  const [recipeIndexes] = await pool.query(
+    `SHOW INDEX FROM recipe_definitions`
+  );
+  if (!recipeIndexes.some(({ Key_name }) => Key_name === "idxRecipeResultProduct")) {
+    await pool.query(
+      "ALTER TABLE recipe_definitions ADD KEY idxRecipeResultProduct (idResultProductRecipe)"
+    );
+  }
+  if (recipeIndexes.some(({ Key_name }) => Key_name === "uqRecipeResultKind")) {
+    await pool.query("ALTER TABLE recipe_definitions DROP INDEX uqRecipeResultKind");
+  }
+  if (!recipeIndexes.some(({ Key_name }) => Key_name === "uqRecipeNameKind")) {
+    await pool.query("ALTER TABLE recipe_definitions ADD UNIQUE KEY uqRecipeNameKind (nameRecipe, kindRecipe)");
+  }
+  await pool.query(`CREATE TABLE IF NOT EXISTS recipe_components (
+    idRecipeComponent BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    idRecipe BIGINT UNSIGNED NOT NULL,
+    componentTypeRecipe ENUM('product', 'recipe') NOT NULL DEFAULT 'product',
+    idComponentProductRecipe BIGINT UNSIGNED NULL,
+    idComponentRecipe BIGINT UNSIGNED NULL,
+    quantityRecipeComponent DECIMAL(12,4) NOT NULL,
+    lossPercentRecipeComponent DECIMAL(7,4) NOT NULL DEFAULT 0,
+    createdAtRecipeComponent TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (idRecipeComponent),
+    KEY idxRecipeComponentsRecipe (idRecipe),
+    KEY idxRecipeComponentsProduct (idComponentProductRecipe),
+    CONSTRAINT fkRecipeComponentsRecipe
+      FOREIGN KEY (idRecipe) REFERENCES recipe_definitions (idRecipe)
+      ON DELETE CASCADE,
+    CONSTRAINT fkRecipeComponentsProduct
+      FOREIGN KEY (idComponentProductRecipe) REFERENCES products (idProduct)
+      ON DELETE RESTRICT,
+    CONSTRAINT fkRecipeComponentsNestedRecipe
+      FOREIGN KEY (idComponentRecipe) REFERENCES recipe_definitions (idRecipe)
+      ON DELETE RESTRICT
+  ) ENGINE=InnoDB`);
+  const [componentColumns] = await pool.query(
+    `SELECT COLUMN_NAME
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'recipe_components'`
+  );
+  if (!componentColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "componentTypeRecipe")) {
+    await pool.query("ALTER TABLE recipe_components ADD COLUMN componentTypeRecipe ENUM('product', 'recipe') NOT NULL DEFAULT 'product' AFTER idRecipe");
+  }
+  if (!componentColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "idComponentRecipe")) {
+    await pool.query("ALTER TABLE recipe_components ADD COLUMN idComponentRecipe BIGINT UNSIGNED NULL AFTER idComponentProductRecipe");
+  }
+  await pool.query("ALTER TABLE recipe_components MODIFY COLUMN idComponentProductRecipe BIGINT UNSIGNED NULL");
+  const [componentForeignKeys] = await pool.query(
+    `SELECT CONSTRAINT_NAME
+     FROM information_schema.KEY_COLUMN_USAGE
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'recipe_components'
+       AND COLUMN_NAME = 'idComponentRecipe'
+       AND REFERENCED_TABLE_NAME = 'recipe_definitions'`
+  );
+  if (!componentForeignKeys.length) {
+    await pool.query(
+      `ALTER TABLE recipe_components
+       ADD CONSTRAINT fkRecipeComponentsNestedRecipe
+       FOREIGN KEY (idComponentRecipe) REFERENCES recipe_definitions (idRecipe)
+       ON DELETE RESTRICT`
+    );
+  }
+  await pool.query(`CREATE TABLE IF NOT EXISTS product_recipe_links (
+    idProductRecipeLink BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    idProduct BIGINT UNSIGNED NOT NULL,
+    idRecipe BIGINT UNSIGNED NOT NULL,
+    quantityProductRecipeLink DECIMAL(12,4) NOT NULL DEFAULT 1,
+    lossPercentProductRecipeLink DECIMAL(7,4) NOT NULL DEFAULT 0,
+    createdAtProductRecipeLink TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (idProductRecipeLink),
+    UNIQUE KEY uqProductRecipeLink (idProduct, idRecipe),
+    KEY idxProductRecipeLinksRecipe (idRecipe),
+    CONSTRAINT fkProductRecipeLinksProduct
+      FOREIGN KEY (idProduct) REFERENCES products (idProduct)
+      ON DELETE CASCADE,
+    CONSTRAINT fkProductRecipeLinksRecipe
+      FOREIGN KEY (idRecipe) REFERENCES recipe_definitions (idRecipe)
+      ON DELETE RESTRICT
+  ) ENGINE=InnoDB`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS recipe_reviews (
+    idRecipeReview BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    idRecipe BIGINT UNSIGNED NOT NULL,
+    reasonRecipeReview VARCHAR(240) NOT NULL,
+    statusRecipeReview ENUM('pending', 'confirmed', 'dismissed') NOT NULL DEFAULT 'pending',
+    createdAtRecipeReview TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    confirmedAtRecipeReview TIMESTAMP NULL,
+    PRIMARY KEY (idRecipeReview),
+    KEY idxRecipeReviewsStatus (statusRecipeReview, createdAtRecipeReview),
+    CONSTRAINT fkRecipeReviewsRecipe
+      FOREIGN KEY (idRecipe) REFERENCES recipe_definitions (idRecipe)
+      ON DELETE CASCADE
+  ) ENGINE=InnoDB`);
+};
+
 const migrateCustomerConsumerSchema = async () => {
   const [paymentTermColumns] = await pool.query(
     `SELECT COLUMN_NAME FROM information_schema.COLUMNS
@@ -1325,6 +1468,33 @@ const synchronizeNavigationDefaults = async () => {
     itemIds.set(`${definition.menuKey}:${definition.keyNavigationItem}`, result.insertId);
     itemMenus.set(`${definition.menuKey}:${definition.keyNavigationItem}`, insertionMenuId);
   }
+
+  const technicalSheetDefinitions = DEFAULT_NAVIGATION.items.filter((definition) =>
+    definition.menuKey === "cadastros" && definition.parentKey === "technical-sheet"
+  );
+  const technicalSheetIds = technicalSheetDefinitions
+    .map((definition) => itemIds.get(`${definition.menuKey}:${definition.keyNavigationItem}`))
+    .filter(Boolean);
+  if (technicalSheetIds.length > 1) {
+    const [technicalSheetRows] = await pool.query(
+      `SELECT idNavigationItem, orderNavigationItem
+       FROM navigation_items
+       WHERE idNavigationItem IN (?)`,
+      [technicalSheetIds]
+    );
+    const hasDuplicateOrders = new Set(
+      technicalSheetRows.map(({ orderNavigationItem }) => Number(orderNavigationItem))
+    ).size < technicalSheetRows.length;
+    if (hasDuplicateOrders) {
+      for (const definition of technicalSheetDefinitions) {
+        const idNavigationItem = itemIds.get(`${definition.menuKey}:${definition.keyNavigationItem}`);
+        await pool.query(
+          "UPDATE navigation_items SET orderNavigationItem = ? WHERE idNavigationItem = ?",
+          [definition.orderNavigationItem, idNavigationItem]
+        );
+      }
+    }
+  }
 };
 
 const ensureNavigationSchema = (() => {
@@ -1609,6 +1779,7 @@ const ensureOperatorCashSchema = async () => {
     loadGeneralSourceSettings,
     ensureCustomerConsumerSchema,
     migrateCustomerConsumerSchema,
+    ensureRecipeSchema,
     getGeneralSettingBoolean,
     ensureCompanySchema,
     ensureSaleFiscalSchema,
