@@ -3,6 +3,7 @@ import { renderNavigationIntro } from "../ui/navigation-intro.js";
 import { renderLucideIcons } from "../ui/icons.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { apiFetch, getApiUrl  } from "../shared/api.js";
+import { getScreenContextLabel } from "../ui/screen-context.js";
 
 const escapeHtml = (value) =>
   String(value ?? "")
@@ -80,7 +81,7 @@ export function createNcmCestUpdateScreen({ onBack, onTools, onProducts, onTherm
       ${renderMainMenu()}
       <div class="classic-toolbar">
         <button class="classic-tool-button" data-back type="button">← Frente de caixa</button>
-        <button class="classic-tool-button is-active" data-ncm-cest-update type="button">Atualizar NCM / CEST</button>
+        <button class="classic-tool-button is-active" data-ncm-cest-update type="button">${escapeHtml(getScreenContextLabel("Atualizar NCM / CEST", "ncm-cest-update"))}</button>
       </div>
       <section class="classic-content ncm-cest-update-content">
         ${renderSuccessFeedback(message, escapeHtml)}

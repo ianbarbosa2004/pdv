@@ -5,6 +5,8 @@ import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } fro
 import { apiFetch, getApiUrl } from "../shared/api.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
 import { formatBrazilianDecimal, parseBrazilianDecimal } from "../shared/decimal.js";
+import { getContextualNavigationItems, renderContextualNavigationItems } from "../ui/contextual-navigation.js";
+import { resolveNavigationHandler } from "../ui/navigation-routing.js";
 
 const escapeHtml = (value) => String(value ?? "")
   .replaceAll("&", "&amp;")
@@ -13,7 +15,8 @@ const escapeHtml = (value) => String(value ?? "")
   .replaceAll('"', "&quot;")
   .replaceAll("'", "&#039;");
 
-const navigation = [
+const fallbackNavigation = [
+  ["recipes", "Receitas e Composições"],
   ["culinary-units", "Unidades Culinárias"],
   ["physical-states", "Estados Físicos"],
   ["culinary-conversions", "Conversões"]
@@ -241,12 +244,13 @@ export function createCulinaryReferenceScreen({ kind, onBack, ...menuHandlers })
       definition.fields.some(([field]) => fieldLabel(field, item).toLocaleLowerCase("pt-BR").includes(searchTerm.trim().toLocaleLowerCase("pt-BR")))
     );
     const active = kind === "culinaryUnits" ? "culinary-units" : kind === "physicalStates" ? "physical-states" : "culinary-conversions";
+    const navigationItems = getContextualNavigationItems("technical-sheet", fallbackNavigation);
     root.className = "catalog-screen";
     root.innerHTML = `
       <header class="classic-titlebar"><strong>PDV - Ficha Técnica</strong><span>Operador: Operador</span></header>
       ${renderMainMenu()}
-      <div class="classic-toolbar">
-        ${navigation.map(([route, label]) => `<button class="classic-tool-button ${route === active ? "is-active" : ""}" type="button" data-culinary-nav="${route}">${label}</button>`).join("")}
+      <div class="classic-toolbar screen-context-bar" aria-label="Navegação contextual">
+        ${renderContextualNavigationItems(navigationItems, active, "culinary-nav")}
       </div>
       <section class="classic-content">
         ${renderSuccessFeedback(message, escapeHtml)}
@@ -264,7 +268,11 @@ export function createCulinaryReferenceScreen({ kind, onBack, ...menuHandlers })
     `;
     renderLucideIcons(root);
     bindMainMenu(root, menuHandlers);
-    root.querySelectorAll("[data-culinary-nav]").forEach((button) => button.addEventListener("click", () => menuHandlers[button.dataset.culinaryNav]?.()));
+    root.querySelectorAll("[data-culinary-nav]").forEach((button) => button.addEventListener("click", () => {
+      const handler = resolveNavigationHandler(menuHandlers, button.dataset.culinaryNav)
+        || resolveNavigationHandler(window.__PDV_NAVIGATION_HANDLERS__, button.dataset.culinaryNav);
+      handler?.();
+    }));
     root.querySelector("[data-search]")?.addEventListener("input", (event) => {
       searchTerm = event.currentTarget.value;
       render();

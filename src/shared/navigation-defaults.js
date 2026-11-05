@@ -44,9 +44,10 @@ export const DEFAULT_NAVIGATION = Object.freeze({
     item("cadastros", "groups", "Grupos", "groups", 9, "products", "bar"),
     item("cadastros", "ncm-cest", "NCM / CEST", "ncm-cest", 10, "products", "bar"),
     item("cadastros", "technical-sheet", "Ficha Técnica", "culinary-units", 11),
-    item("cadastros", "culinary-units", "Unidades Culinárias", "culinary-units", 1, "technical-sheet", "bar"),
-    item("cadastros", "physical-states", "Estados Físicos", "physical-states", 2, "technical-sheet", "bar"),
-    item("cadastros", "culinary-conversions", "Conversões", "culinary-conversions", 3, "technical-sheet", "bar"),
+    item("cadastros", "recipes", "Receitas e Composições", "recipes", 1, "technical-sheet", "bar", "Cadastre Receitas de Produção e Composições de Produto com seus componentes, perdas e custos."),
+    item("cadastros", "culinary-units", "Unidades Culinárias", "culinary-units", 2, "technical-sheet", "bar"),
+    item("cadastros", "physical-states", "Estados Físicos", "physical-states", 3, "technical-sheet", "bar"),
+    item("cadastros", "culinary-conversions", "Conversões", "culinary-conversions", 4, "technical-sheet", "bar"),
     item("cadastros", "fiscal-operations", "Operações Fiscais", "fiscal-operations", 6),
     item(
       "cadastros",
@@ -87,7 +88,8 @@ export const DEFAULT_NAVIGATION = Object.freeze({
     item("tools", "views", "Views", null, 7, null, "item", "Consulte e trate listas operacionais de produtos com filtros específicos."),
     item("tools", "groups-products", "Grupos x Produtos", "groups-products", 1, "views", "bar", "Organize, pesquise e mantenha os produtos por classe e grupo."),
     item("tools", "no-cost", "Sem Custo", "no-cost", 2, "views", "bar", "Localize produtos ativos sem preço de custo informado."),
-    item("tools", "no-physical-state", "Sem Estado Físico", "no-physical-state", 3, "views", "bar", "Localize matérias-primas sem estado físico definido para conversões culinárias.")
+    item("tools", "no-physical-state", "Sem Estado Físico", "no-physical-state", 3, "views", "bar", "Localize matérias-primas sem estado físico definido para conversões culinárias."),
+    item("tools", "recipe-revisions", "Revisões de Fichas", "recipe-revisions", 4, "views", "bar", "Consulte estruturas de Receita e Composição marcadas para revisão.")
   ]
 });
 

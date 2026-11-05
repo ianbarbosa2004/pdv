@@ -30,7 +30,8 @@ const renderPhysicalStateOptions = (physicalStates, selectedId) =>
 const viewsNavigation = [
   ["groups-products", "Grupos x Produtos"],
   ["no-cost", "Sem Custo"],
-  ["no-physical-state", "Sem Estado Físico"]
+  ["no-physical-state", "Sem Estado Físico"],
+  ["recipe-revisions", "Revisões de Fichas"]
 ];
 
 const renderViewsNavigation = (active) => `
@@ -77,6 +78,7 @@ const renderEditor = (product, groups, physicalStates, submitting, error) => `
           </div>
           <div class="classic-form-grid">
             <label class="form-field checkbox-field"><span>Controla estoque</span><input name="controlsStockProduct" type="checkbox" ${Number(product.controlsStockProduct) ? "checked" : ""} /></label>
+            <label class="form-field checkbox-field"><span>Produto Buffet</span><input name="isBuffetProduct" type="checkbox" ${Number(product.isBuffetProduct) ? "checked" : ""} /></label>
             <label class="form-field checkbox-field"><span>Produto fracionado</span><input name="isFractionalProduct" type="checkbox" ${Number(product.isFractionalProduct) ? "checked" : ""} /></label>
             <label class="form-field"><span>Local de impressão</span><select name="printsPlace">
               ${["NÃO IMPRIMIR", "BAR", "COPA", "COZINHA"].map((place) =>
@@ -106,6 +108,7 @@ export function createProductViewsScreen({
   onBack,
   onGroupsProducts,
   onNoCost,
+  onRecipeRevisions,
   ...menuHandlers
 }) {
   const root = document.createElement("main");
@@ -191,6 +194,7 @@ export function createProductViewsScreen({
           costPriceProduct: parseMoney(formData.get("costPriceProduct")),
           stockQuantityProduct: formData.get("stockQuantityProduct"),
           controlsStockProduct: formData.get("controlsStockProduct") === "on",
+          isBuffetProduct: formData.get("isBuffetProduct") === "on",
           isFractionalProduct: formData.get("isFractionalProduct") === "on",
           printsPlace: formData.get("printsPlace") || "NÃO IMPRIMIR",
           showsInPdvProduct: formData.get("showsInPdvProduct") === "on"
@@ -285,7 +289,8 @@ export function createProductViewsScreen({
       back: onBack,
       "groups-products": onGroupsProducts,
       "no-cost": onNoCost,
-      "no-physical-state": menuHandlers.onNoPhysicalState
+      "no-physical-state": menuHandlers.onNoPhysicalState,
+      "recipe-revisions": onRecipeRevisions
     });
     bindProductList(root, {
       onSort: (key) => {

@@ -5,6 +5,38 @@ O número da versão deve ser incrementado antes da compilação quando a altera
 for distribuível. O hook `prebuild` e o fluxo `prerelease:client` podem acionar
 o versionamento automático quando o build é executado.
 
+## 0.11.0 - 2026-11-04
+
+### Receitas, Composições e Produto Buffet
+
+- Adicionadas as estruturas persistidas de Receitas, Composições, componentes,
+  revisões e vínculos entre Produto comercial e Receita.
+- Receitas podem existir de forma independente de Produto comercial, permitindo
+  reutilização em pratos e outras estruturas sem criar produtos artificiais.
+- Produtos Buffet registram a venda com preço próprio, sem baixa de estoque,
+  Cardápio obrigatório ou bloqueio do fechamento de caixa.
+- Adicionadas validações compartilhadas para perdas, custos, expansão de
+  componentes e detecção de ciclos em estruturas culinárias.
+
+### Navegação contextual persistida
+
+- Ficha Técnica, Views, Produtos, Operações Fiscais, Financeiros e as telas
+  relacionadas passaram a usar a navegação persistida como fonte principal.
+- Ordens, labels, rotas, divisores, itens inativos e customizações de menus e
+  pais permanecem após nova leitura, build ou reinício da API.
+- Fallbacks locais ficaram restritos à indisponibilidade ou incompletude da API;
+  uma resposta persistida válida não recebe itens locais injetados.
+- Leituras iniciais da navegação usam retry antes de recorrer ao fallback.
+
+### Validação e operação
+
+- A suíte completa foi executada com 112 testes aprovados.
+- Os arquivos JavaScript alterados passaram em `node --check` e
+  `git diff --check`.
+- Não foi executado build nesta etapa, pois a alteração não exigiu validação
+  de bundle. Alterações em `src/server/` continuam exigindo publicar e
+  reiniciar a API antes da validação operacional.
+
 ## 0.10.0 - 2026-11-04
 
 ### Persistência do Construtor de navegação

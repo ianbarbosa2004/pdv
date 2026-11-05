@@ -44,11 +44,10 @@ export const selectContextualNavigationItems = (navigation, parentKey, fallbackI
     .filter((item) => item !== contextualParent)
     .map((item) => [item.keyNavigationItem, item.labelNavigationItem]);
 
-  if (!configuredNavigationItems.length && !contextualParent) return fallbackItems;
+  if (!configuredNavigationItems.length && !contextualParent && !isActive(parent)) {
+    return fallbackItems;
+  }
 
-  const configuredKeys = new Set(
-    configuredNavigationItems.map(([key]) => normalizeNavigationValue(key))
-  );
   const parentItem = isActive(contextualParent || parent)
     ? [[
       (contextualParent || parent).routeNavigationItem
@@ -58,6 +57,10 @@ export const selectContextualNavigationItems = (navigation, parentKey, fallbackI
     : fallbackItems.filter(([key]) =>
         normalizeNavigationValue(key) === normalizedParentKey
       );
+  const primaryFallbackItem = fallbackItems[0];
+  const configuredKeys = new Set(
+    configuredNavigationItems.map(([key]) => normalizeNavigationValue(key))
+  );
   if (contextualParent) {
     configuredKeys.add(normalizeNavigationValue(contextualParent.keyNavigationItem));
     configuredKeys.add(normalizeNavigationValue(parent.keyNavigationItem));
@@ -65,12 +68,10 @@ export const selectContextualNavigationItems = (navigation, parentKey, fallbackI
   for (const [key] of parentItem) {
     configuredKeys.add(normalizeNavigationValue(key));
   }
-  const primaryFallbackItem = fallbackItems[0];
   const itemsWithPrimaryFallback = primaryFallbackItem
     && !configuredKeys.has(normalizeNavigationValue(primaryFallbackItem[0]))
     ? [primaryFallbackItem, ...configuredNavigationItems]
     : configuredNavigationItems;
-
   return [...parentItem, ...itemsWithPrimaryFallback];
 };
 

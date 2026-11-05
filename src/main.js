@@ -25,7 +25,9 @@ import { createBackupScreen } from "./tools/backup-screen.js";
 import { createViewsScreen } from "./tools/views-screen.js";
 import { createNoCostScreen } from "./tools/no-cost-screen.js";
 import { createNoPhysicalStateScreen } from "./tools/no-physical-state-screen.js";
+import { createRecipeReviewScreen } from "./tools/recipe-review-screen.js";
 import { createCulinaryReferenceScreen } from "./catalog/culinary-reference-screen.js";
+import { createRecipeScreen } from "./catalog/recipe-screen.js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { loadProjectIcon } from "./ui/project-icon.js";
 import { installTablePagination } from "./ui/table-pagination.js";
@@ -38,6 +40,7 @@ import {
   buildFallbackNavigation,
   normalizePersistedNavigation
 } from "./shared/navigation-defaults.js";
+import { runWithRetry } from "./shared/retry.js";
 import {
   createEnvironmentSelectionScreen,
   createOperatorLoginScreen
@@ -118,7 +121,9 @@ const common = () => ({
   "groups-products": showGroupsProducts,
   "no-cost": showNoCost,
   "no-physical-state": showNoPhysicalState,
+  "recipe-revisions": showRecipeRevisions,
   "culinary-units": showCulinaryUnits,
+  recipes: showRecipes,
   "physical-states": showPhysicalStates,
   "culinary-conversions": showCulinaryConversions,
   onSettings: showSettings,
@@ -206,6 +211,7 @@ const showGroupsProducts = () =>
     onGroupsProducts: showGroupsProducts,
     onNoCost: showNoCost,
     onNoPhysicalState: showNoPhysicalState,
+    onRecipeRevisions: showRecipeRevisions,
     ...common()
   }));
 const showNoCost = () =>
@@ -213,6 +219,7 @@ const showNoCost = () =>
     onBack: showBackoffice,
     onGroupsProducts: showGroupsProducts,
     onNoCost: showNoCost,
+    onRecipeRevisions: showRecipeRevisions,
     ...common()
   }));
 const showNoPhysicalState = () =>
@@ -221,14 +228,26 @@ const showNoPhysicalState = () =>
     onGroupsProducts: showGroupsProducts,
     onNoCost: showNoCost,
     onNoPhysicalState: showNoPhysicalState,
+    onRecipeRevisions: showRecipeRevisions,
+    ...common()
+  }));
+const showRecipeRevisions = () =>
+  mount(createRecipeReviewScreen({
+    onBack: showBackoffice,
+    onGroupsProducts: showGroupsProducts,
+    onNoCost: showNoCost,
+    onNoPhysicalState: showNoPhysicalState,
+    onRecipeRevisions: showRecipeRevisions,
     ...common()
   }));
 const showCulinaryUnits = () =>
-  mount(createCulinaryReferenceScreen({ kind: "culinaryUnits", onBack: showSales, ...common() }));
+  mount(createCulinaryReferenceScreen({ kind: "culinaryUnits", onBack: showBackoffice, onRecipes: showRecipes, ...common() }));
 const showPhysicalStates = () =>
-  mount(createCulinaryReferenceScreen({ kind: "physicalStates", onBack: showSales, ...common() }));
+  mount(createCulinaryReferenceScreen({ kind: "physicalStates", onBack: showBackoffice, onRecipes: showRecipes, ...common() }));
 const showCulinaryConversions = () =>
-  mount(createCulinaryReferenceScreen({ kind: "conversions", onBack: showSales, ...common() }));
+  mount(createCulinaryReferenceScreen({ kind: "conversions", onBack: showBackoffice, onRecipes: showRecipes, ...common() }));
+const showRecipes = () =>
+  mount(createRecipeScreen({ onBack: showBackoffice, onRecipes: showRecipes, ...common() }));
 const showViews = showGroupsProducts;
 const showCatalogImport = () =>
   mount(createCatalogImportScreen({ onBack: showBackoffice, onTools: showCatalogImport, ...common() }));
@@ -527,13 +546,15 @@ const installCloseBackupPrompt = () => {
 
 
 const loadNavigation = async () => {
-  const apiUrl = getApiUrl();
-  const response = await apiFetch(`${apiUrl}/api/navigation?includeInactive=1`);
-  const payload = await response.json();
-  if (!response.ok || !Array.isArray(payload.menus) || !Array.isArray(payload.items)) {
-    throw new Error("A API retornou uma navegação inválida.");
-  }
-  window.__PDV_NAVIGATION__ = normalizePersistedNavigation(payload);
+  await runWithRetry(async () => {
+    const apiUrl = getApiUrl();
+    const response = await apiFetch(`${apiUrl}/api/navigation?includeInactive=1`);
+    const payload = await response.json();
+    if (!response.ok || !Array.isArray(payload.menus) || !Array.isArray(payload.items)) {
+      throw new Error("A API retornou uma navegação inválida.");
+    }
+    window.__PDV_NAVIGATION__ = normalizePersistedNavigation(payload);
+  });
   window.__PDV_NAVIGATION_SOURCE__ = "api";
 };
 

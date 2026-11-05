@@ -7,6 +7,29 @@ inicial do produto até o estado atual do workspace. Ele complementa o
 
 ## 0. Estado mais recente
 
+### Receitas e navegação contextual persistida — 2026-11-04
+
+O PDV passou a separar Receita de Produção e Composição de Produto de Produto
+comercial. Receitas são estruturas nomeadas e reutilizáveis, podem conter
+Produtos ou outras Receitas e são vinculadas ao Produto comercial somente no
+cadastro do produto. O schema e a API passaram a persistir definições,
+componentes, revisões e vínculos, com validação compartilhada de perdas, custos,
+expansão e ciclos.
+
+Produtos Buffet continuam sendo produtos comerciais com preço próprio. A venda
+não baixa estoque, não exige Cardápio e não impede o fechamento do caixa.
+
+As barras contextuais agora consultam a navegação persistida em todos os grupos
+operacionais revisados. Fallbacks locais só são usados quando a API está
+indisponível ou não entrega estrutura suficiente; respostas válidas do banco
+preservam ordem, labels, rotas, divisores, status e relações pai-filho.
+
+Esta etapa foi versionada como **0.11.0**. A suíte completa alcançou 112 testes
+aprovados, com `node --check` nos JavaScript alterados e `git diff --check`.
+Como houve alterações em `src/server/`, a API publicada deve ser reiniciada
+depois da publicação; como houve alterações no frontend, os terminais precisam
+receber novo bundle. O build não foi executado nesta etapa.
+
 ### Construtor de navegação persistido — 2026-11-04
 
 As tabelas `navigation_menus` e `navigation_items` passaram a ser a fonte de

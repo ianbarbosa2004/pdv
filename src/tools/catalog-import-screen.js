@@ -2,6 +2,7 @@ import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { renderNavigationIntro } from "../ui/navigation-intro.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { apiFetch, getApiUrl } from "../shared/api.js";
+import { getScreenContextLabel } from "../ui/screen-context.js";
 
 const escapeHtml = (value) => String(value ?? "")
   .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
@@ -307,7 +308,7 @@ export function createCatalogImportScreen({
       ${renderMainMenu()}
       <div class="classic-toolbar">
         <button class="classic-tool-button" data-back type="button">← Frente de caixa</button>
-        <button class="classic-tool-button is-active" data-import-catalogs type="button">Importar cadastros</button>
+        <button class="classic-tool-button is-active" data-import-catalogs type="button">${escapeHtml(getScreenContextLabel("Importar cadastros", "import-catalogs"))}</button>
       </div>
       <section class="classic-content catalog-import-content">
         ${renderSuccessFeedback(message, escapeHtml)}
