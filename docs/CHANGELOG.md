@@ -5,7 +5,7 @@ O número da versão deve ser incrementado antes da compilação quando a altera
 for distribuível. O hook `prebuild` e o fluxo `prerelease:client` podem acionar
 o versionamento automático quando o build é executado.
 
-## Próxima versão - correções de operação e Receitas
+## 0.12.0 - 2026-11-10
 
 - Corrigida a preparação do caixa para instalações existentes cujo
   `idCashRegister` já ultrapassou o limite de `TINYINT UNSIGNED`: o schema
@@ -16,7 +16,7 @@ o versionamento automático quando o build é executado.
 - A suíte completa foi validada com 146 testes aprovados; não foi executado
   build porque a etapa não exigiu validação de bundle.
 
-## Próxima versão - catálogo unificado de unidades
+### Catálogo unificado de unidades
 
 - Preparada a primeira etapa aditiva da migração para um catálogo unificado de
   unidades, com flags de uso tributável e culinário, mapa de IDs legados,
@@ -25,7 +25,7 @@ o versionamento automático quando o build é executado.
   traduzindo referências legadas de receitas por mapas de compatibilidade sem
   exigir regravação em massa.
 
-## Próxima versão - formulário de Receitas
+### Formulário de Receitas
 
 - A listagem de Receitas agora abre o registro selecionado no formulário
   principal em modo somente leitura. O botão **Editar** habilita o mesmo
