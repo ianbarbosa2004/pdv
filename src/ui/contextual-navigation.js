@@ -48,7 +48,12 @@ export const selectContextualNavigationItems = (navigation, parentKey, fallbackI
     return fallbackItems;
   }
 
-  const parentItem = isActive(contextualParent || parent)
+  const parentRouteIsChildRoute = isActive(parent)
+    && configuredItems.some((item) =>
+      normalizeNavigationValue(item.routeNavigationItem)
+        === normalizeNavigationValue(parent.routeNavigationItem)
+    );
+  const parentItem = !parentRouteIsChildRoute && isActive(contextualParent || parent)
     ? [[
       (contextualParent || parent).routeNavigationItem
         || (contextualParent || parent).keyNavigationItem,

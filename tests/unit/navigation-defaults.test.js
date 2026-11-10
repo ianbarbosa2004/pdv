@@ -5,12 +5,13 @@ import {
   ensureApiStatusNavigation,
   isNavigationKey,
   mergeNavigationDefaults,
+  reconcileNavigation,
   normalizePersistedNavigation,
   normalizeNavigationKey
 } from "../../src/shared/navigation-defaults.js";
 import { selectContextualNavigationItems } from "../../src/ui/contextual-navigation.js";
 import { resolveNavigationHandler } from "../../src/ui/navigation-routing.js";
-import { renderMainMenu } from "../../src/ui/main-menu.js";
+import { bindMainMenu, renderMainMenu } from "../../src/ui/main-menu.js";
 import { renderNavigationIntro } from "../../src/ui/navigation-intro.js";
 
 test("normaliza chaves de navegação independentemente da caixa", () => {
@@ -30,6 +31,7 @@ test("define barras contextuais singleton para telas operacionais", () => {
     "consumers",
     "settings",
     "general-settings",
+    "theme",
     "company",
     "nfce",
     "navigation-builder",
@@ -116,6 +118,58 @@ test("a leitura persistida não cria nem corrige itens com defaults", () => {
   };
 
   assert.deepEqual(normalizePersistedNavigation(persisted), persisted);
+});
+
+test("mescla Aparência na navegação persistida de instalações existentes", () => {
+  const navigation = mergeNavigationDefaults({
+    menus: [{
+      idNavigationMenu: 21,
+      keyNavigationMenu: "settings",
+      labelNavigationMenu: "Configurações",
+      orderNavigationMenu: 2,
+      isActiveNavigationMenu: 1
+    }],
+    items: [{
+      idNavigationItem: 31,
+      idNavigationMenu: 21,
+      idParentNavigationItem: null,
+      typeNavigationItem: "bar",
+      keyNavigationItem: "general-settings",
+      labelNavigationItem: "Configurações Gerais",
+      routeNavigationItem: "general-settings",
+      orderNavigationItem: 2,
+      isActiveNavigationItem: 1
+    }]
+  });
+
+  test("reconcilia a navegação no mesmo formato em qualquer ponto de leitura", () => {
+    const persisted = {
+      menus: [{
+        idNavigationMenu: 21,
+        keyNavigationMenu: "settings",
+        labelNavigationMenu: "Configurações",
+        orderNavigationMenu: 2,
+        isActiveNavigationMenu: 1
+      }],
+      items: []
+    };
+    const initial = reconcileNavigation(persisted);
+    const republished = reconcileNavigation({
+      menus: initial.menus.filter((menu) => Number(menu.isActiveNavigationMenu) === 1),
+      items: initial.items.filter((item) => Number(item.isActiveNavigationItem) === 1)
+    });
+
+    assert.equal(
+      republished.items.find((item) => item.keyNavigationItem === "theme")?.labelNavigationItem,
+      "Aparência"
+    );
+  });
+
+  const theme = navigation.items.find((item) => item.keyNavigationItem === "theme");
+  assert.equal(theme?.idNavigationMenu, 21);
+  assert.equal(theme?.labelNavigationItem, "Aparência");
+  assert.equal(theme?.routeNavigationItem, "theme");
+  assert.equal(theme?.isActiveNavigationItem, 1);
 });
 
 test("preserva menus persistidos personalizados inativos no construtor", () => {
@@ -333,7 +387,7 @@ test("não injeta item fallback quando a barra persistida possui itens ativos", 
   );
 
   assert.deepEqual(
-    items.slice(1).map(([key]) => key),
+    items.map(([key]) => key),
     ["recipes", "physical-states", "culinary-conversions"]
   );
 });
@@ -658,7 +712,7 @@ test("inclui Views no menu Ferramentas", () => {
   );
 });
 
-test("inclui Ficha Técnica com os cadastros culinários", () => {
+test("inclui Ficha Técnica como item direto com os cadastros culinários contextuais", () => {
   const ficha = DEFAULT_NAVIGATION.items.find((item) => item.keyNavigationItem === "technical-sheet");
   assert.equal(ficha?.routeNavigationItem, "recipes");
   assert.equal(ficha?.typeNavigationItem, "item");
@@ -674,6 +728,35 @@ test("inclui Ficha Técnica com os cadastros culinários", () => {
   );
 });
 
+test("restaura Ficha Técnica como item direto quando a instalação persistiu dados antigos", () => {
+  const navigation = mergeNavigationDefaults({
+    menus: [{ idNavigationMenu: 1, keyNavigationMenu: "cadastros", labelNavigationMenu: "Cadastros" }],
+    items: [{
+      idNavigationItem: 10,
+      idNavigationMenu: 1,
+      idParentNavigationItem: null,
+      typeNavigationItem: "item",
+      keyNavigationItem: "technical-sheet",
+      labelNavigationItem: "Ficha Técnica",
+      routeNavigationItem: "recipes",
+      orderNavigationItem: 11,
+      isActiveNavigationItem: 1
+    }]
+  });
+
+  const ficha = navigation.items.find((item) => item.keyNavigationItem === "technical-sheet");
+  assert.equal(ficha?.typeNavigationItem, "item");
+  assert.equal(ficha?.routeNavigationItem, "recipes");
+  assert.deepEqual(
+    selectContextualNavigationItems(navigation, "technical-sheet", [["recipes", "Receitas e Composições"]]),
+    [
+      ["recipes", "Receitas e Composições"],
+      ["physical-states", "Estados Físicos"],
+      ["culinary-conversions", "Conversões"]
+    ]
+  );
+});
+
 test("renderiza Views como item direto e clicável", () => {
   global.window = {
     __PDV_NAVIGATION__: mergeNavigationDefaults({ menus: [], items: [] })
@@ -681,6 +764,58 @@ test("renderiza Views como item direto e clicável", () => {
 
   const menu = renderMainMenu();
   assert.match(menu, /<button type="button" data-main-menu="views">Views<\/button>/);
+});
+
+test("renderiza Ficha Técnica como botão direto", () => {
+  global.window = {
+    __PDV_NAVIGATION__: mergeNavigationDefaults({ menus: [], items: [] })
+  };
+
+  const menu = renderMainMenu();
+  assert.match(menu, /<button type="button" data-main-menu="technical-sheet">Ficha Técnica<\/button>/);
+});
+
+test("navega ao clicar no botão direto da Ficha Técnica", () => {
+  const listeners = {};
+  const summary = {
+    tagName: "BUTTON",
+    dataset: { mainMenu: "technical-sheet" },
+    addEventListener(type, handler) {
+      listeners[type] = handler;
+    }
+  };
+  const root = {
+    querySelectorAll(selector) {
+      if (selector === "[data-main-menu]") return [summary];
+      return [];
+    },
+    querySelector() {
+      return null;
+    }
+  };
+  global.window = { __PDV_NAVIGATION_HANDLERS__: {} };
+  global.document = {
+    addEventListener() {},
+    removeEventListener() {}
+  };
+
+  let navigated = 0;
+  bindMainMenu(root, { "technical-sheet": () => { navigated += 1; } });
+
+  let prevented = false;
+  let stopped = false;
+  listeners.click({
+    preventDefault() {
+      prevented = true;
+    },
+    stopPropagation() {
+      stopped = true;
+    }
+  });
+
+  assert.equal(prevented, false);
+  assert.equal(stopped, false);
+  assert.equal(navigated, 1);
 });
 
 test("renderiza Frente de Caixa antes dos menus agrupados", () => {

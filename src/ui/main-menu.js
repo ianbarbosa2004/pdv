@@ -54,11 +54,15 @@ export const renderMainMenu = () => {
 
 export const bindMainMenu = (root, handlers) => {
   root.querySelectorAll("[data-main-menu]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", (event) => {
       const handler = resolveNavigationHandler(handlers, button.dataset.mainMenu)
         || resolveNavigationHandler(window.__PDV_NAVIGATION_HANDLERS__, button.dataset.mainMenu);
+      if (button.tagName === "SUMMARY" && handler) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
       handler?.();
-    });
+    }, button.tagName === "SUMMARY");
   });
 
   root.querySelectorAll(".classic-menu-dropdown").forEach((menu) => {
