@@ -56,6 +56,14 @@ import {
 } from "../shared/print-place.js";
 import { findRecipeCycles, validateRecipeDefinition } from "../shared/recipe.js";
 
+const culinaryBaseForUnit = (unit = {}) => {
+  const value = `${unit.codeUnit || ""} ${unit.descriptionUnit || ""}`.toLocaleLowerCase("pt-BR");
+  if (/(^|[\s/])(kg|g|grama|gramas|quilo|quilos|peso)([\s/]|\b)/.test(value)) return "g";
+  if (/(^|[\s/])(l|lt|ml|litro|litros|mililitro|mililitros|volume)([\s/]|\b)/.test(value)) return "ml";
+  if (/(^|[\s/])(un|und|unidade|unidades|peca|pecas)([\s/]|\b)/.test(value)) return "un";
+  return null;
+};
+
 const packageJson = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
 const applicationVersion = String(packageJson.version);
 const config = await loadRuntimeConfig();
@@ -83,7 +91,6 @@ const {
   ensureProductCatalogSchema,
   ensureCulinarySchema,
   ensureNavigationSchema,
-  ensureUppercaseTextData,
   ensurePaymentMethodSchema,
   ensureSupplierSchema,
   ensureOperatorCashSchema
@@ -344,14 +351,27 @@ const parseMoney = (value, fieldName) => {
   return String(value);
 };
 
-const uppercaseText = (value) => String(value ?? "")
-  .trim()
-  .replace(/\s+/g, " ")
-  .toLocaleUpperCase("pt-BR");
+const normalizeHumanText = (value) => {
+  const minorWords = new Set(["a", "as", "à", "às", "ao", "aos", "da", "das", "de", "do", "dos", "e", "em", "no", "na", "nos", "nas", "por", "para"]);
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase("pt-BR")
+    .split(/(\s+|\/|-)/u)
+    .map((part, index) => {
+      if (!part || /^\s+$/u.test(part) || part === "/" || part === "-") return part;
+      if (index > 0 && minorWords.has(part)) return part;
+      return `${part.charAt(0).toLocaleUpperCase("pt-BR")}${part.slice(1)}`;
+    })
+    .join("");
+};
+
+const normalizeTextForComparison = (value) =>
+  normalizeHumanText(value).toLocaleUpperCase("pt-BR");
 
 const isNonSaleProductType = (description) =>
   ["MATÉRIA-PRIMA", "EMBALAGEM", "MATERIAL DE USO E CONSUMO"].includes(
-    uppercaseText(description)
+    normalizeTextForComparison(description)
   );
 
 const parseNonNegativeQuantity = (value) => {
@@ -376,6 +396,8 @@ const normalizeReferenceCode = (value) => String(value ?? "")
   .replace(/[^a-z0-9_-]/g, "")
   .slice(0, 30);
 
+const normalizeUnitCode = (value) => normalizeReferenceCode(value).toUpperCase();
+
 const parseBooleanFlag = (value, fieldName, fallback = false) => {
   if (value === undefined || value === null || value === "") return fallback ? 1 : 0;
   if (![true, false, 0, 1, "0", "1", "true", "false"].includes(value)) {
@@ -394,20 +416,20 @@ const parsePrintPlace = (value, fieldName = "Local de impressão", fallback = DE
   const normalized = normalizePrintPlace(value, fallback);
   if (!normalized) {
     throw new SaleValidationError(
-      `${fieldName} inválido. Use: NÃO IMPRIMIR, BAR, COPA ou COZINHA.`
+      `${fieldName} inválido. Use: Não Imprimir, Bar, Copa ou Cozinha.`
     );
   }
   return normalized;
 };
 
 const resolvePrintPlace = (value, productTypeDescription, legacyValue) => {
-  if (!CONFIGURABLE_PRINT_PLACE_TYPES.has(uppercaseText(productTypeDescription))) {
+  if (!CONFIGURABLE_PRINT_PLACE_TYPES.has(normalizeTextForComparison(productTypeDescription))) {
     return DEFAULT_PRINT_PLACE;
   }
   return parsePrintPlace(
     value,
     "Local de impressão",
-    legacyValue === true || legacyValue === 1 ? "COZINHA" : DEFAULT_PRINT_PLACE
+    legacyValue === true || legacyValue === 1 ? "Cozinha" : DEFAULT_PRINT_PLACE
   );
 };
 
@@ -498,7 +520,14 @@ const handleError = (response, error, fallback) => {
   } else if (error.code === "ER_DUP_ENTRY") {
     json(response, 409, { error: fallback.duplicate });
   } else {
-    console.error(fallback.log, error);
+    const details = [
+      error?.code ? `code=${error.code}` : "",
+      error?.errno !== undefined ? `errno=${error.errno}` : "",
+      error?.sqlState ? `sqlState=${error.sqlState}` : "",
+      error?.sqlMessage || error?.message
+        ? `message=${error.sqlMessage || error.message}` : ""
+    ].filter(Boolean).join(" ");
+    console.error(`${fallback.log} ${details}`.trim());
     json(response, 503, { error: fallback.message });
   }
 };
@@ -732,7 +761,7 @@ const server = createServer(async (request, response) => {
       const payload = await readJsonBody(request);
       const idCustomer = request.method === "PUT" ? parsePositiveId(payload.idCustomer) : null;
       const text = (field, max) => typeof payload[field] === "string" ? payload[field].trim().slice(0, max) : "";
-      const humanText = (field, max) => uppercaseText(text(field, max));
+      const humanText = (field, max) => normalizeHumanText(text(field, max));
       const nameCustomer = humanText("nameCustomer", 180);
       const documentDigits = text("documentCustomer", 20).replace(/\D/g, "");
       const documentCustomer = documentDigits || null;
@@ -900,7 +929,7 @@ const server = createServer(async (request, response) => {
       const payload = await readJsonBody(request);
       const idConsumer = request.method === "PUT" ? parsePositiveId(payload.idConsumer) : null;
       const text = (field, max) => typeof payload[field] === "string" ? payload[field].trim().slice(0, max) : "";
-      const humanText = (field, max) => uppercaseText(text(field, max));
+      const humanText = (field, max) => normalizeHumanText(text(field, max));
       const nameConsumer = humanText("nameConsumer", 180);
       if ((request.method === "PUT" && !idConsumer) || !nameConsumer) throw new SaleValidationError("Informe o nome do consumidor.");
       await ensureCustomerConsumerSchema();
@@ -2268,7 +2297,7 @@ const server = createServer(async (request, response) => {
       await ensureRecipeSchema();
       const requestUrl = new URL(request.url, "http://localhost");
       const includeInactive = requestUrl.searchParams.get("includeInactive") === "1";
-      const productTypeDescription = uppercaseText(requestUrl.searchParams.get("productType") || "");
+      const productTypeDescription = normalizeTextForComparison(requestUrl.searchParams.get("productType") || "");
       const allowNegativeStock = await getGeneralSettingBoolean("allowNegativeStock");
       const [products] = await pool.query(
         `SELECT products.idProduct, products.idGroup, products.skuProduct,
@@ -2281,12 +2310,16 @@ const server = createServer(async (request, response) => {
                 products.isFractionalProduct, products.printsPlace,
                 products.showsInPdvProduct,
                 products.isActiveProduct,
+                units.codeUnit, units.descriptionUnit,
+                physical_states.namePhysicalState,
                 groups.descriptionGroup, classes.descriptionClass,
                 product_types.descriptionProductType
          FROM products
          INNER JOIN \`groups\` groups ON groups.idGroup = products.idGroup
          INNER JOIN classes ON classes.idClass = groups.idClass
          LEFT JOIN product_types ON product_types.idProductType = products.idProductTypeProduct
+         LEFT JOIN units ON units.idUnit = products.idUnitProduct
+         LEFT JOIN physical_states ON physical_states.idPhysicalState = products.idPhysicalStateProduct
          WHERE (? OR (products.isActiveProduct = 1 AND products.showsInPdvProduct = 1
            AND (? OR products.controlsStockProduct = 0 OR products.stockQuantityProduct > 0)))
            AND (? = '' OR product_types.descriptionProductType = ?)
@@ -2307,6 +2340,7 @@ const server = createServer(async (request, response) => {
   if (request.method === "GET" && request.url.startsWith("/api/recipes")) {
     try {
       await ensureRecipeSchema();
+      await ensureCulinarySchema();
       const requestUrl = new URL(request.url, "http://localhost");
       const includeArchived = requestUrl.searchParams.get("includeArchived") === "1";
       const kind = requestUrl.searchParams.get("kind");
@@ -2319,11 +2353,22 @@ const server = createServer(async (request, response) => {
       }
       const [recipes] = await pool.query(
         `SELECT recipes.idRecipe, recipes.nameRecipe, recipes.kindRecipe, recipes.idResultProductRecipe,
+                recipes.idCulinaryUnitYieldRecipe,
+                recipes.idUnitYieldRecipe,
                 recipes.statusRecipe, recipes.versionRecipe, recipes.yieldQuantityRecipe,
                 recipes.notesRecipe, recipes.createdAtRecipe, recipes.updatedAtRecipe,
-                result.nameProduct AS resultProductName
+                result.nameProduct AS resultProductName,
+                yield_unit.codeUnit AS yieldCulinaryUnitCode,
+                yield_unit.descriptionUnit AS yieldCulinaryUnitName,
+                yield_unit.baseUnitUnit AS yieldCulinaryUnitBase
+                ,yield_tax_unit.codeUnit AS yieldUnitCode,
+                yield_tax_unit.descriptionUnit AS yieldUnitDescription
          FROM recipe_definitions recipes
          LEFT JOIN products result ON result.idProduct = recipes.idResultProductRecipe
+         LEFT JOIN units yield_unit
+           ON yield_unit.idUnit = recipes.idCulinaryUnitYieldRecipe
+         LEFT JOIN units yield_tax_unit
+           ON yield_tax_unit.idUnit = recipes.idUnitYieldRecipe
          ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
          ORDER BY result.nameProduct, recipes.kindRecipe`,
         parameters
@@ -2333,13 +2378,31 @@ const server = createServer(async (request, response) => {
         ? (await pool.query(
           `SELECT components.idRecipe, components.componentTypeRecipe,
                   components.idComponentProductRecipe, components.idComponentRecipe,
+                  components.idCulinaryUnitRecipeComponent,
+                  components.idCulinaryUnitConversionRecipeComponent,
                   components.quantityRecipeComponent, components.lossPercentRecipeComponent,
                   products.nameProduct AS componentProductName,
+                  products.idUnitProduct AS componentProductUnitId,
+                  products.idPhysicalStateProduct AS componentProductPhysicalStateId,
+                  units.codeUnit AS componentCodeUnit,
+                  units.descriptionUnit AS componentDescriptionUnit,
                   nested.nameRecipe AS componentRecipeName,
-                  products.costPriceProduct, products.controlsStockProduct
+                  products.costPriceProduct, products.controlsStockProduct,
+                  unified_unit.descriptionUnit AS culinaryUnitName,
+                  unified_conversion.factorUnitConversion AS factorCulinaryUnitConversion,
+                  CONCAT(from_unit.descriptionUnit, ' → ', to_unit.descriptionUnit) AS conversionLabel
            FROM recipe_components components
            LEFT JOIN products ON products.idProduct = components.idComponentProductRecipe
+           LEFT JOIN units ON units.idUnit = products.idUnitProduct
            LEFT JOIN recipe_definitions nested ON nested.idRecipe = components.idComponentRecipe
+           LEFT JOIN units unified_unit
+             ON unified_unit.idUnit = components.idCulinaryUnitRecipeComponent
+           LEFT JOIN unit_conversions unified_conversion
+             ON unified_conversion.idUnitConversion = components.idCulinaryUnitConversionRecipeComponent
+           LEFT JOIN units from_unit
+             ON from_unit.idUnit = unified_conversion.idFromUnitConversion
+           LEFT JOIN units to_unit
+             ON to_unit.idUnit = unified_conversion.idToUnitConversion
            WHERE components.idRecipe IN (?) ORDER BY components.idRecipe, components.idRecipeComponent`,
           [recipeIds]
         ))[0]
@@ -2366,18 +2429,24 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (request.method === "POST" && request.url === "/api/recipes") {
+  if ((request.method === "POST" && request.url === "/api/recipes")
+    || (request.method === "PUT" && /^\/api\/recipes\/\d+$/.test(new URL(request.url, "http://localhost").pathname))) {
     let connection;
     try {
       await ensureRecipeSchema();
+      await ensureCulinarySchema();
       const payload = await readJsonBody(request);
       const definition = {
         kind: payload.kindRecipe || payload.kind,
         name: payload.nameRecipe || payload.name,
+        yieldQuantity: payload.yieldQuantityRecipe ?? payload.yieldQuantity,
+        yieldUnitId: payload.idUnitYieldRecipe || payload.yieldUnitId,
         components: Array.isArray(payload.components)
           ? payload.components.map((component) => ({
             productId: component.idComponentProductRecipe || component.productId,
             recipeId: component.idComponentRecipe || component.recipeId,
+            culinaryUnitId: component.idCulinaryUnitRecipeComponent || component.culinaryUnitId,
+            conversionId: component.idCulinaryUnitConversionRecipeComponent || component.conversionId,
             quantity: component.quantityRecipeComponent ?? component.quantity,
             lossPercent: component.lossPercentRecipeComponent ?? component.lossPercent ?? 0
           }))
@@ -2385,9 +2454,27 @@ const server = createServer(async (request, response) => {
       };
       const validationErrors = validateRecipeDefinition(definition);
       if (validationErrors.length) throw new SaleValidationError(validationErrors.join(" "));
-      const requestedStatus = payload.statusRecipe === "active" ? "active" : "draft";
+      const requestedStatus = payload.statusRecipe ?? "draft";
+      if (!["draft", "active", "review_required"].includes(requestedStatus)) {
+        throw new SaleValidationError("Status da Receita inválido.");
+      }
+      const yieldQuantity = Number(definition.yieldQuantity ?? 1);
+      if (!Number.isFinite(yieldQuantity) || yieldQuantity <= 0) {
+        throw new SaleValidationError("Informe um rendimento maior que zero.");
+      }
+      const yieldUnitId = parsePositiveId(definition.yieldUnitId);
+      if (!yieldUnitId) {
+        throw new SaleValidationError("Informe a unidade final da Receita ou Composição.");
+      }
       connection = await pool.getConnection();
       await connection.beginTransaction();
+      const [yieldUnits] = await connection.query(
+        `SELECT idUnit FROM units WHERE idUnit = ? AND isActiveUnit = 1 AND isTaxableUnit = 1`,
+        [yieldUnitId]
+      );
+      if (!yieldUnits.length) {
+        throw new SaleValidationError("A unidade final não foi encontrada ou está inativa.", 409);
+      }
       const productIds = [...new Set(
         definition.components
           .map(({ productId }) => Number(productId))
@@ -2395,7 +2482,8 @@ const server = createServer(async (request, response) => {
       )];
       if (productIds.length) {
         const [products] = await connection.query(
-          `SELECT idProduct FROM products WHERE idProduct IN (?) AND isActiveProduct = 1`,
+          `SELECT idProduct, idUnitProduct, idPhysicalStateProduct
+           FROM products WHERE idProduct IN (?) AND isActiveProduct = 1`,
           [productIds]
         );
         if (products.length !== productIds.length) {
@@ -2417,12 +2505,93 @@ const server = createServer(async (request, response) => {
           throw new SaleValidationError("Receita componente não encontrada.", 409);
         }
       }
+      const componentProducts = productIds.length
+        ? (await connection.query(
+          `SELECT products.idProduct, products.idUnitProduct, products.idPhysicalStateProduct,
+                  units.codeUnit, units.descriptionUnit
+           FROM products
+           LEFT JOIN units ON units.idUnit = products.idUnitProduct
+           WHERE products.idProduct IN (?)`,
+          [productIds]
+        ))[0]
+        : [];
+      const componentProductsById = new Map(componentProducts.map((product) => [String(product.idProduct), product]));
+      const [culinaryUnits] = await connection.query(
+        `SELECT idUnit AS idCulinaryUnit, codeUnit AS codeCulinaryUnit,
+                descriptionUnit AS nameCulinaryUnit, baseUnitUnit AS baseUnitCulinaryUnit
+         FROM units
+         WHERE isCulinaryUnit = 1 AND isActiveUnit = 1`
+      );
+      const culinaryUnitIds = new Set(culinaryUnits.map(({ idCulinaryUnit }) => String(idCulinaryUnit)));
+      const conversionIds = [...new Set(
+        definition.components
+          .map(({ conversionId }) => Number(conversionId))
+          .filter((id) => Number.isInteger(id) && id > 0)
+      )];
+      const [conversions] = conversionIds.length
+        ? await connection.query(
+          `SELECT idUnitConversion AS idCulinaryUnitConversion,
+                  idFromUnitConversion AS idFromCulinaryUnitConversion,
+                  idToUnitConversion AS idToCulinaryUnitConversion,
+                  idPhysicalStateUnitConversion AS idPhysicalStateCulinaryUnitConversion
+           FROM unit_conversions
+           WHERE idUnitConversion IN (?)`,
+          [conversionIds]
+        )
+        : [[]];
+      const conversionsById = new Map(conversions.map((conversion) => [
+        String(conversion.idCulinaryUnitConversion),
+        conversion
+      ]));
+      for (const component of definition.components) {
+        if (!component.productId) continue;
+        const product = componentProductsById.get(String(component.productId));
+        if (!product) throw new SaleValidationError("Produto componente não encontrado.", 409);
+        if (component.culinaryUnitId && !culinaryUnitIds.has(String(component.culinaryUnitId))) {
+          throw new SaleValidationError("Unidade culinária do componente não encontrada.", 409);
+        }
+        if (!component.conversionId) {
+          throw new SaleValidationError("A conversão é obrigatória para componentes de produto.", 409);
+        }
+        if (component.culinaryUnitId) {
+          const culinaryUnit = culinaryUnits.find(({ idCulinaryUnit }) =>
+            String(idCulinaryUnit) === String(component.culinaryUnitId)
+          );
+          const productBase = culinaryBaseForUnit(product);
+          if (productBase
+            && culinaryUnit.baseUnitCulinaryUnit !== "common"
+            && culinaryUnit.baseUnitCulinaryUnit !== productBase) {
+            throw new SaleValidationError("A unidade culinária não é compatível com a unidade cadastrada no componente.", 409);
+          }
+        }
+        const conversion = conversionsById.get(String(component.conversionId));
+        if (!conversion || String(conversion.idFromCulinaryUnitConversion) !== String(component.culinaryUnitId)
+          || (product.idPhysicalStateProduct
+            && String(conversion.idPhysicalStateCulinaryUnitConversion) !== String(product.idPhysicalStateProduct))
+          || (() => {
+            const targetUnit = culinaryUnits.find(({ idCulinaryUnit }) =>
+              String(idCulinaryUnit) === String(conversion?.idToCulinaryUnitConversion)
+            );
+            return Boolean(
+              targetUnit?.codeCulinaryUnit
+              && product.codeUnit
+              && String(targetUnit.codeCulinaryUnit).toLocaleLowerCase("pt-BR")
+                !== String(product.codeUnit).toLocaleLowerCase("pt-BR")
+            );
+          })()) {
+          throw new SaleValidationError("A conversão não corresponde à unidade ou ao estado físico do componente.", 409);
+        }
+      }
       const recipeName = String(definition.name || "").trim().slice(0, 180);
       if (!recipeName) throw new SaleValidationError("Informe o nome da Receita ou Composição.");
+      const recipeId = request.method === "PUT"
+        ? Number(new URL(request.url, "http://localhost").pathname.split("/").pop())
+        : null;
       const [duplicates] = await connection.query(
         `SELECT idRecipe FROM recipe_definitions
-         WHERE nameRecipe = ? AND kindRecipe = ? AND statusRecipe <> 'archived'`,
-        [recipeName, definition.kind]
+         WHERE nameRecipe = ? AND kindRecipe = ? AND statusRecipe <> 'archived'
+           AND idRecipe <> ?`,
+        [recipeName, definition.kind, recipeId || 0]
       );
       if (duplicates.length) throw new SaleValidationError("Já existe uma Receita ou Composição com este nome.", 409);
       const [existingDefinitions] = await connection.query(
@@ -2446,42 +2615,88 @@ const server = createServer(async (request, response) => {
       const cycleDefinitions = [...definitionsByKey.values()];
       const cycles = findRecipeCycles(cycleDefinitions);
       if (cycles.length) throw new SaleValidationError("A estrutura contém um ciclo de composição.", 409);
-      const [result] = await connection.query(
+      if (recipeId) {
+        const [existing] = await connection.query("SELECT idRecipe FROM recipe_definitions WHERE idRecipe = ?", [recipeId]);
+        if (!existing.length) throw new SaleValidationError("Receita não encontrada.", 404);
+        await connection.query(
+          `UPDATE recipe_definitions
+           SET nameRecipe = ?, kindRecipe = ?, idUnitYieldRecipe = ?, statusRecipe = ?,
+               yieldQuantityRecipe = ?, notesRecipe = ?, versionRecipe = versionRecipe + 1
+           WHERE idRecipe = ?`,
+          [recipeName, definition.kind, yieldUnitId, requestedStatus, yieldQuantity,
+            payload.notesRecipe ? String(payload.notesRecipe).trim().slice(0, 500) : null, recipeId]
+        );
+        await connection.query("DELETE FROM recipe_components WHERE idRecipe = ?", [recipeId]);
+      }
+      const result = recipeId ? { insertId: recipeId } : (await connection.query(
         `INSERT INTO recipe_definitions
-          (nameRecipe, kindRecipe, statusRecipe, yieldQuantityRecipe, notesRecipe)
-         VALUES (?, ?, ?, ?, ?)`,
+          (nameRecipe, kindRecipe, idUnitYieldRecipe, statusRecipe,
+           yieldQuantityRecipe, notesRecipe)
+         VALUES (?, ?, ?, ?, ?, ?)`,
         [
           recipeName,
           definition.kind,
+          yieldUnitId,
           requestedStatus,
-          Number(payload.yieldQuantityRecipe || 1),
+          yieldQuantity,
           payload.notesRecipe ? String(payload.notesRecipe).trim().slice(0, 500) : null
         ]
-      );
-      for (const component of definition.components) {
+      ))[0];
+      for (const [index, component] of definition.components.entries()) {
         await connection.query(
           `INSERT INTO recipe_components
             (idRecipe, componentTypeRecipe, idComponentProductRecipe, idComponentRecipe,
+             orderRecipeComponent,
+             idCulinaryUnitRecipeComponent, idCulinaryUnitConversionRecipeComponent,
              quantityRecipeComponent, lossPercentRecipeComponent)
-           VALUES (?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             result.insertId,
             component.recipeId ? "recipe" : "product",
             component.productId || null,
             component.recipeId || null,
+            index + 1,
+            component.culinaryUnitId || null,
+            component.conversionId || null,
             component.quantity,
             component.lossPercent
           ]
         );
       }
       await connection.commit();
-      json(response, 201, { ok: true, idRecipe: result.insertId, statusRecipe: requestedStatus });
+      json(response, request.method === "PUT" ? 200 : 201, { ok: true, idRecipe: result.insertId, statusRecipe: requestedStatus });
     } catch (error) {
       if (connection) await connection.rollback();
       handleError(response, error, {
         log: "Falha ao criar receita:",
         message: "Não foi possível salvar a Receita ou Composição.",
         duplicate: "Já existe uma Receita ou Composição com este nome."
+      });
+    } finally {
+      connection?.release();
+    }
+    return;
+  }
+
+  if (request.method === "DELETE" && /^\/api\/recipes\/\d+$/.test(new URL(request.url, "http://localhost").pathname)) {
+    let connection;
+    try {
+      await ensureRecipeSchema();
+      const recipeId = Number(new URL(request.url, "http://localhost").pathname.split("/").pop());
+      connection = await pool.getConnection();
+      await connection.beginTransaction();
+      const [links] = await connection.query("SELECT idProductRecipeLink FROM product_recipe_links WHERE idRecipe = ? LIMIT 1", [recipeId]);
+      if (links.length) throw new SaleValidationError("A receita está vinculada a um produto e não pode ser excluída.", 409);
+      const [result] = await connection.query("UPDATE recipe_definitions SET statusRecipe = 'archived' WHERE idRecipe = ?", [recipeId]);
+      if (!result.affectedRows) throw new SaleValidationError("Receita não encontrada.", 404);
+      await connection.commit();
+      json(response, 200, { ok: true });
+    } catch (error) {
+      if (connection) await connection.rollback();
+      handleError(response, error, {
+        log: "Falha ao excluir receita:",
+        message: "Não foi possível excluir a Receita ou Composição.",
+        duplicate: ""
       });
     } finally {
       connection?.release();
@@ -2538,7 +2753,8 @@ const server = createServer(async (request, response) => {
     try {
       await ensureProductCatalogSchema();
       const [units] = await pool.query(
-        `SELECT idUnit, codeUnit, descriptionUnit, isActiveUnit
+        `SELECT idUnit, codeUnit, descriptionUnit, isActiveUnit,
+                isTaxableUnit, isCulinaryUnit, baseUnitUnit, categoryUnit
          FROM units
          WHERE (? OR isActiveUnit = 1)
          ORDER BY codeUnit`
@@ -2560,7 +2776,8 @@ const server = createServer(async (request, response) => {
       await ensureCulinarySchema();
       const includeInactive = new URL(request.url, "http://localhost").searchParams.get("includeInactive") === "1";
       const [physicalStates] = await pool.query(
-        `SELECT idPhysicalState, codePhysicalState, namePhysicalState, descriptionPhysicalState
+        `SELECT idPhysicalState, codePhysicalState, namePhysicalState, descriptionPhysicalState,
+                isActivePhysicalState
          FROM physical_states
          WHERE (? OR isActivePhysicalState = 1)
          ORDER BY namePhysicalState`,
@@ -2582,12 +2799,16 @@ const server = createServer(async (request, response) => {
       await ensureCulinarySchema();
       const includeInactive = new URL(request.url, "http://localhost").searchParams.get("includeInactive") === "1";
       const [culinaryUnits] = await pool.query(
-        `SELECT idCulinaryUnit, codeCulinaryUnit, nameCulinaryUnit,
-                baseUnitCulinaryUnit, categoryCulinaryUnit,
-                descriptionCulinaryUnit, isActiveCulinaryUnit
-         FROM culinary_units
-         WHERE (? OR isActiveCulinaryUnit = 1)
-         ORDER BY nameCulinaryUnit`,
+        `SELECT idUnit AS idCulinaryUnit, codeUnit AS codeCulinaryUnit,
+                descriptionUnit AS nameCulinaryUnit,
+                baseUnitUnit AS baseUnitCulinaryUnit,
+                categoryUnit AS categoryCulinaryUnit,
+                descriptionUnit AS descriptionCulinaryUnit,
+                isActiveUnit AS isActiveCulinaryUnit
+         FROM units
+         WHERE isCulinaryUnit = 1
+           AND (? OR isActiveUnit = 1)
+         ORDER BY descriptionUnit`,
         [includeInactive]
       );
       json(response, 200, { culinaryUnits });
@@ -2597,24 +2818,33 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (request.method === "GET" && request.url.startsWith("/api/culinary-unit-conversions")) {
+  if (request.method === "GET"
+    && (request.url.startsWith("/api/culinary-unit-conversions")
+      || request.url.startsWith("/api/unit-conversions"))) {
     try {
       await ensureCulinarySchema();
       const [conversions] = await pool.query(
-        `SELECT conv.idCulinaryUnitConversion,
-                conv.idFromCulinaryUnitConversion,
-                conv.idToCulinaryUnitConversion,
-                conv.idPhysicalStateCulinaryUnitConversion,
-                conv.factorCulinaryUnitConversion,
-                conv.notesCulinaryUnitConversion,
-                source.nameCulinaryUnit AS fromNameCulinaryUnit,
-                target.nameCulinaryUnit AS toNameCulinaryUnit,
+        `SELECT conv.idUnitConversion AS idCulinaryUnitConversion,
+                conv.idUnitConversion,
+                conv.idFromUnitConversion AS idFromCulinaryUnitConversion,
+                conv.idFromUnitConversion,
+                conv.idToUnitConversion AS idToCulinaryUnitConversion,
+                conv.idToUnitConversion,
+                conv.idPhysicalStateUnitConversion AS idPhysicalStateCulinaryUnitConversion,
+                conv.idPhysicalStateUnitConversion,
+                conv.factorUnitConversion AS factorCulinaryUnitConversion,
+                conv.factorUnitConversion,
+                conv.notesUnitConversion AS notesCulinaryUnitConversion,
+                conv.notesUnitConversion,
+                source.descriptionUnit AS fromNameCulinaryUnit,
+                target.descriptionUnit AS toNameCulinaryUnit,
                 state.namePhysicalState
-         FROM culinary_unit_conversions conv
-         INNER JOIN culinary_units source ON source.idCulinaryUnit = conv.idFromCulinaryUnitConversion
-         INNER JOIN culinary_units target ON target.idCulinaryUnit = conv.idToCulinaryUnitConversion
-         INNER JOIN physical_states state ON state.idPhysicalState = conv.idPhysicalStateCulinaryUnitConversion
-         ORDER BY source.nameCulinaryUnit, target.nameCulinaryUnit, state.namePhysicalState`
+         FROM unit_conversions conv
+         INNER JOIN units source ON source.idUnit = conv.idFromUnitConversion
+         INNER JOIN units target ON target.idUnit = conv.idToUnitConversion
+         INNER JOIN physical_states state ON state.idPhysicalState = conv.idPhysicalStateUnitConversion
+         WHERE source.isCulinaryUnit = 1 AND target.isCulinaryUnit = 1
+         ORDER BY source.descriptionUnit, target.descriptionUnit, state.namePhysicalState`
       );
       json(response, 200, { conversions });
     } catch (error) {
@@ -2623,20 +2853,26 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (request.method === "POST" && (request.url === "/api/culinary-units" || request.url === "/api/physical-states" || request.url === "/api/culinary-unit-conversions")) {
+  if (request.method === "POST" && (request.url === "/api/culinary-units"
+    || request.url === "/api/physical-states"
+    || request.url === "/api/culinary-unit-conversions"
+    || request.url === "/api/unit-conversions")) {
     try {
       await ensureCulinarySchema();
       const payload = await readJsonBody(request);
+      const isConversion = request.url === "/api/culinary-unit-conversions"
+        || request.url === "/api/unit-conversions";
       if (request.url === "/api/culinary-units") {
-        const code = normalizeReferenceCode(payload.codeCulinaryUnit);
-        const name = String(payload.nameCulinaryUnit || "").trim();
-        const baseUnit = String(payload.baseUnitCulinaryUnit || "");
-        const category = String(payload.categoryCulinaryUnit || "");
-        if (!code || code.length > 20 || !name || name.length > 50 || !["g", "ml", "un"].includes(baseUnit) || !["weight", "volume", "unit"].includes(category)) throw new SaleValidationError("Dados da unidade culinária inválidos.");
+        const code = normalizeUnitCode(payload.codeCulinaryUnit);
+        const name = normalizeHumanText(payload.nameCulinaryUnit);
+        const baseUnit = String(payload.baseUnitCulinaryUnit || "").trim();
+        const category = String(payload.categoryCulinaryUnit || "").trim();
+        if (!code || code.length > 20 || !name || name.length > 50 || !["g", "ml", "un", "common"].includes(baseUnit) || !["weight", "volume", "unit", "general"].includes(category)) throw new SaleValidationError("Dados da unidade culinária inválidos.");
         const [result] = await pool.query(
-          `INSERT INTO culinary_units (codeCulinaryUnit, nameCulinaryUnit, baseUnitCulinaryUnit, categoryCulinaryUnit, descriptionCulinaryUnit)
-           VALUES (?, ?, ?, ?, ?)`,
-          [code, name, baseUnit, category, String(payload.descriptionCulinaryUnit || "").trim() || null]
+          `INSERT INTO units
+            (codeUnit, descriptionUnit, isActiveUnit, isTaxableUnit, isCulinaryUnit, baseUnitUnit, categoryUnit)
+           VALUES (?, ?, 1, 0, 1, ?, ?)`,
+          [code, name, baseUnit, category]
         );
         json(response, 201, { idCulinaryUnit: result.insertId });
       } else if (request.url === "/api/physical-states") {
@@ -2649,19 +2885,23 @@ const server = createServer(async (request, response) => {
           [code, name, String(payload.descriptionPhysicalState || "").trim() || null]
         );
         json(response, 201, { idPhysicalState: result.insertId });
-      } else {
-        const fromId = parsePositiveId(payload.idFromCulinaryUnitConversion);
-        const toId = parsePositiveId(payload.idToCulinaryUnitConversion);
-        const stateId = parsePositiveId(payload.idPhysicalStateCulinaryUnitConversion);
-        const factor = parseBrazilianDecimal(payload.factorCulinaryUnitConversion);
+      } else if (isConversion) {
+        const fromId = parsePositiveId(payload.idFromUnitConversion ?? payload.idFromCulinaryUnitConversion);
+        const toId = parsePositiveId(payload.idToUnitConversion ?? payload.idToCulinaryUnitConversion);
+        const stateId = parsePositiveId(payload.idPhysicalStateUnitConversion ?? payload.idPhysicalStateCulinaryUnitConversion);
+        const factor = parseBrazilianDecimal(payload.factorUnitConversion ?? payload.factorCulinaryUnitConversion);
         if (!fromId || !toId || !stateId || !Number.isFinite(factor) || factor <= 0) throw new SaleValidationError("Dados da conversão inválidos.");
         const [result] = await pool.query(
-          `INSERT INTO culinary_unit_conversions
-           (idFromCulinaryUnitConversion, idToCulinaryUnitConversion, idPhysicalStateCulinaryUnitConversion, factorCulinaryUnitConversion, notesCulinaryUnitConversion)
+          `INSERT INTO unit_conversions
+           (idFromUnitConversion, idToUnitConversion, idPhysicalStateUnitConversion, factorUnitConversion, notesUnitConversion)
            VALUES (?, ?, ?, ?, ?)`,
-          [fromId, toId, stateId, factor, String(payload.notesCulinaryUnitConversion || "").trim() || null]
+          [fromId, toId, stateId, factor,
+            String(payload.notesUnitConversion ?? payload.notesCulinaryUnitConversion ?? "").trim() || null]
         );
-        json(response, 201, { idCulinaryUnitConversion: result.insertId });
+        json(response, 201, {
+          idUnitConversion: result.insertId,
+          idCulinaryUnitConversion: result.insertId
+        });
       }
     } catch (error) {
       handleError(response, error, { log: "Falha ao criar cadastro da ficha técnica:", message: "Não foi possível criar o cadastro.", duplicate: "Esse cadastro já existe." });
@@ -2669,22 +2909,29 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (request.method === "PUT" && (request.url === "/api/culinary-units" || request.url === "/api/physical-states" || request.url === "/api/culinary-unit-conversions")) {
+  if (request.method === "PUT" && (request.url === "/api/culinary-units"
+    || request.url === "/api/physical-states"
+    || request.url === "/api/culinary-unit-conversions"
+    || request.url === "/api/unit-conversions")) {
     try {
       await ensureCulinarySchema();
       const payload = await readJsonBody(request);
       let id;
       let result;
+      const isConversion = request.url === "/api/culinary-unit-conversions"
+        || request.url === "/api/unit-conversions";
       if (request.url === "/api/culinary-units") {
         id = parsePositiveId(payload.idCulinaryUnit);
-        const code = normalizeReferenceCode(payload.codeCulinaryUnit);
-        const name = String(payload.nameCulinaryUnit || "").trim();
-        const baseUnit = String(payload.baseUnitCulinaryUnit || "");
-        const category = String(payload.categoryCulinaryUnit || "");
-        if (!id || !code || !name || !["g", "ml", "un"].includes(baseUnit) || !["weight", "volume", "unit"].includes(category)) throw new SaleValidationError("Dados da unidade culinária inválidos.");
+        const code = normalizeUnitCode(payload.codeCulinaryUnit);
+        const name = normalizeHumanText(payload.nameCulinaryUnit);
+        const baseUnit = String(payload.baseUnitCulinaryUnit || "").trim();
+        const category = String(payload.categoryCulinaryUnit || "").trim();
+        if (!id || !code || !name || !["g", "ml", "un", "common"].includes(baseUnit) || !["weight", "volume", "unit", "general"].includes(category)) throw new SaleValidationError("Dados da unidade culinária inválidos.");
         [result] = await pool.query(
-          `UPDATE culinary_units SET codeCulinaryUnit = ?, nameCulinaryUnit = ?, baseUnitCulinaryUnit = ?, categoryCulinaryUnit = ?, descriptionCulinaryUnit = ? WHERE idCulinaryUnit = ?`,
-          [code, name, baseUnit, category, String(payload.descriptionCulinaryUnit || "").trim() || null, id]
+          `UPDATE units
+           SET codeUnit = ?, descriptionUnit = ?, baseUnitUnit = ?, categoryUnit = ?
+           WHERE idUnit = ? AND isCulinaryUnit = 1`,
+          [code, name, baseUnit, category, id]
         );
       } else if (request.url === "/api/physical-states") {
         id = parsePositiveId(payload.idPhysicalState);
@@ -2695,16 +2942,20 @@ const server = createServer(async (request, response) => {
           `UPDATE physical_states SET codePhysicalState = ?, namePhysicalState = ?, descriptionPhysicalState = ? WHERE idPhysicalState = ?`,
           [code, name, String(payload.descriptionPhysicalState || "").trim() || null, id]
         );
-      } else {
-        id = parsePositiveId(payload.idCulinaryUnitConversion);
-        const fromId = parsePositiveId(payload.idFromCulinaryUnitConversion);
-        const toId = parsePositiveId(payload.idToCulinaryUnitConversion);
-        const stateId = parsePositiveId(payload.idPhysicalStateCulinaryUnitConversion);
-        const factor = parseBrazilianDecimal(payload.factorCulinaryUnitConversion);
+      } else if (isConversion) {
+        id = parsePositiveId(payload.idUnitConversion ?? payload.idCulinaryUnitConversion);
+        const fromId = parsePositiveId(payload.idFromUnitConversion ?? payload.idFromCulinaryUnitConversion);
+        const toId = parsePositiveId(payload.idToUnitConversion ?? payload.idToCulinaryUnitConversion);
+        const stateId = parsePositiveId(payload.idPhysicalStateUnitConversion ?? payload.idPhysicalStateCulinaryUnitConversion);
+        const factor = parseBrazilianDecimal(payload.factorUnitConversion ?? payload.factorCulinaryUnitConversion);
         if (!id || !fromId || !toId || !stateId || !Number.isFinite(factor) || factor <= 0) throw new SaleValidationError("Dados da conversão inválidos.");
         [result] = await pool.query(
-          `UPDATE culinary_unit_conversions SET idFromCulinaryUnitConversion = ?, idToCulinaryUnitConversion = ?, idPhysicalStateCulinaryUnitConversion = ?, factorCulinaryUnitConversion = ?, notesCulinaryUnitConversion = ? WHERE idCulinaryUnitConversion = ?`,
-          [fromId, toId, stateId, factor, String(payload.notesCulinaryUnitConversion || "").trim() || null, id]
+          `UPDATE unit_conversions
+           SET idFromUnitConversion = ?, idToUnitConversion = ?, idPhysicalStateUnitConversion = ?,
+               factorUnitConversion = ?, notesUnitConversion = ?
+           WHERE idUnitConversion = ?`,
+          [fromId, toId, stateId, factor,
+            String(payload.notesUnitConversion ?? payload.notesCulinaryUnitConversion ?? "").trim() || null, id]
         );
       }
       if (!result.affectedRows) throw new SaleValidationError("Cadastro não encontrado.", 404);
@@ -2723,7 +2974,7 @@ const server = createServer(async (request, response) => {
       const id = parsePositiveId(payload[isUnit ? "idCulinaryUnit" : "idPhysicalState"]);
       if (!id || ![true, false, 0, 1].includes(payload.isActive)) throw new SaleValidationError("Cadastro ou status inválido.");
       const [result] = await pool.query(
-        isUnit ? "UPDATE culinary_units SET isActiveCulinaryUnit = ? WHERE idCulinaryUnit = ?" : "UPDATE physical_states SET isActivePhysicalState = ? WHERE idPhysicalState = ?",
+        isUnit ? "UPDATE units SET isActiveUnit = ? WHERE idUnit = ? AND isCulinaryUnit = 1" : "UPDATE physical_states SET isActivePhysicalState = ? WHERE idPhysicalState = ?",
         [payload.isActive === true || payload.isActive === 1 ? 1 : 0, id]
       );
       if (!result.affectedRows) throw new SaleValidationError("Cadastro não encontrado.", 404);
@@ -2734,16 +2985,27 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (request.method === "DELETE" && (request.url === "/api/culinary-units" || request.url === "/api/physical-states" || request.url === "/api/culinary-unit-conversions")) {
+  if (request.method === "DELETE" && (request.url === "/api/culinary-units"
+    || request.url === "/api/physical-states"
+    || request.url === "/api/culinary-unit-conversions"
+    || request.url === "/api/unit-conversions")) {
     try {
       await ensureCulinarySchema();
       const payload = await readJsonBody(request);
-      const idField = request.url === "/api/culinary-units" ? "idCulinaryUnit" : request.url === "/api/physical-states" ? "idPhysicalState" : "idCulinaryUnitConversion";
+      const idField = request.url === "/api/culinary-units"
+        ? "idCulinaryUnit"
+        : request.url === "/api/physical-states"
+          ? "idPhysicalState"
+          : request.url === "/api/unit-conversions"
+            ? "idUnitConversion"
+            : "idCulinaryUnitConversion";
       const id = parsePositiveId(payload[idField]);
       if (!id) throw new SaleValidationError("Cadastro inválido.");
-      const table = request.url === "/api/culinary-units" ? "culinary_units" : request.url === "/api/physical-states" ? "physical_states" : "culinary_unit_conversions";
-      const column = idField;
-      const [result] = await pool.query(`DELETE FROM ${table} WHERE ${column} = ?`, [id]);
+      const [result] = request.url === "/api/culinary-units"
+        ? await pool.query("DELETE FROM units WHERE idUnit = ? AND isCulinaryUnit = 1", [id])
+        : request.url === "/api/physical-states"
+          ? await pool.query("DELETE FROM physical_states WHERE idPhysicalState = ?", [id])
+          : await pool.query("DELETE FROM unit_conversions WHERE idUnitConversion = ?", [id]);
       if (!result.affectedRows) throw new SaleValidationError("Cadastro não encontrado.", 404);
       json(response, 200, { ok: true, id });
     } catch (error) {
@@ -2758,20 +3020,33 @@ const server = createServer(async (request, response) => {
       const payload = await readJsonBody(request);
       const isUnit = request.url === "/api/units";
       const description = typeof payload[isUnit ? "descriptionUnit" : "descriptionProductType"] === "string"
-        ? uppercaseText(payload[isUnit ? "descriptionUnit" : "descriptionProductType"])
+        ? normalizeHumanText(payload[isUnit ? "descriptionUnit" : "descriptionProductType"])
         : "";
       const spedCode = !isUnit && typeof payload.codeSpedProductType === "string"
-        ? payload.codeSpedProductType.trim().toUpperCase()
+        ? payload.codeSpedProductType.trim()
         : null;
-      const code = isUnit && typeof payload.codeUnit === "string" ? payload.codeUnit.trim().toUpperCase() : "";
-      if (!description || description.length > 120 || (!isUnit && spedCode && spedCode.length > 30) || (isUnit && (!code || code.length > 6))) {
+      const code = isUnit && typeof payload.codeUnit === "string" ? normalizeUnitCode(payload.codeUnit) : "";
+      const baseUnit = isUnit ? String(payload.baseUnitUnit ?? "common").trim() : "";
+      const category = isUnit ? String(payload.categoryUnit ?? "general").trim() : "";
+      const isActive = isUnit ? parseBooleanFlag(payload.isActiveUnit, "Ativa", true) : null;
+      const isTaxable = isUnit ? parseBooleanFlag(payload.isTaxableUnit, "Tributável", true) : null;
+      const isCulinary = isUnit ? parseBooleanFlag(payload.isCulinaryUnit, "Culinária") : null;
+      if (!description || description.length > (isUnit ? 80 : 120)
+        || (!isUnit && spedCode && spedCode.length > 30)
+        || (isUnit && (!code || code.length > 20
+          || !["g", "ml", "un", "common"].includes(baseUnit)
+          || !["weight", "volume", "unit", "general"].includes(category)))) {
         throw new SaleValidationError(isUnit ? "Código ou descrição da unidade inválidos." : "Descrição do tipo de produto inválida.");
       }
       const [result] = await pool.query(
         isUnit
-          ? "INSERT INTO units (codeUnit, descriptionUnit) VALUES (?, ?)"
+          ? `INSERT INTO units
+             (codeUnit, descriptionUnit, isActiveUnit, isTaxableUnit, isCulinaryUnit, baseUnitUnit, categoryUnit)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`
           : "INSERT INTO product_types (codeSpedProductType, descriptionProductType) VALUES (?, ?)",
-        isUnit ? [code, description] : [spedCode || null, description]
+        isUnit
+          ? [code, description, isActive, isTaxable, isCulinary, baseUnit, category]
+          : [spedCode || null, description]
       );
       json(response, 201, { id: result.insertId });
     } catch (error) {
@@ -2791,20 +3066,34 @@ const server = createServer(async (request, response) => {
       const isUnit = request.url === "/api/units";
       const id = parsePositiveId(payload[isUnit ? "idUnit" : "idProductType"]);
       const description = typeof payload[isUnit ? "descriptionUnit" : "descriptionProductType"] === "string"
-        ? uppercaseText(payload[isUnit ? "descriptionUnit" : "descriptionProductType"])
+        ? normalizeHumanText(payload[isUnit ? "descriptionUnit" : "descriptionProductType"])
         : "";
       const spedCode = !isUnit && typeof payload.codeSpedProductType === "string"
-        ? payload.codeSpedProductType.trim().toUpperCase()
+        ? payload.codeSpedProductType.trim()
         : null;
-      const code = isUnit && typeof payload.codeUnit === "string" ? payload.codeUnit.trim().toUpperCase() : "";
-      if (!id || !description || description.length > 120 || (!isUnit && spedCode && spedCode.length > 30) || (isUnit && (!code || code.length > 6))) {
+      const code = isUnit && typeof payload.codeUnit === "string" ? normalizeUnitCode(payload.codeUnit) : "";
+      const baseUnit = isUnit ? String(payload.baseUnitUnit ?? "common").trim() : "";
+      const category = isUnit ? String(payload.categoryUnit ?? "general").trim() : "";
+      const isActive = isUnit ? parseBooleanFlag(payload.isActiveUnit, "Ativa", true) : null;
+      const isTaxable = isUnit ? parseBooleanFlag(payload.isTaxableUnit, "Tributável", true) : null;
+      const isCulinary = isUnit ? parseBooleanFlag(payload.isCulinaryUnit, "Culinária") : null;
+      if (!id || !description || description.length > (isUnit ? 80 : 120)
+        || (!isUnit && spedCode && spedCode.length > 30)
+        || (isUnit && (!code || code.length > 20
+          || !["g", "ml", "un", "common"].includes(baseUnit)
+          || !["weight", "volume", "unit", "general"].includes(category)))) {
         throw new SaleValidationError("Dados do cadastro auxiliar inválidos.");
       }
       const [result] = await pool.query(
         isUnit
-          ? "UPDATE units SET codeUnit = ?, descriptionUnit = ? WHERE idUnit = ?"
+          ? `UPDATE units
+             SET codeUnit = ?, descriptionUnit = ?, isActiveUnit = ?, isTaxableUnit = ?,
+                 isCulinaryUnit = ?, baseUnitUnit = ?, categoryUnit = ?
+             WHERE idUnit = ?`
           : "UPDATE product_types SET codeSpedProductType = ?, descriptionProductType = ? WHERE idProductType = ?",
-        isUnit ? [code, description, id] : [spedCode || null, description, id]
+        isUnit
+          ? [code, description, isActive, isTaxable, isCulinary, baseUnit, category, id]
+          : [spedCode || null, description, id]
       );
       if (!result.affectedRows) throw new SaleValidationError("Cadastro auxiliar não encontrado.", 404);
       json(response, 200, { ok: true, id });
@@ -2813,6 +3102,36 @@ const server = createServer(async (request, response) => {
         log: "Falha ao editar cadastro auxiliar de produto:",
         message: "Não foi possível editar o cadastro auxiliar.",
         duplicate: "Esse cadastro auxiliar já existe."
+      });
+    }
+    return;
+  }
+
+  if (request.method === "PUT" && request.url === "/api/units/flags") {
+    try {
+      await ensureProductCatalogSchema();
+      const payload = await readJsonBody(request);
+      const id = parsePositiveId(payload.idUnit);
+      const fieldMap = {
+        isActiveUnit: ["Ativa", true],
+        isTaxableUnit: ["Tributável", true],
+        isCulinaryUnit: ["Culinária", false]
+      };
+      const fieldName = typeof payload.field === "string" ? payload.field : "";
+      const field = fieldMap[fieldName];
+      if (!id || !field) throw new SaleValidationError("Aplicação da unidade inválida.");
+      const value = parseBooleanFlag(payload.value, field[0], field[1]);
+      const [result] = await pool.query(
+        `UPDATE units SET ${fieldName} = ? WHERE idUnit = ?`,
+        [value, id]
+      );
+      if (!result.affectedRows) throw new SaleValidationError("Unidade não encontrada.", 404);
+      json(response, 200, { ok: true, id });
+    } catch (error) {
+      handleError(response, error, {
+        log: "Falha ao alterar aplicação da unidade:",
+        message: "Não foi possível alterar a aplicação da unidade.",
+        duplicate: ""
       });
     }
     return;
@@ -2890,7 +3209,7 @@ const server = createServer(async (request, response) => {
       const idSupplier = request.method === "PUT" ? parsePositiveId(payload.idSupplier) : null;
       const typeSupplier = ["juridica", "fisica"].includes(payload.typeSupplier) ? payload.typeSupplier : "";
       const value = (field, max) => typeof payload[field] === "string" ? payload[field].trim().slice(0, max) : "";
-      const humanValue = (field, max) => uppercaseText(value(field, max));
+      const humanValue = (field, max) => normalizeHumanText(value(field, max));
       const documentSupplier = value("documentSupplier", 20).replace(/\D/g, "");
       const companyNameSupplier = humanValue("companyNameSupplier", 180);
       const tradeNameSupplier = humanValue("tradeNameSupplier", 120);
@@ -2903,8 +3222,8 @@ const server = createServer(async (request, response) => {
       const addressComplementSupplier = humanValue("addressComplementSupplier", 80);
       const neighborhoodSupplier = humanValue("neighborhoodSupplier", 100);
       const citySupplier = humanValue("citySupplier", 100);
-      const stateSupplier = value("stateSupplier", 2).toUpperCase();
-      const countrySupplier = humanValue("countrySupplier", 80) || "BRASIL";
+      const stateSupplier = value("stateSupplier", 2);
+      const countrySupplier = humanValue("countrySupplier", 80) || "Brasil";
       const notesSupplier = humanValue("notesSupplier", 400);
       const documentLength = typeSupplier === "fisica" ? 11 : 14;
       if ((request.method === "PUT" && !idSupplier) || !typeSupplier || documentSupplier.length !== documentLength
@@ -3008,7 +3327,7 @@ const server = createServer(async (request, response) => {
     try {
       const payload = await readJsonBody(request);
       const idClass = parsePositiveId(payload.idClass);
-      const descriptionClass = typeof payload.descriptionClass === "string" ? uppercaseText(payload.descriptionClass) : "";
+      const descriptionClass = typeof payload.descriptionClass === "string" ? normalizeHumanText(payload.descriptionClass) : "";
       const idFiscalOperationClass = parsePositiveId(payload.idFiscalOperationClass);
       if (!idClass || !descriptionClass || descriptionClass.length > 120 || !idFiscalOperationClass) {
         throw new SaleValidationError("Classe, descrição e operação fiscal são obrigatórias.");
@@ -3193,9 +3512,9 @@ const server = createServer(async (request, response) => {
       const idNcmCestRelation = request.method === "PUT" ? parsePositiveId(payload.idNcmCestRelation) : null;
       const ncmCode = typeof payload.ncmCode === "string" ? payload.ncmCode.replace(/\D/g, "") : "";
       const cestCode = typeof payload.cestCode === "string" ? payload.cestCode.replace(/\D/g, "") : "";
-      const ncmDescription = typeof payload.ncmDescription === "string" ? uppercaseText(payload.ncmDescription) : "";
-      const cestDescription = typeof payload.cestDescription === "string" ? uppercaseText(payload.cestDescription) : "";
-      const segment = typeof payload.segment === "string" ? uppercaseText(payload.segment) : "";
+      const ncmDescription = typeof payload.ncmDescription === "string" ? normalizeHumanText(payload.ncmDescription) : "";
+      const cestDescription = typeof payload.cestDescription === "string" ? normalizeHumanText(payload.cestDescription) : "";
+      const segment = typeof payload.segment === "string" ? normalizeHumanText(payload.segment) : "";
       if (
         (request.method === "PUT" && !idNcmCestRelation) ||
         !/^\d{8}$/.test(ncmCode) ||
@@ -3290,7 +3609,7 @@ const server = createServer(async (request, response) => {
   if (request.method === "POST" && request.url === "/api/classes") {
     try {
       const payload = await readJsonBody(request);
-      const descriptionClass = typeof payload.descriptionClass === "string" ? uppercaseText(payload.descriptionClass) : "";
+      const descriptionClass = typeof payload.descriptionClass === "string" ? normalizeHumanText(payload.descriptionClass) : "";
       const idFiscalOperationClass = parsePositiveId(payload.idFiscalOperationClass);
       if (!descriptionClass || descriptionClass.length > 120 || !idFiscalOperationClass) {
         throw new SaleValidationError("Descrição da classe e operação fiscal são obrigatórias.");
@@ -3335,7 +3654,7 @@ const server = createServer(async (request, response) => {
   if (request.method === "POST" && request.url === "/api/groups") {
     try {
       const payload = await readJsonBody(request);
-      const descriptionGroup = typeof payload.descriptionGroup === "string" ? uppercaseText(payload.descriptionGroup) : "";
+      const descriptionGroup = typeof payload.descriptionGroup === "string" ? normalizeHumanText(payload.descriptionGroup) : "";
       const idClass = parsePositiveId(payload.idClass);
       const showsInPdvGroup = parseBooleanFlag(payload.showsInPdvGroup, "Exibe no PDV", false);
       if (!descriptionGroup || descriptionGroup.length > 120 || !idClass) throw new SaleValidationError("Descrição do grupo e classe são obrigatórios.");
@@ -3354,7 +3673,7 @@ const server = createServer(async (request, response) => {
       const payload = await readJsonBody(request);
       const idGroup = parsePositiveId(payload.idGroup);
       const idClass = parsePositiveId(payload.idClass);
-      const descriptionGroup = typeof payload.descriptionGroup === "string" ? uppercaseText(payload.descriptionGroup) : "";
+      const descriptionGroup = typeof payload.descriptionGroup === "string" ? normalizeHumanText(payload.descriptionGroup) : "";
       const showsInPdvGroup = parseBooleanFlag(payload.showsInPdvGroup, "Exibe no PDV", false);
       if (!idGroup || !idClass || !descriptionGroup || descriptionGroup.length > 120) throw new SaleValidationError("Grupo, classe ou descrição inválida.");
       const [classes] = await pool.query("SELECT idClass FROM classes WHERE idClass = ?", [idClass]);
@@ -3419,9 +3738,8 @@ const server = createServer(async (request, response) => {
   if (request.method === "POST" && request.url === "/api/products") {
     try {
       const payload = await readJsonBody(request);
-      const nameProduct = typeof payload.nameProduct === "string" ? uppercaseText(payload.nameProduct) : "";
+      const nameProduct = typeof payload.nameProduct === "string" ? normalizeHumanText(payload.nameProduct) : "";
       const skuProduct = typeof payload.skuProduct === "string" ? payload.skuProduct.trim().toUpperCase() : "";
-      const pdvCodeProduct = payload.pdvCodeProduct === null || payload.pdvCodeProduct === undefined ? null : String(payload.pdvCodeProduct).trim() || null;
       const ncmProduct = typeof payload.ncmProduct === "string" ? payload.ncmProduct.replace(/\D/g, "") : "";
       const cestProduct = typeof payload.cestProduct === "string" ? payload.cestProduct.replace(/\D/g, "") : "";
       const idGroup = parsePositiveId(payload.idGroup);
@@ -3439,6 +3757,7 @@ const server = createServer(async (request, response) => {
       const isBuffetProduct = parseBooleanFlag(payload.isBuffetProduct, "Produto Buffet", false);
       const isFractionalProduct = parseBooleanFlag(payload.isFractionalProduct, "Produto fracionado");
       const showsInPdvProduct = parseBooleanFlag(payload.showsInPdvProduct, "Exibe no PDV", true);
+      const isActiveProduct = parseBooleanFlag(payload.isActiveProduct, "Status do produto", true);
       const stockQuantityProduct = parseProductQuantity(payload.stockQuantityProduct, allowNegativeStock, Boolean(isFractionalProduct));
       const [groups] = await pool.query("SELECT idGroup FROM `groups` WHERE idGroup = ?", [idGroup]);
       if (!groups.length) throw new SaleValidationError("Grupo não encontrado.", 409);
@@ -3450,7 +3769,7 @@ const server = createServer(async (request, response) => {
         payload.printsKitchenProduct
       );
       const nonSaleProduct = isNonSaleProductType(productTypeRows[0]?.descriptionProductType);
-      const isRawMaterial = uppercaseText(productTypeRows[0]?.descriptionProductType) === "MATÉRIA-PRIMA";
+      const isRawMaterial = normalizeTextForComparison(productTypeRows[0]?.descriptionProductType) === "MATÉRIA-PRIMA";
       if (isRawMaterial && !idPhysicalStateProduct) {
         throw new SaleValidationError("Estado físico é obrigatório para matéria-prima.");
       }
@@ -3465,7 +3784,10 @@ const server = createServer(async (request, response) => {
       const priceProduct = nonSaleProduct
         ? costPriceProduct
         : parseMoney(payload.priceProduct, "Preço");
-      const [unitRows] = await pool.query("SELECT idUnit FROM units WHERE idUnit = ? AND isActiveUnit = 1", [idUnitProduct]);
+      const [unitRows] = await pool.query(
+        "SELECT idUnit FROM units WHERE idUnit = ? AND isActiveUnit = 1 AND isTaxableUnit = 1",
+        [idUnitProduct]
+      );
       if (idUnitProduct && !unitRows.length) throw new SaleValidationError("Unidade tributável não encontrada.", 409);
       if (idFiscalOperationSaleProduct) {
         const [operationRows] = await pool.query("SELECT idFiscalOperation FROM fiscal_operations WHERE idFiscalOperation = ? AND typeFiscalOperation = 'exit' AND isActiveFiscalOperation = 1", [idFiscalOperationSaleProduct]);
@@ -3490,19 +3812,21 @@ const server = createServer(async (request, response) => {
       }
       const [result] = await pool.query(
         `INSERT INTO products
-          (idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct,
+         (idGroup, skuProduct, nameProduct, idFiscalOperationSaleProduct,
            idProductTypeProduct, idPhysicalStateProduct, idUnitProduct, ncmProduct, cestProduct, priceProduct, costPriceProduct,
            stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct, printsPlace,
-           showsInPdvProduct)
+           showsInPdvProduct, isActiveProduct)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
-        [idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct,
+        [idGroup, skuProduct, nameProduct, idFiscalOperationSaleProduct,
           idProductTypeProduct, normalizedPhysicalStateProduct, idUnitProduct, ncmProduct || null, cestProduct || null,
           priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct,
-          printsPlace, showsInPdvProduct]
+          printsPlace, showsInPdvProduct, isActiveProduct]
       );
-      json(response, 201, { product: { idProduct: result.insertId, idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct, idProductTypeProduct, idPhysicalStateProduct: normalizedPhysicalStateProduct, idUnitProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct, printsPlace, showsInPdvProduct } });
+      const pdvCodeProduct = String(result.insertId);
+      await pool.query("UPDATE products SET pdvCodeProduct = ? WHERE idProduct = ?", [pdvCodeProduct, result.insertId]);
+      json(response, 201, { product: { idProduct: result.insertId, idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct, idProductTypeProduct, idPhysicalStateProduct: normalizedPhysicalStateProduct, idUnitProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct, printsPlace, showsInPdvProduct, isActiveProduct } });
     } catch (error) {
-      handleError(response, error, { log: "Falha ao criar produto:", message: "Não foi possível criar o produto.", duplicate: "SKU ou código PDV já cadastrado." });
+      handleError(response, error, { log: "Falha ao criar produto:", message: "Não foi possível criar o produto.", duplicate: "SKU já cadastrado." });
     }
     return;
   }
@@ -3524,17 +3848,15 @@ const server = createServer(async (request, response) => {
       await connection.beginTransaction();
       let importedCount = 0;
       const importedSkus = new Map();
-      const importedPdvCodes = new Map();
       for (const [index, row] of rows.entries()) {
         const line = index + 2;
         const skuProduct = typeof row.skuProduct === "string" ? row.skuProduct.trim().toUpperCase() : "";
-        const pdvCodeProduct = typeof row.pdvCodeProduct === "string" ? row.pdvCodeProduct.trim() || null : null;
-        const nameProduct = typeof row.nameProduct === "string" ? uppercaseText(row.nameProduct) : "";
-        const descriptionGroup = typeof row.descriptionGroup === "string" ? uppercaseText(row.descriptionGroup) : "";
-        const descriptionFiscalOperation = typeof row.descriptionFiscalOperation === "string" ? uppercaseText(row.descriptionFiscalOperation) : "";
-        const descriptionProductType = typeof row.descriptionProductType === "string" ? uppercaseText(row.descriptionProductType) : "";
-        const descriptionPhysicalState = typeof row.descriptionPhysicalState === "string" ? uppercaseText(row.descriptionPhysicalState) : "";
-        const codeUnit = typeof row.codeUnit === "string" ? row.codeUnit.trim().toUpperCase() : "";
+        const nameProduct = typeof row.nameProduct === "string" ? normalizeHumanText(row.nameProduct) : "";
+        const descriptionGroup = typeof row.descriptionGroup === "string" ? normalizeHumanText(row.descriptionGroup) : "";
+        const descriptionFiscalOperation = typeof row.descriptionFiscalOperation === "string" ? normalizeHumanText(row.descriptionFiscalOperation) : "";
+        const descriptionProductType = typeof row.descriptionProductType === "string" ? normalizeHumanText(row.descriptionProductType) : "";
+        const descriptionPhysicalState = typeof row.descriptionPhysicalState === "string" ? normalizeHumanText(row.descriptionPhysicalState) : "";
+        const codeUnit = typeof row.codeUnit === "string" ? normalizeUnitCode(row.codeUnit) : "";
         const ncmProduct = typeof row.ncmProduct === "string" ? row.ncmProduct.replace(/\D/g, "") : "";
         const cestProduct = typeof row.cestProduct === "string" ? row.cestProduct.replace(/\D/g, "") : "";
         const priceValue = String(row.priceProduct ?? "").trim().replace(",", ".");
@@ -3549,20 +3871,10 @@ const server = createServer(async (request, response) => {
         if (previousSkuLine) {
           duplicateMessages.push(`SKU "${skuProduct}" também aparece na linha ${previousSkuLine} do arquivo`);
         }
-        if (pdvCodeProduct) {
-          const previousPdvLine = importedPdvCodes.get(pdvCodeProduct.toLocaleLowerCase("pt-BR"));
-          if (previousPdvLine) {
-            duplicateMessages.push(`código PDV "${pdvCodeProduct}" também aparece na linha ${previousPdvLine} do arquivo`);
-          }
-        }
         const existingConditions = ["skuProduct = ?"];
         const existingParameters = [skuProduct];
-        if (pdvCodeProduct) {
-          existingConditions.push("pdvCodeProduct = ?");
-          existingParameters.push(pdvCodeProduct);
-        }
         const [existingProducts] = await connection.query(
-          `SELECT skuProduct, pdvCodeProduct, nameProduct
+          `SELECT skuProduct, nameProduct
            FROM products
            WHERE ${existingConditions.join(" OR ")}
            LIMIT 10`,
@@ -3574,19 +3886,11 @@ const server = createServer(async (request, response) => {
               `SKU "${skuProduct}" já está cadastrado no produto "${existingProduct.nameProduct}"`
             );
           }
-          if (pdvCodeProduct
-            && String(existingProduct.pdvCodeProduct || "").toLocaleLowerCase("pt-BR")
-              === pdvCodeProduct.toLocaleLowerCase("pt-BR")) {
-            duplicateMessages.push(
-              `código PDV "${pdvCodeProduct}" já está cadastrado no produto "${existingProduct.nameProduct}"`
-            );
-          }
         }
         if (duplicateMessages.length) {
           throw new SaleValidationError(`Linha ${line}: ${duplicateMessages.join("; ")}.`);
         }
         importedSkus.set(skuProduct, line);
-        if (pdvCodeProduct) importedPdvCodes.set(pdvCodeProduct.toLocaleLowerCase("pt-BR"), line);
         const [groupRows] = await connection.query(
           "SELECT idGroup FROM `groups` WHERE descriptionGroup = ? LIMIT 1",
           [descriptionGroup]
@@ -3618,7 +3922,7 @@ const server = createServer(async (request, response) => {
         if (descriptionProductType && !typeRows.length) {
           throw new SaleValidationError(`Linha ${line}: tipo de produto ou Código SPED "${descriptionProductType}" não encontrado.`);
         }
-        const isRawMaterial = uppercaseText(typeRows[0]?.descriptionProductType) === "MATÉRIA-PRIMA";
+        const isRawMaterial = normalizeTextForComparison(typeRows[0]?.descriptionProductType) === "MATÉRIA-PRIMA";
         const physicalStateId = parsePositiveId(descriptionPhysicalState);
         const [physicalStateRows] = descriptionPhysicalState
           ? await connection.query(
@@ -3689,21 +3993,25 @@ const server = createServer(async (request, response) => {
         const showsInPdvProduct = parseImportBoolean(row.showsInPdvProduct, 1, "Exibe no PDV");
         const isActiveProduct = parseImportStatus(row.isActiveProduct, 1);
         const stockQuantityProduct = parseProductQuantity(stockValue || "0", allowNegativeStock, Boolean(isFractionalProduct));
-        await connection.query(
+        const [result] = await connection.query(
           `INSERT INTO products
-            (idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct,
+           (idGroup, skuProduct, nameProduct, idFiscalOperationSaleProduct,
              idProductTypeProduct, idPhysicalStateProduct, idUnitProduct, ncmProduct, cestProduct, priceProduct, costPriceProduct,
              stockQuantityProduct, controlsStockProduct, isFractionalProduct, printsPlace,
              showsInPdvProduct, isActiveProduct)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
           [
-            groupRows[0].idGroup, skuProduct, pdvCodeProduct, nameProduct,
+           groupRows[0].idGroup, skuProduct, nameProduct,
             fiscalRows[0]?.idFiscalOperation || null, typeRows[0]?.idProductType || null,
             isRawMaterial ? physicalStateRows[0].idPhysicalState : null,
             unitRows[0]?.idUnit || null, ncmProduct || null, cestProduct || null,
             priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct,
             printsPlace, showsInPdvProduct, isActiveProduct
           ]
+        );
+        await connection.query(
+          "UPDATE products SET pdvCodeProduct = ? WHERE idProduct = ?",
+          [String(result.insertId), result.insertId]
         );
         importedCount += 1;
       }
@@ -3719,7 +4027,7 @@ const server = createServer(async (request, response) => {
       handleError(response, error, {
         log: "Falha ao importar produtos:",
         message: "Não foi possível importar os produtos.",
-        duplicate: "SKU ou código PDV duplicado no arquivo ou no cadastro."
+        duplicate: "SKU duplicado no arquivo ou no cadastro."
       });
     } finally {
       connection?.release();
@@ -3731,9 +4039,8 @@ const server = createServer(async (request, response) => {
     try {
       const payload = await readJsonBody(request);
       const idProduct = parsePositiveId(payload.idProduct);
-      const nameProduct = typeof payload.nameProduct === "string" ? uppercaseText(payload.nameProduct) : "";
+      const nameProduct = typeof payload.nameProduct === "string" ? normalizeHumanText(payload.nameProduct) : "";
       const skuProduct = typeof payload.skuProduct === "string" ? payload.skuProduct.trim().toUpperCase() : "";
-      const pdvCodeProduct = payload.pdvCodeProduct === null || payload.pdvCodeProduct === undefined ? null : String(payload.pdvCodeProduct).trim() || null;
       const ncmProduct = typeof payload.ncmProduct === "string" ? payload.ncmProduct.replace(/\D/g, "") : "";
       const cestProduct = typeof payload.cestProduct === "string" ? payload.cestProduct.replace(/\D/g, "") : "";
       const idGroup = parsePositiveId(payload.idGroup);
@@ -3761,7 +4068,7 @@ const server = createServer(async (request, response) => {
         payload.printsKitchenProduct
       );
       const nonSaleProduct = isNonSaleProductType(productTypeRows[0]?.descriptionProductType);
-      const isRawMaterial = uppercaseText(productTypeRows[0]?.descriptionProductType) === "MATÉRIA-PRIMA";
+      const isRawMaterial = normalizeTextForComparison(productTypeRows[0]?.descriptionProductType) === "MATÉRIA-PRIMA";
       if (isRawMaterial && !idPhysicalStateProduct) {
         throw new SaleValidationError("Estado físico é obrigatório para matéria-prima.");
       }
@@ -3776,7 +4083,10 @@ const server = createServer(async (request, response) => {
       const priceProduct = nonSaleProduct
         ? costPriceProduct
         : parseMoney(payload.priceProduct, "Preço");
-      const [unitRows] = await pool.query("SELECT idUnit FROM units WHERE idUnit = ? AND isActiveUnit = 1", [idUnitProduct]);
+      const [unitRows] = await pool.query(
+        "SELECT idUnit FROM units WHERE idUnit = ? AND isActiveUnit = 1 AND isTaxableUnit = 1",
+        [idUnitProduct]
+      );
       if (idUnitProduct && !unitRows.length) throw new SaleValidationError("Unidade tributável não encontrada.", 409);
       if (idFiscalOperationSaleProduct) {
         const [operationRows] = await pool.query("SELECT idFiscalOperation FROM fiscal_operations WHERE idFiscalOperation = ? AND typeFiscalOperation = 'exit' AND isActiveFiscalOperation = 1", [idFiscalOperationSaleProduct]);
@@ -3799,14 +4109,20 @@ const server = createServer(async (request, response) => {
       } else if (cestProduct) {
         throw new SaleValidationError("Informe o NCM antes de selecionar o CEST.");
       }
+      const [existingProductRows] = await pool.query(
+        "SELECT pdvCodeProduct FROM products WHERE idProduct = ?",
+        [idProduct]
+      );
+      if (!existingProductRows.length) throw new SaleValidationError("Produto não encontrado.", 404);
+      const pdvCodeProduct = existingProductRows[0].pdvCodeProduct;
       const [result] = await pool.query(
-        `UPDATE products SET idGroup = ?, skuProduct = ?, pdvCodeProduct = ?, nameProduct = ?,
-           idFiscalOperationSaleProduct = ?, idProductTypeProduct = ?, idPhysicalStateProduct = ?, idUnitProduct = ?,
-           ncmProduct = ?, cestProduct = ?, priceProduct = ?, costPriceProduct = ?, stockQuantityProduct = ?,
-           controlsStockProduct = ?, isBuffetProduct = ?, isFractionalProduct = ?, printsPlace = ?,
-           showsInPdvProduct = ?
+        `UPDATE products SET idGroup = ?, skuProduct = ?, nameProduct = ?,
+          idFiscalOperationSaleProduct = ?, idProductTypeProduct = ?, idPhysicalStateProduct = ?, idUnitProduct = ?,
+          ncmProduct = ?, cestProduct = ?, priceProduct = ?, costPriceProduct = ?, stockQuantityProduct = ?,
+          controlsStockProduct = ?, isBuffetProduct = ?, isFractionalProduct = ?, printsPlace = ?,
+          showsInPdvProduct = ?
          WHERE idProduct = ?`,
-        [idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct,
+        [idGroup, skuProduct, nameProduct, idFiscalOperationSaleProduct,
           idProductTypeProduct, normalizedPhysicalStateProduct, idUnitProduct, ncmProduct || null, cestProduct || null,
           priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct,
           printsPlace, showsInPdvProduct, idProduct]
@@ -3814,7 +4130,7 @@ const server = createServer(async (request, response) => {
       if (!result.affectedRows) throw new SaleValidationError("Produto não encontrado.", 404);
       json(response, 200, { product: { idProduct, idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct, idProductTypeProduct, idPhysicalStateProduct: normalizedPhysicalStateProduct, idUnitProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct, printsPlace, showsInPdvProduct } });
     } catch (error) {
-      handleError(response, error, { log: "Falha ao editar produto:", message: "Não foi possível editar o produto.", duplicate: "SKU ou código PDV já cadastrado." });
+      handleError(response, error, { log: "Falha ao editar produto:", message: "Não foi possível editar o produto.", duplicate: "SKU já cadastrado." });
     }
     return;
   }
@@ -3894,7 +4210,7 @@ const server = createServer(async (request, response) => {
         await ensurePaymentMethodSchema();
         const payload = await readJsonBody(request);
         const idPaymentMethod = request.method === "PUT" ? parsePositiveId(payload.idPaymentMethod) : null;
-        const namePaymentMethod = typeof payload.namePaymentMethod === "string" ? uppercaseText(payload.namePaymentMethod) : "";
+        const namePaymentMethod = typeof payload.namePaymentMethod === "string" ? normalizeHumanText(payload.namePaymentMethod) : "";
         const cashFlowAccountPaymentMethod = payload.cashFlowAccountPaymentMethod;
         const termDaysPaymentMethod = Number(payload.termDaysPaymentMethod);
         const discountValuePaymentMethod = Number(payload.discountValuePaymentMethod);
@@ -4010,7 +4326,7 @@ const server = createServer(async (request, response) => {
       const payload = await readJsonBody(request);
       const catalog = typeof payload.catalogFiscalCatalogItem === "string" ? payload.catalogFiscalCatalogItem.trim() : "";
       const idFiscalCatalogItem = request.method === "PUT" ? parsePositiveId(payload.idFiscalCatalogItem) : null;
-      const descriptionFiscalCatalogItem = typeof payload.descriptionFiscalCatalogItem === "string" ? uppercaseText(payload.descriptionFiscalCatalogItem) : "";
+      const descriptionFiscalCatalogItem = typeof payload.descriptionFiscalCatalogItem === "string" ? normalizeHumanText(payload.descriptionFiscalCatalogItem) : "";
       let codeFiscalCatalogItem = typeof payload.codeFiscalCatalogItem === "string" ? payload.codeFiscalCatalogItem.trim() : "";
       if (catalog === "cfops") codeFiscalCatalogItem = normalizeCfopCode(codeFiscalCatalogItem);
       if (slugCodeCatalogs.has(catalog)) codeFiscalCatalogItem = slugifyCatalogDescription(descriptionFiscalCatalogItem);
@@ -4116,7 +4432,7 @@ const server = createServer(async (request, response) => {
     try {
       const payload = await readJsonBody(request);
       const idFiscalOperation = request.method === "PUT" ? parsePositiveId(payload.idFiscalOperation) : null;
-      const descriptionFiscalOperation = typeof payload.descriptionFiscalOperation === "string" ? uppercaseText(payload.descriptionFiscalOperation) : "";
+      const descriptionFiscalOperation = typeof payload.descriptionFiscalOperation === "string" ? normalizeHumanText(payload.descriptionFiscalOperation) : "";
       const taxRegimeFiscalOperation = typeof payload.taxRegimeFiscalOperation === "string" ? payload.taxRegimeFiscalOperation.trim() : "";
       const typeFiscalOperation = payload.typeFiscalOperation;
       const contextFiscalOperation = payload.contextFiscalOperation;
@@ -4379,7 +4695,7 @@ server.listen(config.apiPort, config.apiHost, () => {
     ensureRecipeSchema(),
     ensureNavigationSchema(),
     ensureOperatorCashSchema()
-  ]).then(() => ensureUppercaseTextData()).catch((error) => {
-    console.error("Falha ao preparar ou normalizar o banco:", error);
+  ]).catch((error) => {
+    console.error("Falha ao preparar o banco:", error);
   });
 });

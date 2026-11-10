@@ -50,6 +50,15 @@ sessão:
 > produtos é `GET /api/products`. Os contratos HTTP devem permanecer claros e
 > testáveis. Não crie acesso SQL direto no frontend ou no aplicativo Tauri.
 >
+> O formulário de Receitas e Composições permite cadastrar uma estrutura
+> independente de Produto comercial. Componentes de Produto podem registrar a
+> Unidade Culinária e a Conversão compatíveis com a unidade tributável e o
+> estado físico do Produto; essa combinação é validada novamente pela API e
+> persistida em `recipe_components`. A busca de componentes ignora caixa e
+> acentos. Observações usa textarea e a ordem visual do cadastro é Nome antes
+> de Tipo. O cabeçalho também exige Rendimento maior que zero e Unidade
+> Culinária final ativa, persistidos em `recipe_definitions`.
+>
 > Uma venda só é considerada concluída depois que a API confirmar a transação
 > no MariaDB. O registro deve preservar o nome e o preço do produto no momento da
 > venda, registrar os itens e os pagamentos, e atualizar o estoque de forma
@@ -78,6 +87,12 @@ sessão:
 > Reutilize regras existentes, não duplique fontes de verdade e preserve a
 > compatibilidade da API. Nunca versione `.env`, credenciais, dados reais,
 > dumps, backups, `node_modules/`, `dist/` ou `src-tauri/target/`.
+>
+> Após alterações em `src/server/`, `database/schema.sql` ou
+> `src/server/schema-manager.js`, reinicie a API publicada antes de validar o
+> comportamento operacional. Não execute build por rotina; faça-o somente
+> quando a alteração envolver bundle, Vite/Tauri, versionamento ou validação de
+> produção.
 >
 > Depois de alterações de código, execute a validação mínima:
 >
@@ -126,6 +141,33 @@ sessão:
 > merge, não force a remoção de branch que esteja aberto no worktree ativo.
 > Consulte também a seção “Dificuldades e workarounds registrados” em
 > `docs/DEVELOPMENT.md`.
+
+Atualização operacional de 2026-11-10: a preparação do schema de caixa usa
+`SMALLINT UNSIGNED` para `cash_registers.idCashRegister` e
+`cash_sessions.idCashRegister`. Em instalações antigas, a API converte
+idempotentemente as colunas que ainda usam `TINYINT`, recria a foreign key
+`fkCashSessionsRegister` e garante `Caixa principal`. Depois de publicar
+alterações em `src/server/schema-manager.js` ou `database/schema.sql`, reinicie
+o serviço `PDV-API` antes de testar o login do operador. A correção foi validada
+com 146 testes aprovados; não execute build por rotina.
+
+Estado da última etapa implementada (2026-11-04, versão 0.11.0): Receitas de
+Produção e Composições de Produto podem existir sem Produto comercial
+resultante. Componentes podem ser Produtos ou outras Receitas; o Produto
+comercial recebe vínculos quantificados e perdas no próprio cadastro. A API
+persiste definições, componentes, revisões e vínculos, valida ciclos e usa
+transações para gravações compostas. Produtos Buffet são vendidos pelo preço
+próprio sem baixa de estoque, sem Cardápio obrigatório e sem bloquear o
+fechamento do caixa.
+
+As barras contextuais dos grupos operacionais revisados usam a navegação
+persistida como fonte principal. Fallbacks locais só podem ser usados quando a
+API estiver indisponível ou incompleta; não injete o primeiro item fallback
+depois de uma resposta válida com filhos ativos. Preserve ordem, labels, rotas,
+divisores, status e relações pai-filho. A etapa foi validada com 112 testes,
+`node --check` e `git diff --check`; não houve build. Como `src/server/` foi
+alterado, a API publicada precisa ser reiniciada após a publicação e o
+frontend precisa receber novo bundle.
 
 Estado da última etapa de auditoria (2026-11-02): as rotinas de preparação
 idempotente foram extraídas para `src/server/schema-manager.js`, e a DDL das
@@ -446,7 +488,8 @@ checkout, pois contém `PDV_API_TOKEN` e outras configurações exclusivas do
 servidor.
 
 Para instalação limpa, `scripts/install-windows-api.ps1` é o fluxo oficial:
-solicita a senha administrativa do MariaDB em prompt oculto, gera os segredos,
+solicita a senha administrativa do MariaDB em prompt mascarado com suporte a
+colagem, gera os segredos,
 cria a configuração operacional, instala o serviço e publica a API. O comando
 `npm.cmd run install:windows-api` é o atalho equivalente. Os scripts
 `install-windows-service.ps1` e `publish-windows-api-service.ps1` permanecem

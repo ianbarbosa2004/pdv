@@ -17,28 +17,12 @@ const escapeHtml = (value) => String(value ?? "")
 
 const fallbackNavigation = [
   ["recipes", "Receitas e Composições"],
-  ["culinary-units", "Unidades Culinárias"],
+  ["units", "Unidades"],
   ["physical-states", "Estados Físicos"],
   ["culinary-conversions", "Conversões"]
 ];
 
 const definitions = {
-  culinaryUnits: {
-    title: "Unidades Culinárias",
-    singular: "unidade culinária",
-    collection: "culinaryUnits",
-    endpoint: "/api/culinary-units",
-    id: "idCulinaryUnit",
-    fields: [
-      ["codeCulinaryUnit", "Código", "text", true],
-      ["nameCulinaryUnit", "Nome", "text", true],
-      ["baseUnitCulinaryUnit", "Unidade base", "select", true, [["g", "Grama"], ["ml", "Mililitro"], ["un", "Unidade"]]],
-      ["categoryCulinaryUnit", "Categoria", "select", true, [["weight", "Peso"], ["volume", "Volume"], ["unit", "Unidade"]]],
-      ["descriptionCulinaryUnit", "Descrição", "text", false]
-    ],
-    listFields: ["nameCulinaryUnit", "baseUnitCulinaryUnit", "categoryCulinaryUnit", "descriptionCulinaryUnit"],
-    statusField: "isActiveCulinaryUnit"
-  },
   physicalStates: {
     title: "Estados Físicos",
     singular: "estado físico",
@@ -79,10 +63,23 @@ const definitions = {
 const categoryLabels = new Map([
   ["weight", "Peso"],
   ["volume", "Volume"],
-  ["unit", "Unidade"]
+  ["unit", "Unidade"],
+  ["general", "Geral"]
 ]);
 
 const titleCase = (value) => `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
+
+export const preserveCulinarySearchSelection = (input, render, getNextInput) => {
+  const selectionStart = input.selectionStart;
+  const selectionEnd = input.selectionEnd;
+  const selectionDirection = input.selectionDirection;
+  render();
+  const nextInput = getNextInput();
+  nextInput?.focus();
+  if (nextInput && selectionStart !== null && selectionEnd !== null) {
+    nextInput.setSelectionRange(selectionStart, selectionEnd, selectionDirection || "none");
+  }
+};
 
 export function createCulinaryReferenceScreen({ kind, onBack, ...menuHandlers }) {
   const definition = definitions[kind];
@@ -142,7 +139,7 @@ export function createCulinaryReferenceScreen({ kind, onBack, ...menuHandlers })
       return physicalStates.find((state) => String(state.idPhysicalState) === String(item[field]))?.namePhysicalState || "—";
     }
     if (field === "baseUnitCulinaryUnit") {
-      return { g: "Grama", ml: "Mililitro", un: "Unidade" }[item[field]] || "—";
+      return { g: "Grama", ml: "Mililitro", un: "Unidade", common: "Comum" }[item[field]] || "—";
     }
     if (field === "categoryCulinaryUnit") {
       return categoryLabels.get(item[field]) || "—";
@@ -243,7 +240,7 @@ export function createCulinaryReferenceScreen({ kind, onBack, ...menuHandlers })
     const visibleItems = items.filter((item) =>
       definition.fields.some(([field]) => fieldLabel(field, item).toLocaleLowerCase("pt-BR").includes(searchTerm.trim().toLocaleLowerCase("pt-BR")))
     );
-    const active = kind === "culinaryUnits" ? "culinary-units" : kind === "physicalStates" ? "physical-states" : "culinary-conversions";
+    const active = kind === "physicalStates" ? "physical-states" : "culinary-conversions";
     const navigationItems = getContextualNavigationItems("technical-sheet", fallbackNavigation);
     root.className = "catalog-screen";
     root.innerHTML = `
@@ -274,9 +271,9 @@ export function createCulinaryReferenceScreen({ kind, onBack, ...menuHandlers })
       handler?.();
     }));
     root.querySelector("[data-search]")?.addEventListener("input", (event) => {
-      searchTerm = event.currentTarget.value;
-      render();
-      root.querySelector("[data-search]")?.focus();
+      const input = event.currentTarget;
+      searchTerm = input.value;
+      preserveCulinarySearchSelection(input, render, () => root.querySelector("[data-search]"));
     });
     root.querySelector("[data-reference-form]")?.addEventListener("submit", (event) => {
       event.preventDefault();

@@ -1,5 +1,8 @@
 import {
   Building2,
+  ArrowDown,
+  ArrowUp,
+  Copy,
   createIcons,
   Database,
   Eye,
@@ -26,6 +29,9 @@ export const renderLucideIcons = (root) => {
   createIcons({
     icons: {
       Building2,
+      ArrowDown,
+      ArrowUp,
+      Copy,
       Database,
       Eye,
       EyeOff,

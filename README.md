@@ -53,6 +53,11 @@ A fundação inicial já está criada:
 - configuração de empresa e NFC-e, incluindo diagnóstico local e teste de
   autorização em homologação;
 - catálogos NCM/CEST persistidos e atualização controlada pela API;
+- Receitas de Produção e Composições de Produto independentes de Produto
+  comercial, com componentes, perdas, custos e revisões persistidos;
+- vínculos quantificados entre Produtos comerciais e Receitas ou Composições;
+- marcação de Produto Buffet, cuja venda não baixa estoque nem bloqueia o
+  fechamento de caixa;
 - impressão térmica de 80 mm com modelo de cupom persistido no servidor.
 - visualização de cadastros por seleção da linha, com preenchimento do
   formulário e bloqueio das ações de gravação durante a consulta.
@@ -62,6 +67,9 @@ A fundação inicial já está criada:
 - tela de Status da API com reinício controlado e log visual;
 - backup e restauração compactados do banco em Ferramentas;
 - editor de ícone da empresa aplicado em runtime ao frontend e à janela Tauri.
+- autenticação individual de operadores, sessões expiráveis e controle de caixa;
+- preparação idempotente do schema de caixa, com identificadores
+  `SMALLINT UNSIGNED` para evitar estouro do contador de caixas.
 
 O catálogo da interface depende da API e pode aparecer vazio até que produtos
 sejam cadastrados no MariaDB. Uma venda só será considerada persistida quando o
@@ -330,6 +338,9 @@ auxiliares ao projeto.
 | `GET` | `/api/general-settings` | Consulta configurações operacionais |
 | `GET` | `/api/navigation` | Consulta a navegação publicada |
 | `GET` | `/api/navigation?includeInactive=1` | Consulta a navegação completa para manutenção |
+| `GET` | `/api/recipes` | Lista Receitas e Composições com seus componentes |
+| `GET` | `/api/recipe-reviews` | Lista revisões pendentes de Fichas |
+| `GET` | `/api/product-recipes?productId=...` | Consulta vínculos de Receitas de um Produto |
 | `POST` | `/api/classes` | Cria uma classe |
 | `POST` | `/api/groups` | Cria um grupo vinculado a uma classe |
 | `POST` | `/api/products` | Cadastra um produto |
@@ -340,6 +351,8 @@ auxiliares ao projeto.
 | `POST` | `/api/ncm-cest/update` | Atualiza os catálogos NCM / CEST |
 | `POST` | `/api/fiscal-operations` | Cadastra uma operação fiscal |
 | `POST` | `/api/fiscal-catalogs` | Cadastra um item de catálogo fiscal |
+| `POST` | `/api/recipes` | Cria uma Receita ou Composição com componentes |
+| `PUT` | `/api/product-recipes` | Substitui os vínculos de Receitas de um Produto |
 | `POST` | `/api/sales` | Registra uma venda e pagamentos; baixa o estoque somente para itens controlados |
 | `POST` | `/api/company/nfce/diagnostic` | Gera XML NFC-e assinado sem transmitir |
 | `POST` | `/api/company/nfce/test` | Testa autorização NFC-e somente em homologação |
@@ -366,8 +379,8 @@ textuais humanos são normalizados para maiúsculas pela API.
 
 As configurações de empresa e NFC-e são separadas: `/api/company` mantém os
 dados cadastrais e `/api/company/nfce` mantém os parâmetros fiscais. Os campos
-textuais de Dados da Empresa preservam a capitalização digitada; a
-normalização automática para maiúsculas permanece restrita aos cadastros que
+textuais usam capitalização de título, como **Colher de Sopa**, enquanto a
+normalização automática para maiúsculas permanece restrita ao SKU. Os cadastros que
 exigem essa convenção. A API não devolve o conteúdo do certificado A1 nem sua
 senha. A configuração de
 impressoras em `/api/printer-settings` contém somente os nomes das filas e o
@@ -410,6 +423,14 @@ MariaDB. CFOP, CST/CSOSN, alíquotas de ICMS, regimes, contextos, origens,
 situações tributárias de IPI/PIS/COFINS, modalidades de base e motivos de
 desoneração são administrados em telas separadas e consumidos pela tela da
 operação fiscal.
+
+Em **Cadastros > Ficha Técnica > Receitas e Composições**, uma Receita de
+Produção ou Composição de Produto recebe nome próprio e pode usar Produtos ou
+outras Receitas como componentes. O Produto comercial não é obrigatório para
+criar a estrutura; o vínculo é definido posteriormente no cadastro do Produto,
+com quantidade e perda. Produtos marcados como **Produto Buffet** registram a
+venda pelo preço cadastrado sem baixar estoque e sem exigir Cardápio para o
+fechamento do caixa.
 
 Exemplo de fechamento de venda:
 

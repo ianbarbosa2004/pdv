@@ -34,11 +34,31 @@ _Evitar_: exclusão física da venda.
 
 ## Catálogo culinário e composição
 
+**Unidade de medida**:
+Referência padronizada de medida que pode ser usada em operações fiscais,
+produtos, receitas ou mais de um desses contextos.
+_Evitar_: unidade tributável separada, unidade culinária separada.
+
+**Unidade tributável**:
+Unidade de medida usada para expressar o produto nas operações fiscais e no
+cadastro comercial.
+_Evitar_: unidade fiscal isolada.
+
+**Unidade culinária**:
+Unidade de medida usada para quantificar componentes e rendimentos em uma Ficha
+Técnica, podendo também ser uma Unidade tributável quando sua flag permitir.
+_Evitar_: medida de receita sem código.
+
 **Produto comercial**:
 Item cadastrado no catálogo com identidade, unidade, preço e regras de venda,
 podendo ser matéria-prima, produto produzido, mercadoria para revenda ou
 embalagem conforme sua classificação e uso.
 _Evitar_: produto final de venda como entidade separada.
+
+**Duplicação de produto**:
+Criação de um novo Produto comercial a partir de campos cadastrais reaproveitados
+de outro produto, sem reutilizar sua identidade, códigos, estoque ou vínculos.
+_Evitar_: edição, cópia de estoque, clonagem de vínculos.
 
 **Receita**:
 Estrutura nomeada e reutilizável de produção que transforma produtos e/ou

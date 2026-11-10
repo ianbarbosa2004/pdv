@@ -90,24 +90,20 @@ const formatPhone = (value) => {
 
 const formatEmail = (value) => String(value ?? "").replace(/\s/g, "").toLocaleLowerCase("pt-BR").slice(0, 180);
 
-const uppercaseText = (value) => String(value ?? "")
-  .trim()
-  .replace(/\s+/g, " ")
-  .toLocaleUpperCase("pt-BR");
-
-const uppercaseSupplierFields = new Set([
-  "companyNameSupplier",
-  "tradeNameSupplier",
-  "contactNameSupplier",
-  "addressSupplier",
-  "addressComplementSupplier",
-  "neighborhoodSupplier",
-  "citySupplier",
-  "notesSupplier"
-]);
+const titleCaseMinorWords = new Set(["a", "as", "à", "às", "ao", "aos", "da", "das", "de", "do", "dos", "e", "em", "no", "na", "nos", "nas", "por", "para"]);
 
 const normalizeSupplierText = (field, value) =>
-  uppercaseSupplierFields.has(field) ? uppercaseText(value) : String(value ?? "").trim();
+  String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase("pt-BR")
+    .split(/(\s+|\/|-)/u)
+    .map((part, index) => {
+      if (!part || /^\s+$/u.test(part) || part === "/" || part === "-") return part;
+      if (index > 0 && titleCaseMinorWords.has(part)) return part;
+      return `${part.charAt(0).toLocaleUpperCase("pt-BR")}${part.slice(1)}`;
+    })
+    .join("");
 
 export function createSupplierScreen({
   onBack,
@@ -409,7 +405,7 @@ export function createSupplierScreen({
           phoneSupplier: String(body.phoneSupplier ?? "").replace(/\D/g, ""),
           emailSupplier: formatEmail(body.emailSupplier),
           zipCodeSupplier: String(body.zipCodeSupplier ?? "").replace(/\D/g, ""),
-          stateSupplier: String(body.stateSupplier ?? "").toUpperCase(),
+          stateSupplier: String(body.stateSupplier ?? "").trim(),
           countrySupplier: "Brasil",
           ...(idSupplier ? { idSupplier } : {})
         })

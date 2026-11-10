@@ -6,6 +6,31 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+function Read-MariaDbPassword([string]$Prompt) {
+  Write-Host "$Prompt (cole com Ctrl+V ou botão direito; Enter confirma): " -NoNewline
+  $securePassword = New-Object System.Security.SecureString
+  while ($true) {
+    $key = [Console]::ReadKey($true)
+    if ($key.Key -eq [ConsoleKey]::Enter) { break }
+    if ($key.Key -eq [ConsoleKey]::Backspace) {
+      if ($securePassword.Length -gt 0) {
+        $securePassword.RemoveAt($securePassword.Length - 1)
+        Write-Host "`b `b" -NoNewline
+      }
+      continue
+    }
+    if ([int][char]$key.KeyChar -eq 3) {
+      throw 'Entrada da senha cancelada.'
+    }
+    if (-not [char]::IsControl($key.KeyChar)) {
+      $securePassword.AppendChar($key.KeyChar)
+      Write-Host '*' -NoNewline
+    }
+  }
+  Write-Host
+  return $securePassword
+}
+
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
   throw 'Execute este script em uma sessão elevada do PowerShell.'
@@ -17,8 +42,11 @@ if (-not $service) {
   throw "Serviço $ServiceName não encontrado."
 }
 
-$rootPasswordNotice = 'A senha do root será solicitada pelo cliente mysql em seguida.'
-Write-Output $rootPasswordNotice
+$rootPasswordSecure = Read-MariaDbPassword 'Senha do usuário administrativo do MariaDB'
+$rootPassword = [System.Net.NetworkCredential]::new('', $rootPasswordSecure).Password
+if ([string]::IsNullOrWhiteSpace($rootPassword)) {
+  throw 'A senha administrativa do MariaDB não pode estar vazia.'
+}
 $passwordAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'
 $newDatabasePassword = -join (1..40 | ForEach-Object {
   $passwordAlphabet[(Get-Random -Maximum $passwordAlphabet.Length)]
@@ -50,13 +78,47 @@ $mysqlExecutable = if ($mysqlCommand.PSObject.Properties.Name -contains 'Source'
 } else {
   $mysqlCommand.FullName
 }
-$databaseSql | & $mysqlExecutable --user=root --password --host=127.0.0.1 --port=3306
-if ($LASTEXITCODE -ne 0) {
-  throw "A redefinição da senha do usuário pdv_app falhou (código $LASTEXITCODE)."
+$rootCredentialFile = Join-Path $env:TEMP "pdv-mariadb-$([guid]::NewGuid().ToString('N')).cnf"
+try {
+  @(
+    '[client]'
+    'user=root'
+    "password=$rootPassword"
+    'host=127.0.0.1'
+    'port=3306'
+  ) | Set-Content -LiteralPath $rootCredentialFile -Encoding ASCII
+  $databaseSql | & $mysqlExecutable "--defaults-extra-file=$rootCredentialFile"
+  if ($LASTEXITCODE -ne 0) {
+    throw "A redefinição da senha do usuário pdv_app falhou (código $LASTEXITCODE)."
+  }
+} finally {
+  Remove-Item -LiteralPath $rootCredentialFile -Force -ErrorAction SilentlyContinue
+  $rootPassword = $null
+  $rootPasswordSecure = $null
 }
 
 $databasePassword = ConvertTo-SecureString $newDatabasePassword -AsPlainText -Force
 $newDatabasePassword = $null
+$publishedEnvPath = Join-Path $repositoryRoot '.env'
+$plainDatabasePassword = [System.Net.NetworkCredential]::new('', $databasePassword).Password
+if (Test-Path -LiteralPath $publishedEnvPath -PathType Leaf) {
+  $publishedEnvLines = @(Get-Content -LiteralPath $publishedEnvPath)
+  $publishedEnvPassword = $false
+  $publishedEnvLines = @(
+    foreach ($line in $publishedEnvLines) {
+      if ($line -match '^PDV_DB_PASSWORD=') {
+        $publishedEnvPassword = $true
+        "PDV_DB_PASSWORD=$plainDatabasePassword"
+      } else {
+        $line
+      }
+    }
+    if (-not $publishedEnvPassword) {
+      "PDV_DB_PASSWORD=$plainDatabasePassword"
+    }
+  )
+  Set-Content -LiteralPath $publishedEnvPath -Value $publishedEnvLines -Encoding utf8
+}
 $servicePasswordText = -join (1..40 | ForEach-Object {
   $passwordAlphabet[(Get-Random -Maximum $passwordAlphabet.Length)]
 })
@@ -104,15 +166,15 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $credential = New-Object System.Management.Automation.PSCredential(".\$ServiceAccount", $servicePassword)
-$plainDatabasePassword = [System.Net.NetworkCredential]::new('', $databasePassword).Password
 $bootstrapEnvPath = Join-Path $repositoryRoot ".pdv-bootstrap-$([guid]::NewGuid().ToString('N')).env"
 try {
   "PDV_DB_PASSWORD=$plainDatabasePassword" | Set-Content -LiteralPath $bootstrapEnvPath -Encoding ASCII
   $nodePath = (Get-Command node.exe -ErrorAction Stop).Source
   $bootstrap = Start-Process -FilePath $nodePath `
-    -ArgumentList "--env-file=$bootstrapEnvPath", 'scripts/set-database-credential.mjs' `
+    -ArgumentList '--env-file=.env', "--env-file=$bootstrapEnvPath", 'scripts/set-database-credential.mjs' `
     -WorkingDirectory $repositoryRoot `
     -Credential $credential `
+    -LoadUserProfile `
     -RedirectStandardOutput "$bootstrapEnvPath.out" `
     -RedirectStandardError "$bootstrapEnvPath.err" `
     -Wait `
@@ -148,6 +210,3 @@ if ($state -ne 'Running') {
 }
 
 Write-Output "Serviço $ServiceName configurado para executar como .\$ServiceAccount e iniciado."
-
-
-

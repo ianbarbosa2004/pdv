@@ -26,7 +26,7 @@ const csvHeaderLabels = [
 
 export const csvExample = [
   csvHeaderLabels.join(";"),
-  "PROD-001;789000000001;Café torrado;Mercearia;;;;;0201.30.00;0603.10.00;19,90;12,50;10;sim;não;NÃO IMPRIMIR;sim;ATIVO"
+  "PROD-001;789000000001;Café torrado;Mercearia;;;;;0201.30.00;0603.10.00;19,90;12,50;10;sim;não;Não Imprimir;sim;ATIVO"
 ].join("\r\n");
 
 export const canImportCatalogRows = ({ rows, validationPassed, loading }) =>
@@ -48,7 +48,7 @@ export const csvValueReference = [
   ["Estoque", "Opcional; inteiro ou número com até 3 casas decimais quando o produto for fracionado. Aceita vírgula ou ponto. Padrão: 0."],
   ["Controla estoque", "Opcional; verdadeiro: sim, s, true, 1, yes ou y. Falso: não, nao, n, false, 0 ou no. Padrão: sim."],
   ["Produto fracionado", "Opcional; verdadeiro: sim, s, true, 1, yes ou y. Falso: não, nao, n, false, 0 ou no. Padrão: não."],
-  ["Local de impressão", "Opcional; use exatamente NÃO IMPRIMIR, BAR, COPA ou COZINHA. Padrão: NÃO IMPRIMIR."],
+  ["Local de impressão", "Opcional; use exatamente Não Imprimir, Bar, Copa ou Cozinha. Padrão: Não Imprimir."],
   ["Status", "Opcional; use ATIVO ou INATIVO (também aceita 1/0, sim/não). Padrão: ATIVO."],
   ["Exibe no PDV", "Opcional; verdadeiro: sim, s, true, 1, yes ou y. Falso: não, nao, n, false, 0 ou no. Padrão: sim."]
 ];
@@ -262,10 +262,10 @@ export function createCatalogImportScreen({
       fieldLabel: "valor exato do local de impressão",
       columns: ["Valor para o CSV", "Descrição"],
       rows: [
-        ["NÃO IMPRIMIR", "Não enviar o produto para impressão."],
-        ["BAR", "Enviar o produto para impressão no bar."],
-        ["COPA", "Enviar o produto para impressão na copa."],
-        ["COZINHA", "Enviar o produto para impressão na cozinha."]
+        ["Não Imprimir", "Não enviar o produto para impressão."],
+        ["Bar", "Enviar o produto para impressão no bar."],
+        ["Copa", "Enviar o produto para impressão na copa."],
+        ["Cozinha", "Enviar o produto para impressão na cozinha."]
       ]
     },
     {

@@ -7,6 +7,23 @@ inicial do produto até o estado atual do workspace. Ele complementa o
 
 ## 0. Estado mais recente
 
+### Correção da inicialização do caixa e documentação consolidada — 2026-11-10
+
+A falha de autenticação do operador foi rastreada até a preparação do schema:
+`cash_registers.idCashRegister` permanecia como `TINYINT UNSIGNED`, enquanto o
+contador `AUTO_INCREMENT` da instalação existente já havia ultrapassado 255.
+O schema inicial e `ensureOperatorCashSchema()` passaram a usar
+`SMALLINT UNSIGNED`; a preparação idempotente converte instalações antigas,
+recria temporariamente a chave estrangeira de `cash_sessions` e só então
+garante o registro `Caixa principal`.
+
+O editor de componentes de Receitas foi mantido no escopo visual solicitado,
+com bloco de `248px` e margem inferior de `30px` no botão de inclusão. A
+documentação canônica foi alinhada ao código em `README.md`, `docs/DEVELOPMENT.md`,
+`docs/DEPLOYMENT.md`, `docs/CHANGELOG.md` e neste histórico. A suíte completa
+foi executada com 146 testes aprovados; a API precisa ser reiniciada após a
+publicação para aplicar a conversão do schema no banco existente.
+
 ### Receitas e navegação contextual persistida — 2026-11-04
 
 O PDV passou a separar Receita de Produção e Composição de Produto de Produto
@@ -29,6 +46,25 @@ aprovados, com `node --check` nos JavaScript alterados e `git diff --check`.
 Como houve alterações em `src/server/`, a API publicada deve ser reiniciada
 depois da publicação; como houve alterações no frontend, os terminais precisam
 receber novo bundle. O build não foi executado nesta etapa.
+
+### Formulário de Receitas e unidades de componentes — 2026-11-04
+
+O cadastro de Receita ou Composição passou a exibir Nome antes de Tipo,
+textarea para Observações e busca de componentes sem diferenciação de caixa ou
+acentos. Para componentes de Produto, a tela informa a unidade tributável e
+permite selecionar Unidade Culinária e Conversão compatíveis com a unidade e o
+estado físico.
+
+`recipe_components` recebeu os identificadores de Unidade Culinária e
+Conversão. A API valida a existência, a compatibilidade de base e o estado
+físico antes de persistir os dados na transação; `schema-manager.js` aplica a
+migração de forma idempotente. A alteração foi incluída na consolidação
+versionada deste workspace. A API publicada precisará ser reiniciada; não há
+necessidade de build enquanto não houver alteração de bundle.
+
+O formulário também informa o Rendimento e a Unidade Culinária final da
+Receita. O rendimento é validado como maior que zero, a unidade final deve
+estar ativa e ambos são retornados pela API.
 
 ### Construtor de navegação persistido — 2026-11-04
 

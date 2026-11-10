@@ -5,6 +5,114 @@ O histórico consolidado da evolução funcional e técnica está em
 uma etapa relevante alterar a arquitetura, os contratos ou o estado do
 produto.
 
+### Formulário de Receitas e Composições
+
+O cadastro usa `recipe_components` para persistir, além do componente e da
+quantidade, a Unidade Culinária e a Conversão escolhidas quando o componente é
+um Produto. A Unidade Culinária e a Conversão são obrigatórias para componentes
+de Produto, inclusive quando a conversão é uma identidade como `kg → kg`.
+Componentes que apontam para outra Receita não usam conversão. A interface deve
+buscar componentes sem diferenciar caixa ou
+acentos, filtrar unidades culinárias pela base da unidade tributável do Produto
+e filtrar conversões pela unidade escolhida, pela unidade tributável de destino
+e pelo estado físico. A API repete
+essas validações antes de inserir os dados na transação.
+
+Medidas culinárias como colheres, xícaras e doses não têm base nem categoria
+físicas fixas: o mesmo recipiente pode representar massa, pó ou líquido. Nesses
+casos, use `baseUnitCulinaryUnit = common` (Comum) e
+`categoryCulinaryUnit = general` (Geral); a conversão específica deve ser
+escolhida pelo estado físico do componente.
+
+O cabeçalho também persiste `yieldQuantityRecipe` e
+`idCulinaryUnitYieldRecipe`. O rendimento deve ser maior que zero e a Unidade
+Culinária final deve estar ativa.
+
+A tela de cadastro usa um workspace de três colunas: o editor ocupa duas
+colunas e a listagem de Receitas e Composições ocupa uma. No editor, nome,
+tipo e status ficam na mesma linha, com o nome ocupando duas colunas. O seletor de componente ocupa uma linha inteira. Após Observações, um divisor
+separa o bloco de inclusão: Unidade culinária, Quantidade, Conversão, Perda e o
+botão permanecem visíveis em uma área de altura fixa, inicialmente
+desabilitados até a seleção do componente. A listagem de componentes aparece
+abaixo desse bloco, com área fixa de `248px` e margem inferior de `30px` no
+botão de inclusão para evitar que a listagem fique visualmente colada ao
+editor.
+Quantidade, rendimento e perda usam a máscara numérica padrão do
+projeto durante a digitação; ao sair da edição de quantidade ou perda, o valor
+é normalizado com duas casas decimais. A lista de componentes exibe a ordem, permite reordenar com setas e
+apresenta o custo calculado por componente e o custo total estimado alinhado à
+direita no rodapé, sem SKU ou coluna de Conversão. A conversão continua sendo
+usada no cálculo e na edição do componente. Quando a unidade do Produto é quilograma, por
+exemplo, `800 g` com fator `0,001` é calculado como `0,800 kg` antes da
+aplicação do custo e da perda. A ordem é persistida em
+`recipe_components.orderRecipeComponent`.
+Na leitura das receitas, a API também deve retornar
+`factorCulinaryUnitConversion` junto da conversão; sem esse campo, a interface
+assume fator `1` e calcula incorretamente componentes informados em gramas,
+mililitros ou outras unidades convertidas.
+Quando o Produto usa `KG`, por exemplo, a conversão precisa terminar em `kg`.
+Conversões culinárias para a unidade-base são complementadas pela carga do
+catálogo com registros explícitos para a unidade comercial: `colher_sopa → kg`
+com fator `0,01` quando a conversão original representa `10 g`. O cálculo
+continua sendo sempre `quantidade × fator × custo unitário`; não há inversão ou
+ajuste automático do fator.
+O cadastro usa unidades tributáveis para o rendimento final; receitas existentes
+podem ser visualizadas e editadas no formulário principal e arquivadas pela
+ação de exclusão.
+
+Na listagem, clicar na linha carrega a Receita ou Composição no formulário
+principal em modo somente leitura. A edição ocorre pelo botão **Editar** no
+próprio formulário, habilitando **Salvar** sem abrir modal. Durante a
+visualização, o cabeçalho do formulário exibe **Visualização** e o botão
+**Novo cadastro**, que limpa o formulário e inicia um novo cadastro. O cabeçalho
+da listagem fica reservado ao título e à pesquisa; o rodapé mantém apenas a
+ação **Editar**.
+
+O campo `statusRecipe` é controlado pelo formulário com os estados `draft`
+(Rascunho), `active` (Ativa) e `review_required` (Requer revisão). O estado
+`archived` é reservado ao arquivamento e não pode ser criado pelo salvamento
+normal. A listagem operacional exibe Nome, Tipo, Status e Ações, incluindo
+arquivados porque a tela usa `includeArchived=1`; Nome ocupa o espaço restante,
+enquanto Tipo e Status ficam limitados a 90px e Ações a 70px. Vínculos com produtos
+continuam aceitando somente receitas `active`.
+
+A listagem possui filtros por status para Todas, Rascunho, Ativas, Revisão e
+Arquivadas. O filtro de status é combinado com a pesquisa textual e exibe a
+quantidade atual de registros em cada grupo. Na listagem, os status Rascunho e
+Revisão usam negrito para facilitar a identificação operacional.
+
+Durante a edição, o botão de lápis de cada componente abre um modal próprio,
+fora do elemento `<form>`, para alterar componente, unidade culinária,
+conversão, quantidade e perda sem interferir no editor principal. O botão X,
+Cancelar e a tecla ESC fecham o modal sem aplicar alterações. O fechamento por
+ESC é global para os modais visíveis da aplicação. Se uma conversão antiga já
+estiver persistida, ela continua visível durante a edição para permitir sua
+correção, mesmo que não seja oferecida para novos componentes. O carregamento inicial busca os catálogos
+auxiliares em paralelo; depois de salvar ou arquivar, a tela atualiza somente
+a listagem de Receitas e mantém esses catálogos em memória. A submissão também
+é protegida contra cliques repetidos para evitar feedback de sucesso duplicado.
+
+Alterações em `src/server/`, `database/schema.sql` ou
+`src/server/schema-manager.js` exigem reinício da API publicada para aplicar a
+migração idempotente. O identificador de caixa usa `SMALLINT UNSIGNED`; a
+preparação do schema converte instalações antigas que ainda usam `TINYINT`
+antes de garantir o registro `Caixa principal`. Não execute build a cada alteração: ele só é necessário
+quando houver mudança no bundle, Vite/Tauri, versionamento ou validação de
+produção.
+
+A listagem de Receitas usa `recipe_components.idRecipeComponent` na ordenação
+da leitura, uma coluna presente também nas instalações legadas. A ordem
+editável continua sendo persistida em `orderRecipeComponent` quando o schema
+atualizado está disponível, mas a ausência dessa coluna não impede a consulta
+dos cadastros existentes. Falhas de banco na API são
+registradas em uma única linha com `code`, `errno`, `sqlState` e `message`, sem
+registrar a consulta completa nem dados sensíveis; esses campos devem ser
+preservados ao investigar erros em `C:\ProgramData\PDV\logs`.
+As verificações de `ensureRecipeSchema()` compartilham uma promessa durante a
+vida do processo e são refeitas somente após falha. Isso evita repetir as
+consultas de metadados e as verificações idempotentes a cada leitura de
+Receitas, sem ocultar erro de migração.
+
 ## Organização de arquivos
 
 - Testes automatizados devem ser criados dentro de `tests/`; testes de domínio,
@@ -81,6 +189,49 @@ A preparação do catálogo NCM/CEST pertence ao módulo
 `ncm_catalog`, `cest_catalog`, `ncm_cest_relations` e `ncm_cest_updates`.
 Atualizações e inicialização reutilizam a mesma preparação idempotente para
 evitar divergência entre o caminho de carga e o caminho de inicialização.
+
+### Migração do catálogo unificado de unidades
+
+`units` é a fonte canônica de unidades, `unit_conversions` é a fonte canônica
+de conversões e `physical_states` apoia as conversões dependentes do estado
+físico. A API e a tela de Receitas usam esses objetos diretamente; os aliases
+`/api/culinary-units` e `/api/culinary-unit-conversions` existem somente para
+compatibilidade de clientes antigos.
+
+Para instalações que ainda possuem as estruturas antigas, execute primeiro a
+migração aditiva no servidor do MariaDB:
+
+```powershell
+npm.cmd run migrate:unify-measurement-units
+```
+
+Antes dela, execute `npm.cmd run migrate:culinary-units` somente se a instalação
+ainda não tiver `culinary_units` e `culinary_unit_conversions`. A migração
+aditiva copia as estruturas antigas para o catálogo canônico e cria mapas
+temporários de IDs para validação.
+
+Os comandos consultam primeiro a credencial do MariaDB armazenada no Windows
+Credential Manager. Se ela não existir e o terminal for interativo, solicitam a
+senha sem ecoá-la na tela. Em execução automatizada ou sem terminal, defina
+`PDV_DB_PASSWORD` somente no ambiente do processo; nunca grave a senha em
+scripts, arquivos `.ps1`, histórico ou documentação.
+
+Antes de publicar a versão que remove a leitura dos mapas, confirme um backup
+restaurável e execute:
+
+```powershell
+npm.cmd run migrate:cutover-measurement-units
+```
+
+O corte é transacional: valida todos os vínculos de Receitas, converte os IDs
+das colunas históricas para IDs de `units` e `unit_conversions`, verifica
+órfãos e somente então remove os mapas e as tabelas legadas. Em caso de erro,
+faz rollback. A migração destrutiva não deve ser executada sem autorização
+operacional explícita. Reinicie a API após o corte para descartar processos que
+ainda estejam executando a versão anterior.
+
+Se qualquer migração falhar, restaure o backup somente após confirmar a causa e
+não remova tabelas manualmente como tentativa de recuperação.
 
 ### Registro da auditoria arquitetural e operacional — 2026-11-02
 
@@ -245,6 +396,28 @@ liberar operações exclusivas do servidor, será necessário criar uma identida
 ou capacidade emitida e validada pelo servidor, com autorização efetiva no
 backend. Até lá, recursos de servidor devem permanecer protegidos por suas
 rotas e configurações server-side existentes.
+
+### Consolidação da versão 0.11.0 — 2026-11-04
+
+Receitas de Produção e Composições de Produto são estruturas nomeadas,
+reutilizáveis e independentes de Produto comercial. Componentes podem apontar
+para Produtos ou outras Receitas; o cadastro do Produto mantém os vínculos com
+quantidade e perda. A API valida ciclos, componentes ativos e persistência
+transacional, e as revisões pendentes ficam disponíveis em Views.
+
+Produtos Buffet são Produtos comerciais com preço próprio. A venda não baixa
+estoque, não exige Cardápio e não impede o fechamento do caixa.
+
+As telas de Ficha Técnica, Views, Produtos, Operações Fiscais, Financeiros e
+Ferramentas consultam as barras contextuais persistidas. Arrays locais existem
+somente como fallback quando a API está indisponível ou incompleta; uma resposta
+válida do banco não deve receber itens locais adicionais nem perder sua ordem,
+label, rota, divisor ou relação pai-filho.
+
+Esta etapa foi validada com 112 testes aprovados, `node --check` e
+`git diff --check`. Como houve alterações em `src/server/`, publique e reinicie
+a API antes da validação operacional; como houve alterações no frontend, gere
+novo bundle para os terminais. O build não foi executado nesta etapa.
 
 ### Consolidação da versão 0.10.0 — 2026-11-04
 
@@ -497,6 +670,11 @@ As tabelas de unidades culinárias são carregadas pela migração idempotente
 `npm.cmd run migrate:culinary-units`. Ela cria as tabelas se necessário e
 atualiza somente os registros de referência e os fatores cadastrados; não
 remove produtos nem altera o estoque existente.
+Essa carga mantém Quilograma (`kg`) e Litro (`l`) ativos, com conversões para
+grama e mililitro nos estados físicos compatíveis, respectivamente.
+As conversões são bidirecionais: `kg → g`/`g → kg` e `l → ml`/`ml → l`;
+assim, um produto cadastrado em kg ou l pode ser utilizado na ficha em sua
+unidade menor.
 
 `products.idPhysicalStateProduct` relaciona matérias-primas ao estado físico
 usado nas conversões culinárias. O valor `0` significa “não aplicável” e é
@@ -506,14 +684,28 @@ um estado físico. Em um banco existente, reinicie a API uma vez após atualizar
 o código para que a migração idempotente crie a coluna; em seguida, reinicie o
 Vite para carregar o formulário atualizado.
 
-O menu **Cadastros > Ficha Técnica** mantém as telas de Unidades Culinárias,
+O cadastro oficial de unidades fica em **Cadastros > Produtos > Unidades** e
+usa a tabela canônica `units`. A tela expõe código, descrição, unidade base,
+categoria e switches para `isActiveUnit`, `isTaxableUnit` e `isCulinaryUnit`.
+A preparação do schema consolida variantes duplicadas de `Dúzia`: preserva o
+registro referenciado por `unit_conversions`, remove somente a variante sem
+referências e normaliza o código para `DZ`. Os códigos `duzia` e `DUZIA` são
+tratados somente como aliases legados. Essa limpeza é idempotente e ocorre
+durante a inicialização da API.
+A antiga tela separada de Unidades Culinárias
+não é mais exibida; rotas antigas são redirecionadas para o cadastro oficial.
+O menu **Cadastros > Ficha Técnica** mantém apenas as telas auxiliares de
 Estados Físicos e Conversões. As alterações são persistidas pela API nos
-cadastros culinários e as conversões relacionam duas unidades e um estado
+cadastros unificados e as conversões relacionam duas unidades e um estado
 físico, com fator positivo. Códigos são armazenados como slugs em minúsculas e
 não aparecem nas listagens; status também permanece disponível apenas nas
 ações do cadastro. O fator é digitado e exibido no padrão decimal brasileiro,
-como `1,000`. A migração garante conversões identidade com fator `1,000` para
-grama, mililitro e unidade em cada estado físico. Os estados sólidos são
+como `1,000`. A migração garante conversões identidade e fatores universais entre `g`, `kg`,
+`ml`, `l`, `un` e `DZ` em cada estado físico. Durante a transição, as tabelas `culinary_units` e
+`culinary_unit_conversions` permanecem no banco para compatibilidade com a
+migração e com instalações antigas. Elas só poderão ser removidas após a API
+deixar de ler e gravar esses nomes e uma verificação de órfãos confirmar que
+todos os vínculos foram migrados. Os estados sólidos são
 separados em inteiro, fatiado, picado/cubos e ralado/triturado; **Congelado**
 também é mantido como estado próprio. A existência do estado não cria fator
 automaticamente: cada conversão não-identidade deve ser cadastrada
@@ -521,9 +713,25 @@ explicitamente. Para os quatro estados adicionados posteriormente, a carga
 inicial usa fatores aproximados de referência já existentes: `colher_sopa →
 g = 10` e `xicara_cha → g = 115`, sempre identificados nas observações como
 aproximados. Também são mantidas as unidades `kg`, `l`, `colher_cafe`,
-`colher_sobremesa` e `duzia`, com conversões seguras para as unidades-base;
+`colher_sobremesa` e `DZ`, com conversões seguras para as unidades-base;
 conversões dependentes do produto, como fatia, folha ou lata, não são
 generalizadas nesta tabela.
+O endpoint de estados físicos deve retornar o campo `isActivePhysicalState`
+junto com os dados cadastrais; sem esse campo a tela interpreta o estado como
+inativo. A migração remove duplicidades pela combinação origem/destino/estado
+antes de garantir a chave única dessa tabela.
+As referências volumétricas adotadas são colher de café = 2,5 ml, colher de chá
+= 5 ml, colher de sobremesa = 10 ml, colher de sopa = 10 ml, xícara de chá =
+200 ml e dose/jigger = 45 ml. Esses valores foram comparados com referências
+da Anvisa, da Secretaria Estadual da Saúde do Rio Grande do Sul, do NIST e de
+referências institucionais para doses; as fontes e limitações estão em
+`docs/research/culinary-conversion-reference.md`. A massa não deve ser
+inferida universalmente a partir desses volumes.
+
+Para completar o uso de medidas culinárias em matérias-primas sólidas, a carga
+de referência mantém `colher_cha → g` para sólidos picados, inteiros,
+fatiados, ralados/triturados e congelados, sempre com observação de que são
+fatores aproximados.
 
 Em **Ferramentas > Views > Sem Estado Físico**, a listagem mostra somente
 produtos cujo tipo é **MATÉRIA-PRIMA** e cujo `idPhysicalStateProduct` é `0`.
@@ -642,7 +850,7 @@ com backup verificável quando alterarem dados existentes:
 | Comando | Arquivo | Finalidade |
 | --- | --- | --- |
 | `npm.cmd run migrate:culinary-units` | `migrate-culinary-units.mjs` | Cria ou atualiza unidades, estados físicos e conversões culinárias de referência |
-| `npm.cmd run migrate:uppercase` | `migrate-uppercase-data.mjs` | Normaliza textos humanos existentes, preservando acentos e excluindo códigos e dados técnicos |
+| `npm.cmd run migrate:uppercase` | `migrate-uppercase-data.mjs` | Normaliza textos humanos para capitalização de título e SKUs para maiúsculas |
 | `node --env-file=.env scripts/migrations/migrate-embalagens-to-uso-consumo.mjs` | `migrate-embalagens-to-uso-consumo.mjs` | Migra dados legados de embalagens para a classificação de uso e consumo |
 
 As duas primeiras migrações possuem scripts npm. A migração de embalagens é
@@ -720,8 +928,9 @@ primeira tela, **Grupos x Produtos**, e renderiza a barra contextual com
 
 **Grupos x Produtos** exibe a árvore `Classe - Grupo`, com a contagem de
 produtos cadastrados, e a listagem com pesquisa, ordenação, status,
-visibilidade, exclusão e edição. **Sem Custo** reutiliza a mesma listagem sem a
-árvore e mantém somente produtos cujo `costPriceProduct` é zero.
+visibilidade, exclusão e edição, sem a coluna de custos. **Sem Custo** reutiliza
+a mesma listagem sem a árvore e mantém somente produtos cujo
+`costPriceProduct` é zero.
 
 A edição ocorre em modal local e, após salvar, a tela preserva a navegação
 atual, a pesquisa, o grupo selecionado e a ordenação. A listagem compartilhada
@@ -972,9 +1181,11 @@ vertical na barra.
 
 ### Cadastro de Produtos
 
-O cadastro usa `pdvCodeProduct` como Código PDV. A inicialização da API migra
-`barcodeProduct` para esse nome sem descartar os valores existentes e as
-mensagens de duplicidade usam Código PDV. Cada produto pode referenciar uma
+O `pdvCodeProduct` de novos produtos é atribuído pela API com o mesmo valor do
+`idProduct` gerado. O Código PDV não é editável e não é importado do CSV.
+Produtos já cadastrados preservam o valor existente, inclusive durante edição;
+`barcodeProduct` continua sendo migrado para `pdvCodeProduct` sem descartar
+esses valores. Cada produto pode referenciar uma
 operação fiscal de saída (`idFiscalOperationSaleProduct`), um tipo em
 `product_types` e uma unidade tributável em `units`. As tabelas auxiliares são
 criadas de forma idempotente e permanecem sem registros até o usuário
@@ -982,11 +1193,11 @@ cadastrá-los.
 
 Os campos `controlsStockProduct`, `isFractionalProduct` e
 `showsInPdvProduct` são booleanos validados pela API. O campo `printsPlace`
-define o destino de impressão e aceita somente `NÃO IMPRIMIR`, `BAR`, `COPA` ou
-`COZINHA`; o padrão é `NÃO IMPRIMIR`. O campo aparece nos formulários de
+define o destino de impressão e aceita somente `Não Imprimir`, `Bar`, `Copa` ou
+`Cozinha`; o padrão é `Não Imprimir`. O campo aparece nos formulários de
 **Mercadoria para Revenda** e **Produtos Acabados**, ao lado de Estoque. Para
 Matérias-primas, Embalagens e Material de Uso e Consumo, a API grava sempre
-`NÃO IMPRIMIR`. O editor de produtos em **Views** mantém o campo disponível
+`Não Imprimir`. O editor de produtos em **Views** mantém o campo disponível
 para edição.
 `showsInPdvProduct` inicia como verdadeiro e controla se o produto aparece na
 frente de caixa. O estoque inicial é
@@ -999,8 +1210,8 @@ fracionados. Quando `controlsStockProduct` é falso, o item e o pagamento são
 persistidos normalmente; antes da baixa, o serviço verifica esse campo e não
 valida disponibilidade nem altera `stockQuantityProduct` quando ele está
 desativado. Produtos
-legados com `printsKitchenProduct = 1` são convertidos para `COZINHA` pela
-evolução idempotente do schema; os demais recebem `NÃO IMPRIMIR`. A alteração
+legados com `printsKitchenProduct = 1` são convertidos para `Cozinha` pela
+evolução idempotente do schema; os demais recebem `Não Imprimir`. A alteração
 do schema e da API exige publicar a API atualizada e reiniciar o serviço
 `PDV-API`; não exige reinstalar o terminal inteiro.
 
@@ -1012,8 +1223,8 @@ continuam disponíveis. Consultas administrativas com `includeInactive=1` não
 usam esse filtro.
 
 Na importação de produtos por CSV, o modelo inclui `printsPlace` e
-`isActiveProduct`. O local aceita `NÃO IMPRIMIR`, `BAR`, `COPA` ou `COZINHA`,
-aceitando também a forma sem acento de `NÃO IMPRIMIR`;
+`isActiveProduct`. O local aceita `Não Imprimir`, `Bar`, `Copa` ou `Cozinha`,
+aceitando também variações de caixa e a forma sem acento de `Não Imprimir`;
 o status aceita `ATIVO` ou `INATIVO` (também `1`/`0`, `sim`/`não`) e usa
 `ATIVO` como padrão. A tela de importação disponibiliza os arquivos
 `referencia-locais-de-impressao.md` e `referencia-status-produtos.md`.
@@ -1028,22 +1239,28 @@ disponíveis.
 
 O cadastro de **Tipos de Produtos** possui o campo opcional **Código SPED**,
 exibido como primeiro campo do formulário e primeira coluna da listagem. A API
-normaliza o valor para maiúsculas, limita-o a 30 caracteres e preserva `NULL`
+aplica capitalização de título aos textos humanos, limita o código a 30
+caracteres e preserva `NULL`
 quando o tipo ainda não possui código informado. A coluna é criada em bases
 novas pelo `database/schema.sql` e adicionada de forma idempotente em bases existentes.
+
+O campo **Unidade tributável** dos produtos lista somente unidades com
+`isTaxableUnit = 1`; medidas culinárias gerais permanecem disponíveis apenas
+onde o fluxo culinário exige `isCulinaryUnit = 1`.
 
 ### Cadastro de Fornecedores
 
 Fornecedores são mantidos em uma tela própria no menu **Cadastros**. O
 cadastro cobre pessoa jurídica e pessoa física, documento, razão social/nome,
 nome fantasia, contato, telefone, e-mail, endereço completo, UF e observações.
-O país não é solicitado na tela e a API mantém `BRASIL` como padrão. CNPJ/CPF,
+O país não é solicitado na tela e a API mantém `Brasil` como padrão. CNPJ/CPF,
 telefone e CEP recebem máscara durante a digitação; e-mails são normalizados
 sem espaços e em minúsculas. O documento é armazenado sem máscara e possui
 unicidade por tipo de pessoa; a interface apresenta o valor formatado.
-Os dados retornados pelas consultas são apresentados em maiúsculas, preservando
-a acentuação. No salvamento, os campos textuais humanos são normalizados para
-maiúsculas pela API.
+Os campos textuais humanos usam capitalização de título, mantendo preposições e
+conjunções curtas em minúscula, como em **Colher de Sopa**. No salvamento, a API
+também aplica trim, normalização de espaços e validações de
+tamanho/obrigatoriedade; e-mails continuam em minúsculas por regra técnica.
 
 No formulário de novo fornecedor, o botão ao lado do CNPJ consulta a BrasilAPI
 e preenche razão social, nome fantasia, contato, telefone, e-mail e endereço
@@ -1085,32 +1302,31 @@ A tela disponibiliza downloads em Markdown com as listas atuais de **Grupos**,
 coluna do CSV e os valores aceitos. Para operação fiscal, a importação aceita a
 descrição ou o CFOP; para tipo de produto, a descrição ou o Código SPED; e
 para unidade, o código ou a descrição. Grupo continua sendo informado pela
-descrição, pois não possui código próprio no cadastro. O campo de nome/descrição
-do produto é salvo em maiúsculas, preservando a acentuação, durante a importação.
-Os campos textuais de cadastros existentes também são normalizados para maiúsculas
-na inicialização da API. NCM e CEST podem
+descrição, pois não possui código próprio no cadastro. O campo de nome/descrição do produto usa capitalização de título durante a
+importação. Os campos textuais de cadastros existentes também usam essa forma
+na inicialização da API. O SKU e o código técnico `units.codeUnit` são
+convertidos obrigatoriamente para maiúsculas; a descrição da unidade usa
+capitalização de título. NCM e CEST podem
 ser informados com pontuação, como `0201.30.00` e `0603.10.00`; a API remove a
 formatação antes de validar e persistir os códigos.
 
-### Migração de textos existentes
+### Migração de capitalização existente
 
-Para converter os textos já armazenados no MariaDB para maiúsculas, execute no
+Para normalizar os textos humanos já armazenados no MariaDB e converter os SKUs
+e códigos `units.codeUnit` para maiúsculas, execute no
 ambiente do servidor:
 
 ```powershell
 npm.cmd run migrate:uppercase
 ```
 
-O comando usa as credenciais do `.env`, verifica as tabelas existentes e executa
-a alteração em uma única transação. A migração é idempotente: executar novamente
-não altera valores que já estejam normalizados.
-
-São convertidos textos humanos de produtos, grupos, classes, clientes,
-consumidores, fornecedores, formas de pagamento, NCM/CEST, operações fiscais,
-catálogos fiscais e nomes persistidos nos itens de venda. O cadastro da empresa
-e o construtor de menus não participam da normalização automática. Códigos,
-e-mails, URLs, chaves técnicas, rotas, enums e demais identificadores não são
-convertidos.
+O comando usa a credencial armazenada no Credential Manager quando disponível;
+caso contrário, solicita no terminal a senha do `pdv_app` com entrada mascarada
+e suporte a Ctrl+V. Em seguida, verifica as tabelas existentes e executa a
+alteração em uma única transação. Antes da alteração, verifica colisões após
+`UPPER(skuProduct)` e aborta sem modificar dados se encontrar duplicidades. A
+migração é idempotente e não altera códigos técnicos, e-mails, URLs, credenciais
+ou identificadores.
 
 Antes da escrita, o comando verifica colisões nos campos textuais com índice
 único, como classe, grupo, tipo de produto e forma de pagamento. Se dois valores
@@ -1232,9 +1448,19 @@ campos e regras específicas por tipo em uma etapa posterior sem duplicar a
 camada de API. **Outros Insumos** não faz parte da navegação.
 
 Matérias-primas, embalagens e materiais de uso e consumo não são produtos para
-venda. Nessas três telas, o formulário e a listagem exibem somente **Preço de
-custo**; a API grava `priceProduct` com o mesmo valor de `costPriceProduct`
-para manter o contrato de preço e impedir divergência entre os campos.
+venda. Nessas três telas, o formulário exibe somente **Preço de custo**; as
+listagens não exibem a coluna de custos. A API grava `priceProduct` com o
+mesmo valor de `costPriceProduct` para manter o contrato de preço e impedir
+divergência entre os campos.
+
+Na listagem de produtos, **Duplicar** prepara um novo cadastro sem persistir
+alterações no produto original. A ação reaproveita os dados cadastrais, gera
+um nome com o sufixo ` - cópia` (numerado quando necessário), limpa SKU e
+estoque, descarta vínculos com Receitas/Composições e inicia o novo produto
+inativo e oculto no PDV. O SKU deve ser informado antes de salvar; ao salvar,
+a API atribui ao novo produto um Código PDV igual ao seu ID. Produtos antigos
+preservam o Código PDV existente em edições, embora ele não seja exibido no
+formulário.
 
 Classes possuem a referência `idFiscalOperationClass`, migrada de forma
 compatível para bases existentes. A API valida a operação fiscal ativa ao criar
@@ -1373,8 +1599,8 @@ tabela `general_settings`. O booleano `allowNegativeStock`, exibido como
 **Permitir estoque negativo**, é criado somente quando o usuário salva a
 configuração. A leitura e a alteração são feitas pela API em
 `GET /api/general-settings` e `PUT /api/general-settings`.
-Os rótulos dessas preferências permanecem em linguagem natural, sem
-normalização automática para maiúsculas.
+Os rótulos dessas preferências usam capitalização de título, sem conversão
+automática para maiúsculas.
 
 O construtor exibe a árvore completa para facilitar a manutenção, mas não
 permite criar novos menus principais, itens ou submenus. A manutenção fica
@@ -1429,11 +1655,9 @@ armazenados no servidor e retornados junto ao cadastro; o logotipo é destinado
 a relatórios e cupons, enquanto o ícone atualiza o favicon e a identidade
 visual das telas.
 
-Os campos textuais desse cadastro preservam a capitalização digitada pelo
-operador. A API aplica apenas `trim` e validação de tamanho/obrigatoriedade
-nesses campos; a normalização para maiúsculas continua restrita aos cadastros
-que possuem essa regra de domínio. Documentos, UF, códigos, telefones,
-credenciais e parâmetros fiscais mantêm suas validações próprias.
+Os campos textuais desse cadastro usam capitalização de título. A API aplica
+também `trim` e validação de tamanho/obrigatoriedade; documentos, UF, códigos,
+telefones, credenciais e parâmetros fiscais mantêm suas validações próprias.
 
 A tela **Configurações > NFC-e** administra os parâmetros da NFC-e modelo 65
 para Minas Gerais: UF de emissão `MG`, ambiente de homologação ou produção,
