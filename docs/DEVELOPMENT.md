@@ -115,6 +115,35 @@ Receitas, sem ocultar erro de migração.
 
 ## Organização de arquivos
 
+### Temas da interface
+
+A aparência do terminal é uma preferência local. Em uma janela Tauri, ela é
+persistida junto do `offline-config.json`; em desenvolvimento no navegador,
+ela é persistida no `localStorage` sob a chave `pdv.offline-config`. O módulo
+`src/ui/theme-manager.js` aplica o tema no elemento raiz por meio de
+`data-theme`; novas telas devem reutilizar os componentes visuais existentes e
+evitar cores ou fontes fixas quando o valor puder ser um token de tema.
+
+Os temas disponíveis são `default`, `dos` e `high-contrast`. A tela
+**Configurações > Aparência** permite trocar o tema sem alterar a API, o
+MariaDB, as regras de venda ou a impressão. A alteração é aplicada
+imediatamente e exige apenas novo bundle quando for distribuída em um terminal
+Tauri; não exige reinício da API.
+
+### Reconciliação da navegação
+
+Toda leitura ou republicação da navegação deve usar
+`reconcileNavigation()` em `src/shared/navigation-defaults.js`, inclusive no
+carregamento inicial e no Construtor de navegação. Esse módulo mescla os dados
+persistidos com os defaults atuais para que novos itens não desapareçam após
+trocar de tela.
+
+`Ficha Técnica` é um item direto e clicável dentro de Cadastros, seguindo o
+mesmo padrão de `Produtos`. Ele abre Receitas e Composições, cuja barra
+contextual apresenta Receitas, Estados Físicos e Conversões. Esses cadastros
+relacionados permanecem vinculados à Ficha Técnica na navegação persistida, mas
+não transformam o item principal em um submenu.
+
 - Testes automatizados devem ser criados dentro de `tests/`; testes de domínio,
   modelos e serviços isolados ficam em `tests/unit/`, enquanto testes de API,
   banco e contratos HTTP ficam em `tests/integration/`.
@@ -134,6 +163,54 @@ O projeto não possui submenu visual. Menus principais devem abrir diretamente
 uma tela ou um agrupador técnico sem criar uma segunda camada visual dentro do
 menu. Quando uma área possuir telas relacionadas, elas devem ser exibidas em
 uma barra contextual própria da tela, seguindo o padrão de **Produtos**.
+
+### Criação e manutenção de menus
+
+Ao criar uma nova área de navegação, siga esta sequência:
+
+1. Defina o menu principal e seus itens em
+   `src/shared/navigation-defaults.js`, usando uma chave estável, um rótulo,
+   uma rota e uma ordem explícita.
+2. Para uma tela que abre diretamente, use um item raiz com
+   `typeNavigationItem: "item"` e uma rota resolvida por
+   `src/main.js`. O item deve ser renderizado como um
+   `<button data-main-menu="...">`, seguindo o mesmo padrão de **Produtos**.
+3. Para telas relacionadas, mantenha a relação pai-filho em
+   `parentKey`/`idParentNavigationItem` apenas para persistência, ordenação e
+   montagem da barra contextual. Não transforme essa relação em `<details>`,
+   `<summary>`, dropdown aninhado ou submenu visual.
+4. Registre o handler da chave principal em `common()` de `src/main.js` e
+   passe os handlers necessários às telas que chamam `bindMainMenu()`. A chave
+   do item, a rota persistida e o handler devem apontar para o mesmo destino.
+5. Se a tela tiver áreas relacionadas, monte a barra contextual a partir da
+   navegação persistida com `selectContextualNavigationItems()`. A tela
+   principal deve ser o item ativo da barra, e os itens relacionados devem
+   continuar acessíveis sem duplicar a rota principal.
+6. Use `reconcileNavigation()` em toda leitura ou republicação da navegação.
+   Assim, instalações existentes recebem itens novos sem perder customizações,
+   ordens, divisores, relações pai-filho ou estados inativos válidos.
+7. Crie testes para a definição persistida, a renderização como botão direto,
+   a resolução do handler, a barra contextual e a migração de dados antigos.
+
+O caso de **Ficha Técnica** exemplifica essa regra. Ela mantém as telas
+relacionadas **Receitas e Composições**, **Estados Físicos** e **Conversões**
+como filhos persistidos, mas o item principal é um item direto com a rota
+`recipes`, igual a **Produtos**. A correção removeu o `<summary>` clicável que
+dependia do comportamento nativo de `<details>`; esse elemento fechava o menu
+em vez de executar a navegação em alguns estados. O contrato correto é:
+
+```html
+<button type="button" data-main-menu="technical-sheet">Ficha Técnica</button>
+```
+
+O handler `technical-sheet` abre **Receitas e Composições**, e a barra
+contextual apresenta os três cadastros relacionados. Dados antigos que tenham
+persistido `Ficha Técnica` como `submenu` devem ser normalizados para
+`typeNavigationItem: "item"` durante a reconciliação. Ao alterar a estrutura
+de um menu, valide também o clique real no navegador; testar somente a função
+de resolução ou acionar `element.click()` por script não comprova o fluxo do
+usuário.
+
 Telas singleton também devem renderizar uma barra contextual com um único
 botão ativo, alinhado à esquerda. O texto desse botão, o título da tela e o
 título do painel introdutório devem ser idênticos. O conteúdo abaixo do menu

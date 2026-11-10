@@ -75,9 +75,10 @@ export const DEFAULT_NAVIGATION = Object.freeze({
     item("cadastros", "consumers", "Consumidores", "consumers", 6, null, "bar", "Cadastre e consulte consumidores para identificar atendimentos e vínculos com clientes."),
     item("settings", "settings", "Impressoras", "settings", 1, null, "bar", "Defina as impressoras padrão usadas pelo PDV em cupons, comprovantes e relatórios."),
     item("settings", "general-settings", "Configurações Gerais", "general-settings", 2, null, "bar", "Defina regras gerais de funcionamento compartilhadas por todos os terminais do PDV."),
-    item("settings", "company", "Dados da Empresa", "company", 3, null, "bar", "Informe os dados cadastrais e a identidade visual usados pelo PDV e pelos documentos fiscais."),
-    item("settings", "nfce", "NFC-e", "nfce", 4, null, "bar", "Defina os parâmetros fiscais e o certificado usados para emissão de NFC-e."),
-    item("settings", "navigation-builder", "Construtor de navegação", "navigation-builder", 5, null, "bar", "Edite menus, itens, submenus, divisores, rotas e ordens da navegação persistida do PDV."),
+    item("settings", "theme", "Aparência", "theme", 3, null, "bar", "Escolha a aparência visual deste terminal do PDV."),
+    item("settings", "company", "Dados da Empresa", "company", 4, null, "bar", "Informe os dados cadastrais e a identidade visual usados pelo PDV e pelos documentos fiscais."),
+    item("settings", "nfce", "NFC-e", "nfce", 5, null, "bar", "Defina os parâmetros fiscais e o certificado usados para emissão de NFC-e."),
+    item("settings", "navigation-builder", "Construtor de navegação", "navigation-builder", 6, null, "bar", "Edite menus, itens, submenus, divisores, rotas e ordens da navegação persistida do PDV."),
     item("tools", "ncm-cest-update", "Atualizar NCM / CEST", "ncm-cest-update", 1, null, "bar", "Atualize os catálogos fiscais oficiais usados nas consultas e validações do PDV."),
     item("tools", "api-status", "Status da API", "api-status", 2, null, "bar", "Consulte a disponibilidade do servidor do PDV e da conexão com o MariaDB."),
     item("tools", "thermal-print", "Impressão térmica", "thermal-print", 3, null, "bar", "Configure a montagem e a impressão local dos comprovantes do PDV."),
@@ -98,6 +99,9 @@ export const normalizePersistedNavigation = (navigation) => ({
   menus: Array.isArray(navigation?.menus) ? navigation.menus.map((menu) => ({ ...menu })) : [],
   items: Array.isArray(navigation?.items) ? navigation.items.map((item) => ({ ...item })) : []
 });
+
+export const reconcileNavigation = (navigation) =>
+  mergeNavigationDefaults(normalizePersistedNavigation(navigation));
 
 const matches = (entry, definition) =>
   normalizeNavigationKey(entry.keyNavigationItem) === normalizeNavigationKey(definition.keyNavigationItem)
@@ -187,6 +191,11 @@ export const mergeNavigationDefaults = (navigation) => {
       routeNavigationItem: persisted?.routeNavigationItem || definition.routeNavigationItem,
       idNavigationItem: persisted?.idNavigationItem || `default-item-${definition.menuKey}-${definition.keyNavigationItem}-${definition.orderNavigationItem}`
     };
+    if (definition.keyNavigationItem === "technical-sheet") {
+      merged.typeNavigationItem = "item";
+      merged.routeNavigationItem = definition.routeNavigationItem;
+      merged.idParentNavigationItem = null;
+    }
     items.push(merged);
     itemIds.set(`${definition.menuKey}:${definition.keyNavigationItem}`, merged.idNavigationItem);
   }

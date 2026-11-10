@@ -11,6 +11,7 @@ import { createNcmCestUpdateScreen } from "./tools/ncm-cest-update-screen.js";
 import { createNfceQueryScreen } from "./tools/nfce-query-screen.js";
 import { createApiStatusScreen } from "./tools/api-status-screen.js";
 import { createSettingsScreen } from "./settings/settings-screen.js";
+import { createThemeScreen } from "./settings/theme-screen.js";
 import { createNcmCestScreen } from "./catalog/ncm-cest-screen.js";
 import { createPaymentMethodScreen } from "./catalog/payment-method-screen.js";
 import { createCompanyScreen } from "./catalog/company-screen.js";
@@ -38,7 +39,7 @@ import {
 } from "./shared/api.js";
 import {
   buildFallbackNavigation,
-  normalizePersistedNavigation
+  reconcileNavigation
 } from "./shared/navigation-defaults.js";
 import { runWithRetry } from "./shared/retry.js";
 import {
@@ -48,6 +49,7 @@ import {
 import { createCashScreen } from "./operator/cash-screen.js";
 import { clearOperatorSessionToken } from "./shared/api.js";
 import { installGlobalModalEscape } from "./ui/modal.js";
+import { loadTheme } from "./ui/theme-manager.js";
 
 const app = document.querySelector("#app");
 
@@ -125,10 +127,13 @@ const common = () => ({
   "no-physical-state": showNoPhysicalState,
   "recipe-revisions": showRecipeRevisions,
   "culinary-units": showCulinaryUnits,
+  "technical-sheet": showRecipes,
   recipes: showRecipes,
   "physical-states": showPhysicalStates,
   "culinary-conversions": showCulinaryConversions,
   onSettings: showSettings,
+  onTheme: showTheme,
+  theme: showTheme,
   onGeneralSettings: showGeneralSettings,
   "general-settings": showGeneralSettings,
   onCompany: showCompany,
@@ -187,6 +192,13 @@ const showLogin = () => mount(createOperatorLoginScreen({
 }));
 const showSettings = () =>
   mount(createSettingsScreen({ onBack: showBackoffice, ...common() }));
+const showTheme = () =>
+  mount(createThemeScreen({
+    onBack: showSettings,
+    onSettings: showSettings,
+    onTheme: showTheme,
+    ...common()
+  }));
 const showGeneralSettings = () =>
   mount(createGeneralSettingsScreen({ onBack: showSettings, ...common() }));
 const showThermalPrint = () =>
@@ -554,7 +566,7 @@ const loadNavigation = async () => {
     if (!response.ok || !Array.isArray(payload.menus) || !Array.isArray(payload.items)) {
       throw new Error("A API retornou uma navegação inválida.");
     }
-    window.__PDV_NAVIGATION__ = normalizePersistedNavigation(payload);
+    window.__PDV_NAVIGATION__ = reconcileNavigation(payload);
   });
   window.__PDV_NAVIGATION_SOURCE__ = "api";
 };
@@ -575,6 +587,7 @@ const checkApiHealth = async () => {
 const startApplication = async () => {
   installCloseBackupPrompt();
   startupReady = loadConfiguredApiUrl()
+    .then(() => loadTheme())
     .catch(() => {})
     .then(() => {
       const apiUrlField = app.querySelector("[data-api-config-form] input[name='apiUrl']");

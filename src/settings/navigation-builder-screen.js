@@ -5,7 +5,7 @@ import { renderLucideIcons } from "../ui/icons.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
 import { apiFetch, getApiUrl  } from "../shared/api.js";
-import { normalizePersistedNavigation } from "../shared/navigation-defaults.js";
+import { reconcileNavigation } from "../shared/navigation-defaults.js";
 import { moveNavigationSubtree } from "../shared/navigation-builder-state.js";
 import { renderPreservingScroll as preserveScroll } from "../ui/scroll-preservation.js";
 
@@ -82,7 +82,7 @@ export function createNavigationBuilderScreen({
     loading = true;
     render();
     try {
-      navigation = normalizePersistedNavigation(await request("/api/navigation?includeInactive=1"));
+      navigation = reconcileNavigation(await request("/api/navigation?includeInactive=1"));
       syncPublishedNavigation();
       error = "";
     } catch (loadError) {
@@ -94,7 +94,7 @@ export function createNavigationBuilderScreen({
   };
 
   const syncPublishedNavigation = () => {
-    window.__PDV_NAVIGATION__ = normalizePersistedNavigation({
+    window.__PDV_NAVIGATION__ = reconcileNavigation({
       menus: navigation.menus.filter((menu) => Number(menu.isActiveNavigationMenu) === 1),
       items: navigation.items.filter((item) => Number(item.isActiveNavigationItem) === 1)
     });
