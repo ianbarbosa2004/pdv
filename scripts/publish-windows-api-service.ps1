@@ -15,10 +15,52 @@ function Write-Step([string]$Message) {
   Write-Host "[PDV] $Message" -ForegroundColor Cyan
 }
 
+function Read-MariaDbPassword([string]$Prompt) {
+  Write-Host "$Prompt (cole com Ctrl+V ou botão direito; Enter confirma): " -NoNewline
+  $securePassword = New-Object System.Security.SecureString
+  while ($true) {
+    $key = [Console]::ReadKey($true)
+    if ($key.Key -eq [ConsoleKey]::Enter) { break }
+    if ($key.Key -eq [ConsoleKey]::Backspace) {
+      if ($securePassword.Length -gt 0) {
+        $securePassword.RemoveAt($securePassword.Length - 1)
+        Write-Host "`b `b" -NoNewline
+      }
+      continue
+    }
+    if ([int][char]$key.KeyChar -eq 3) {
+      throw 'Entrada da senha cancelada.'
+    }
+    if (-not [char]::IsControl($key.KeyChar)) {
+      $securePassword.AppendChar($key.KeyChar)
+      Write-Host '*' -NoNewline
+    }
+  }
+  Write-Host
+  return $securePassword
+}
+
+function Test-MariaDbCredential([string]$MysqlExecutable, [string]$CredentialFile) {
+  if (-not (Test-Path -LiteralPath $CredentialFile -PathType Leaf)) {
+    throw 'Arquivo de credenciais do MariaDB não encontrado.'
+  }
+  & $MysqlExecutable "--defaults-extra-file=$CredentialFile" '--protocol=tcp' '--connect-timeout=5' '--batch' '--skip-column-names' '--execute=SELECT 1;' 2>$null | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    throw 'A senha do usuário administrativo do MariaDB está incorreta ou não permite conexão TCP local.'
+  }
+}
+
 try {
   $temporaryDatabaseCredentialFile = $false
+  $mysqlPath = @(
+    'C:\Program Files\MariaDB 13.0\bin\mysql.exe',
+    'C:\Program Files\MariaDB 11.4\bin\mysql.exe',
+    'C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe'
+  ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+  if (-not $mysqlPath) { throw 'mysql.exe não foi encontrado.' }
+
   if ([string]::IsNullOrWhiteSpace($DatabaseCredentialFile)) {
-    $rootPasswordSecure = Read-Host 'Senha do usuário administrativo do MariaDB' -AsSecureString
+    $rootPasswordSecure = Read-MariaDbPassword 'Senha do usuário administrativo do MariaDB'
     $rootPassword = [System.Net.NetworkCredential]::new('', $rootPasswordSecure).Password
     if ([string]::IsNullOrWhiteSpace($rootPassword)) {
       throw 'A senha administrativa do MariaDB não pode estar vazia.'
@@ -35,6 +77,7 @@ try {
     $rootPasswordSecure = $null
     $temporaryDatabaseCredentialFile = $true
   }
+  Test-MariaDbCredential $mysqlPath $DatabaseCredentialFile
 
 function Grant-ServiceLogonRight([string]$AccountSid) {
   $securityConfig = Join-Path $env:TEMP "pdv-security-$([guid]::NewGuid().ToString('N')).inf"
@@ -74,13 +117,6 @@ $npmPath = (Get-Command npm.cmd -ErrorAction Stop).Source
 $serviceUser = Get-LocalUser -Name $ServiceAccount -ErrorAction Stop
 $serviceSid = "*$($serviceUser.SID.Value)"
 $localAccount = ".\$ServiceAccount"
-
-$mysqlPath = @(
-  'C:\Program Files\MariaDB 13.0\bin\mysql.exe',
-  'C:\Program Files\MariaDB 11.4\bin\mysql.exe',
-  'C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe'
-) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-if (-not $mysqlPath) { throw 'mysql.exe não foi encontrado.' }
 
 $nodePath = (Get-Command node.exe -ErrorAction Stop).Source
 New-Item -ItemType Directory -Force -Path $InstallDirectory, $LogDirectory | Out-Null
@@ -177,6 +213,22 @@ if ($LASTEXITCODE -ne 0) { throw "Não foi possível exigir senha para a conta $
 Grant-ServiceLogonRight "*$($serviceUser.SID.Value)"
 
 $plainDatabasePassword = [System.Net.NetworkCredential]::new('', $databasePassword).Password
+$publishedEnvLines = @(Get-Content -LiteralPath $publishedEnvPath)
+$publishedEnvPassword = $false
+$publishedEnvLines = @(
+  foreach ($line in $publishedEnvLines) {
+    if ($line -match '^PDV_DB_PASSWORD=') {
+      $publishedEnvPassword = $true
+      "PDV_DB_PASSWORD=$plainDatabasePassword"
+    } else {
+      $line
+    }
+  }
+  if (-not $publishedEnvPassword) {
+    "PDV_DB_PASSWORD=$plainDatabasePassword"
+  }
+)
+Set-Content -LiteralPath $publishedEnvPath -Value $publishedEnvLines -Encoding utf8
 $bootstrapEnvPath = Join-Path $InstallDirectory ".pdv-bootstrap-$([guid]::NewGuid().ToString('N')).env"
 $bootstrapOut = "$bootstrapEnvPath.out"
 $bootstrapErr = "$bootstrapEnvPath.err"
@@ -184,8 +236,9 @@ try {
   Write-Step 'Provisionando a credencial do MariaDB no Windows Credential Manager...'
   "PDV_DB_PASSWORD=$plainDatabasePassword" | Set-Content -LiteralPath $bootstrapEnvPath -Encoding ASCII
   $bootstrap = Start-Process -FilePath $nodePath `
-    -ArgumentList "--env-file=$bootstrapEnvPath", 'scripts/set-database-credential.mjs' `
+    -ArgumentList '--env-file=.env', "--env-file=$bootstrapEnvPath", 'scripts/set-database-credential.mjs' `
     -WorkingDirectory $InstallDirectory -Credential ([pscredential]::new($localAccount, $servicePassword)) `
+    -LoadUserProfile `
     -RedirectStandardOutput $bootstrapOut -RedirectStandardError $bootstrapErr -Wait -PassThru -WindowStyle Hidden
   if ($bootstrap.ExitCode -ne 0) {
     $detail = Get-Content -LiteralPath $bootstrapErr -Raw -ErrorAction SilentlyContinue
@@ -203,6 +256,24 @@ $winswXml = Join-Path $ServiceDirectory "$ServiceName.xml"
 $xml.service.executable = $nodePath
 $xml.service.arguments = '--env-file=.env scripts/run-api-service.mjs'
 $xml.service.workingdirectory = $InstallDirectory
+$logNode = $xml.service.SelectSingleNode('log')
+if (-not $logNode) {
+  $logNode = $xml.CreateElement('log')
+  [void]$xml.service.AppendChild($logNode)
+}
+[void]$logNode.SetAttribute('mode', 'roll-by-time')
+$patternNode = $logNode.SelectSingleNode('pattern')
+if (-not $patternNode) {
+  $patternNode = $xml.CreateElement('pattern')
+  [void]$logNode.AppendChild($patternNode)
+}
+$patternNode.InnerText = 'yyyyMMdd'
+$keepFilesNode = $logNode.SelectSingleNode('keepFiles')
+if (-not $keepFilesNode) {
+  $keepFilesNode = $xml.CreateElement('keepFiles')
+  [void]$logNode.AppendChild($keepFilesNode)
+}
+$keepFilesNode.InnerText = '14'
 $errorLogPath = [System.Security.SecurityElement]::Escape((Join-Path $LogDirectory 'api-startup.error.log'))
 $errorLogNode = $xml.service.SelectSingleNode("env[@name='PDV_SERVICE_ERROR_LOG']")
 if (-not $errorLogNode) {

@@ -5,6 +5,120 @@ O número da versão deve ser incrementado antes da compilação quando a altera
 for distribuível. O hook `prebuild` e o fluxo `prerelease:client` podem acionar
 o versionamento automático quando o build é executado.
 
+## Próxima versão - correções de operação e Receitas
+
+- Corrigida a preparação do caixa para instalações existentes cujo
+  `idCashRegister` já ultrapassou o limite de `TINYINT UNSIGNED`: o schema
+  inicial e a migração idempotente agora usam `SMALLINT UNSIGNED`, preservando a
+  chave estrangeira de `cash_sessions` e permitindo a autenticação do operador.
+- Ajustado o editor de componentes de Receitas para reservar `248px` no bloco
+  de inclusão e `30px` de margem inferior no botão **Adicionar componente**.
+- A suíte completa foi validada com 146 testes aprovados; não foi executado
+  build porque a etapa não exigiu validação de bundle.
+
+## Próxima versão - catálogo unificado de unidades
+
+- Preparada a primeira etapa aditiva da migração para um catálogo unificado de
+  unidades, com flags de uso tributável e culinário, mapa de IDs legados,
+  conversões canônicas e validações de integridade.
+- A API passa a ler e gravar unidades e conversões no catálogo unificado,
+  traduzindo referências legadas de receitas por mapas de compatibilidade sem
+  exigir regravação em massa.
+
+## Próxima versão - formulário de Receitas
+
+- A listagem de Receitas agora abre o registro selecionado no formulário
+  principal em modo somente leitura. O botão **Editar** habilita o mesmo
+  formulário inline com **Salvar**, enquanto **Nova receita** limpa o editor
+  para um novo cadastro; o modal de edição foi removido.
+- O status da Receita passou a ser editável no formulário, com os estados
+  `draft` (Rascunho), `active` (Ativa) e `review_required` (Requer revisão).
+  A listagem agora exibe as colunas Nome, Tipo, Status e Ações; registros
+  arquivados continuam identificados como `archived` e podem ser consultados
+  pelo carregamento histórico da tela.
+- Adicionados filtros da listagem por status, com contadores para Todas,
+  Rascunho, Ativas, Requer revisão e Arquivadas; o filtro funciona junto com a
+  pesquisa textual.
+- Removida a coluna Conversão da listagem de componentes para reduzir ruído
+  visual; a conversão permanece disponível no cadastro e no modal de edição.
+- Adicionada edição de componente em modal, com alteração do componente,
+  unidade culinária, conversão, quantidade e perda sem abrir outro cadastro.
+- Corrigido o custo de componentes com conversão: `800 g` convertido para
+  quilograma usa fator `0,001` e passa a ser calculado como `0,800 kg`.
+- Restringidas as conversões de componentes para que o destino corresponda à
+  unidade tributável do Produto; a API também rejeita combinações incompatíveis.
+- Memoizada a preparação do schema de Receitas durante a vida do processo,
+  evitando repetir consultas de metadados a cada carregamento da listagem.
+- Corrigida a edição de componentes para manter a conversão persistida no
+  select e reposicionar o modal fora do formulário; o X e Cancelar agora fecham
+  a edição sem inserir o modal no conteúdo do cadastro.
+- Corrigida a leitura da API para retornar o fator da conversão junto aos
+  componentes; sem esse campo, o custo era calculado com fator `1`, como se
+  `800 g` fossem `800 kg`.
+- Reduzido o tempo de atualização após salvar ou arquivar ao manter os
+  catálogos auxiliares em memória e recarregar somente as Receitas.
+- Protegido o salvamento contra submissões repetidas, evitando a exibição
+  duplicada da mensagem de sucesso.
+- Padronizado o cabeçalho do modo de visualização com o título
+  **Visualização** e o botão **Novo cadastro**; o botão de novo cadastro foi
+  removido do cabeçalho da listagem.
+- Ajustado o formulário para exibir Tipo e Status na mesma linha, renomeado o
+  status visível **Requer revisão** para **Revisão**, aplicado negrito aos
+  status Rascunho e Revisão na listagem e alinhada a coluna Custo à direita.
+- A rotação dos logs do serviço Windows `PDV-API` passou a ser diária, com um
+  arquivo de saída e um arquivo de erro por dia, mantendo os últimos 14 dias.
+  Isso evita a fragmentação em diversos arquivos pequenos causada pela rotação
+  por tamanho.
+- Corrigida a consulta de Receitas no MariaDB: o alias SQL `conversion` foi
+  substituído por `culinary_conversion`, evitando erro de sintaxe ao carregar
+  os componentes das receitas.
+- A leitura dos componentes de Receitas passou a ordenar por
+  `idRecipeComponent`, compatível com bancos legados que ainda não possuem
+  `orderRecipeComponent`, sem impedir a exibição dos cadastros existentes.
+- O salvamento de Receitas e Composições agora usa o mesmo feedback modal de
+  sucesso das demais telas e separa falhas de atualização da listagem do erro
+  do formulário, evitando a apresentação simultânea de sucesso e erro antigo.
+- Corrigida a pesquisa dos cadastros culinários para preservar a posição do
+  cursor durante a atualização da listagem.
+- Estados físicos agora retornam e exibem corretamente o status ativo/inativo.
+- A migração de conversões elimina duplicidades por origem, destino e estado
+  antes de criar a restrição única. Colher de café e colher de sobremesa
+  passaram a possuir referências aproximadas para conversões de massa por
+  estado físico compatível.
+- As referências volumétricas das medidas culinárias foram alinhadas a fontes
+  brasileiras e institucionais: colher de café `2,5 ml`, colher de chá `5 ml`,
+  colher de sobremesa `10 ml`, colher de sopa `10 ml`, xícara de chá `200 ml`
+  e dose/jigger `45 ml`. As conversões de volume foram completadas também para
+  líquidos viscosos; conversões de volume para massa continuam específicas por
+  estado físico e explicitamente aproximadas.
+
+- O cadastro de Receita ou Composição passou a apresentar Nome antes de Tipo e
+  usa textarea para Observações.
+- Componentes podem ser localizados por busca sem diferenciar caixa ou acentos.
+- Componentes de Produto exibem a unidade cadastrada e permitem selecionar
+  Unidade Culinária e Conversão compatíveis com a unidade e o estado físico.
+- A tela de Nova Receita foi reorganizada em três colunas, com editor em duas
+  colunas e listagem em uma; o seletor de componente ocupa uma linha própria,
+  os campos numéricos usam a máscara padrão e a lista permite reordenar
+  componentes e consultar o custo total estimado.
+- O cabeçalho da Receita informa o Rendimento e exige a Unidade final
+  tributável. A listagem exibe Receita/Composição, Tipo e ações de edição e
+  arquivamento; a edição da Receita ocorre no formulário principal.
+- A ordem dos componentes é persistida, a tabela exibe o custo individual
+  calculado pela quantidade bruta convertida para a unidade do Produto e o
+  botão
+  de confirmação usa o texto `Salvar`, com recuperação garantida após falhas.
+- Medidas culinárias variáveis, como colheres, xícaras e doses, passaram a usar
+  base **Comum** e categoria **Geral**; a conversão permanece dependente do
+  estado físico do componente.
+- O schema e a API persistem e validam a unidade final tributável, a ordem dos
+  componentes e os identificadores de unidade e conversão dentro da transação
+  de criação ou edição.
+- A alteração envolve `src/server/`; a API publicada deve ser reiniciada antes
+  da validação operacional. Não foi necessário executar build nesta etapa.
+- A suíte completa foi executada com 114 testes aprovados; `node --check` e
+  `git diff --check` também passaram.
+
 ## 0.11.0 - 2026-11-04
 
 ### Receitas, Composições e Produto Buffet

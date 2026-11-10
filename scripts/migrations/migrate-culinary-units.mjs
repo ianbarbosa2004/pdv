@@ -1,5 +1,5 @@
 import mysql from "mysql2/promise";
-import { getConfig } from "../../src/server/config.js";
+import { loadMigrationConfig } from "../../src/server/config.js";
 
 const physicalStates = [
   ["liquid_light", "Líquido Fluído / Leve", "Água, sucos, destilados, azeite, vinagre"],
@@ -22,33 +22,79 @@ const units = [
   ["l", "Litro", "ml", "volume", "Volume equivalente a 1.000 mililitros"],
   ["gota", "Gota", "ml", "volume", "Gotas (extratos, adoçantes, bitters)"],
   ["pitada", "Pitada (Pinch)", "g", "weight", "Pitada de condimentos sólidos/pós"],
-  ["colher_cafe", "Colher de Café", "ml", "volume", "Colher de café padrão (~2,5ml)"],
-  ["colher_cha", "Colher de Chá", "ml", "volume", "Colher de chá padrão (~5ml)"],
-  ["colher_sobremesa", "Colher de Sobremesa", "ml", "volume", "Colher de sobremesa padrão (~10ml)"],
-  ["colher_sopa", "Colher de Sopa", "ml", "volume", "Colher de sopa padrão (~15ml)"],
-  ["dose_jigger", "Dose / Jigger", "ml", "volume", "Dose padrão de bar (50ml)"],
-  ["xicara_cha", "Xícara de Chá", "ml", "volume", "Xícara de chá padrão (~240ml)"],
+  ["colher_cafe", "Colher de Café", "common", "general", "Medida culinária variável conforme o estado físico (~2,5ml em líquidos)"],
+  ["colher_cha", "Colher de Chá", "common", "general", "Medida culinária variável conforme o estado físico (~5ml em líquidos)"],
+  ["colher_sobremesa", "Colher de Sobremesa", "common", "general", "Medida culinária variável conforme o estado físico (~10ml em líquidos)"],
+  ["colher_sopa", "Colher de Sopa", "common", "general", "Medida culinária variável conforme o estado físico (~10ml em líquidos)"],
+  ["dose_jigger", "Dose / Jigger", "common", "general", "Dose de destilado variável; referência de 45ml"],
+  ["xicara_cha", "Xícara de Chá", "common", "general", "Medida culinária variável conforme o estado físico (~200ml em líquidos)"],
   ["duzia", "Dúzia", "un", "unit", "Quantidade equivalente a 12 unidades"]
 ];
+
+const normalizeCulinaryUnitName = (value) => {
+  const minorWords = new Set(["a", "as", "à", "às", "ao", "aos", "da", "das", "de", "do", "dos", "e"]);
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase("pt-BR")
+    .split(/(\s+|\/|-)/u)
+    .map((part, index) => {
+      if (!part || /^\s+$/u.test(part) || part === "/" || part === "-") return part;
+      if (index > 0 && minorWords.has(part)) return part;
+      return `${part.charAt(0).toLocaleUpperCase("pt-BR")}${part.slice(1)}`;
+    })
+    .join("");
+};
 
 const conversions = [
   ["gota", "ml", "liquid_light", 0.05, "Adoçante, corante, amargo/bitters"],
   ["colher_cha", "ml", "liquid_light", 5, "Essências, suco de limão concentrado"],
-  ["colher_sopa", "ml", "liquid_light", 15, "Azeite, molho de soja, vinagre, xaropes"],
-  ["dose_jigger", "ml", "liquid_light", 50, "Destilados (Cachaça, Gin, Rum, Vodka)"],
-  ["xicara_cha", "ml", "liquid_light", 240, "Água, leite, sucos, caldos fluídos"],
+  ["colher_cafe", "ml", "liquid_light", 2.5, "Referência volumétrica aproximada; fonte Anvisa/SES-RS"],
+  ["colher_cha", "ml", "liquid_light", 5, "Essências, suco de limão concentrado; referência Anvisa"],
+  ["colher_sobremesa", "ml", "liquid_light", 10, "Referência volumétrica aproximada; fonte SES-RS"],
+  ["colher_sopa", "ml", "liquid_light", 10, "Azeite, molho de soja, vinagre, xaropes; referência Anvisa"],
+  ["dose_jigger", "ml", "liquid_light", 45, "Destilados; referência brasileira aproximada"],
+  ["xicara_cha", "ml", "liquid_light", 200, "Água, leite, sucos, caldos fluídos; referência Anvisa"],
+  ["colher_cafe", "ml", "liquid_viscous", 2.5, "Volume aproximado; a massa depende da densidade"],
+  ["colher_cha", "ml", "liquid_viscous", 5, "Volume aproximado; a massa depende da densidade"],
+  ["colher_sobremesa", "ml", "liquid_viscous", 10, "Volume aproximado; a massa depende da densidade"],
+  ["colher_sopa", "ml", "liquid_viscous", 10, "Volume aproximado; a massa depende da densidade"],
+  ["xicara_cha", "ml", "liquid_viscous", 200, "Volume aproximado; a massa depende da densidade"],
   ["colher_cha", "g", "liquid_viscous", 7, "Mel, melaço, glicose"],
+  ["colher_cafe", "g", "liquid_viscous", 3.5, "Referência aproximada; massa depende da densidade"],
+  ["colher_sobremesa", "g", "liquid_viscous", 14, "Referência aproximada; massa depende da densidade"],
   ["colher_sopa", "g", "liquid_viscous", 20, "Leite condensado, mel, cobertura de chocolate"],
   ["xicara_cha", "g", "liquid_viscous", 300, "Leite condensado, doce de leite concentrado"],
   ["pitada", "g", "powder_light", 0.5, "Pimenta, canela em pó, noz-moscada"],
   ["colher_cha", "g", "powder_light", 3, "Fermento em pó, bicarbonato, cacau"],
+  ["colher_cafe", "g", "powder_light", 1.5, "Referência aproximada para pós leves"],
+  ["colher_sobremesa", "g", "powder_light", 6, "Referência aproximada para pós leves"],
   ["colher_sopa", "g", "powder_light", 10, "Farinha de trigo, leite em pó, amido de milho"],
   ["xicara_cha", "g", "powder_light", 120, "Farinha de trigo peneirada, cacau em pó"],
   ["pitada", "g", "powder_heavy", 0.5, "Sal refinado"],
   ["colher_cha", "g", "powder_heavy", 5, "Sal refinado, açúcar refinado"],
+  ["colher_cafe", "g", "powder_heavy", 2.5, "Referência aproximada para pós densos"],
+  ["colher_sobremesa", "g", "powder_heavy", 10, "Referência aproximada para pós densos"],
   ["colher_sopa", "g", "powder_heavy", 15, "Açúcar refinado, sal grosso, café moído"],
   ["xicara_cha", "g", "powder_heavy", 190, "Açúcar refinado, arroz cru, feijão cru"],
   ["colher_cha", "g", "pasty", 5, "Manteiga, margarina, mostarda, ketchup"],
+  ["colher_cafe", "g", "pasty", 2.5, "Referência aproximada para pastosos"],
+  ["colher_sobremesa", "g", "pasty", 10, "Referência aproximada para pastosos"],
+  ["colher_cha", "g", "solid_chopped", 5, "Referência aproximada para sólidos picados"],
+  ["colher_cafe", "g", "solid_chopped", 2.5, "Referência aproximada para sólidos picados"],
+  ["colher_sobremesa", "g", "solid_chopped", 10, "Referência aproximada para sólidos picados"],
+  ["colher_cha", "g", "solid_whole", 5, "Referência aproximada para sólidos inteiros fracionados"],
+  ["colher_cafe", "g", "solid_whole", 2.5, "Referência aproximada para sólidos inteiros fracionados"],
+  ["colher_sobremesa", "g", "solid_whole", 10, "Referência aproximada para sólidos inteiros fracionados"],
+  ["colher_cha", "g", "solid_sliced", 5, "Referência aproximada para sólidos fatiados"],
+  ["colher_cafe", "g", "solid_sliced", 2.5, "Referência aproximada para sólidos fatiados"],
+  ["colher_sobremesa", "g", "solid_sliced", 10, "Referência aproximada para sólidos fatiados"],
+  ["colher_cha", "g", "solid_grated", 5, "Referência aproximada para sólidos ralados ou triturados"],
+  ["colher_cafe", "g", "solid_grated", 2.5, "Referência aproximada para sólidos ralados ou triturados"],
+  ["colher_sobremesa", "g", "solid_grated", 10, "Referência aproximada para sólidos ralados ou triturados"],
+  ["colher_cha", "g", "frozen", 5, "Referência aproximada para alimentos congelados"],
+  ["colher_cafe", "g", "frozen", 2.5, "Referência aproximada para alimentos congelados"],
+  ["colher_sobremesa", "g", "frozen", 10, "Referência aproximada para alimentos congelados"],
   ["colher_sopa", "g", "pasty", 16, "Requeijão, maionese, catupiry, cream cheese"],
   ["xicara_cha", "g", "pasty", 230, "Maionese base, requeijão cremoso"],
   ["colher_sopa", "g", "solid_chopped", 10, "Cheiro-verde picado, alho picado/triturado"],
@@ -71,10 +117,22 @@ const conversions = [
   ["kg", "g", "solid_sliced", 1000, "Conversão universal de massa"],
   ["kg", "g", "solid_grated", 1000, "Conversão universal de massa"],
   ["kg", "g", "frozen", 1000, "Conversão universal de massa"],
+  ["g", "kg", "liquid_light", 0.001, "Conversão universal de massa"],
+  ["g", "kg", "liquid_viscous", 0.001, "Conversão universal de massa"],
+  ["g", "kg", "powder_light", 0.001, "Conversão universal de massa"],
+  ["g", "kg", "powder_heavy", 0.001, "Conversão universal de massa"],
+  ["g", "kg", "pasty", 0.001, "Conversão universal de massa"],
+  ["g", "kg", "solid_chopped", 0.001, "Conversão universal de massa"],
+  ["g", "kg", "solid_whole", 0.001, "Conversão universal de massa"],
+  ["g", "kg", "solid_sliced", 0.001, "Conversão universal de massa"],
+  ["g", "kg", "solid_grated", 0.001, "Conversão universal de massa"],
+  ["g", "kg", "frozen", 0.001, "Conversão universal de massa"],
   ["l", "ml", "liquid_light", 1000, "Conversão universal de volume"],
   ["l", "ml", "liquid_viscous", 1000, "Conversão universal de volume"],
-  ["colher_cafe", "ml", "liquid_light", 2.5, "Medida culinária volumétrica aproximada"],
-  ["colher_sobremesa", "ml", "liquid_light", 10, "Medida culinária volumétrica aproximada"],
+  ["ml", "l", "liquid_light", 0.001, "Conversão universal de volume"],
+  ["ml", "l", "liquid_viscous", 0.001, "Conversão universal de volume"],
+  ["colher_cafe", "ml", "liquid_light", 2.5, "Referência volumétrica aproximada; fonte Anvisa/SES-RS"],
+  ["colher_sobremesa", "ml", "liquid_light", 10, "Referência volumétrica aproximada; fonte SES-RS"],
   ["duzia", "un", "solid_whole", 12, "Conversão de contagem"]
 ];
 
@@ -84,8 +142,8 @@ const createSchema = async (connection) => {
       idCulinaryUnit INT AUTO_INCREMENT PRIMARY KEY,
       codeCulinaryUnit VARCHAR(20) NOT NULL UNIQUE,
       nameCulinaryUnit VARCHAR(50) NOT NULL,
-      baseUnitCulinaryUnit ENUM('g', 'ml', 'un') NOT NULL,
-      categoryCulinaryUnit ENUM('weight', 'volume', 'unit') NOT NULL,
+      baseUnitCulinaryUnit ENUM('g', 'ml', 'un', 'common') NOT NULL,
+      categoryCulinaryUnit ENUM('weight', 'volume', 'unit', 'general') NOT NULL,
       descriptionCulinaryUnit VARCHAR(100) NULL,
       isActiveCulinaryUnit TINYINT(1) NOT NULL DEFAULT 1
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
@@ -113,6 +171,36 @@ const createSchema = async (connection) => {
       UNIQUE KEY uqCulinaryUnitConversions (idFromCulinaryUnitConversion, idToCulinaryUnitConversion, idPhysicalStateCulinaryUnitConversion)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+};
+
+const ensureConversionUniqueIndex = async (connection) => {
+  const [indexes] = await connection.execute(
+    `SELECT INDEX_NAME,
+            GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) AS indexColumns
+     FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'culinary_unit_conversions'
+       AND NON_UNIQUE = 0
+     GROUP BY INDEX_NAME`
+  );
+  const hasUniqueIndex = indexes.some(({ indexColumns }) =>
+    indexColumns === "idFromCulinaryUnitConversion,idToCulinaryUnitConversion,idPhysicalStateCulinaryUnitConversion"
+  );
+  if (hasUniqueIndex) return;
+  await connection.execute(
+    `DELETE duplicate
+     FROM culinary_unit_conversions duplicate
+     INNER JOIN culinary_unit_conversions original
+       ON original.idFromCulinaryUnitConversion = duplicate.idFromCulinaryUnitConversion
+      AND original.idToCulinaryUnitConversion = duplicate.idToCulinaryUnitConversion
+      AND original.idPhysicalStateCulinaryUnitConversion = duplicate.idPhysicalStateCulinaryUnitConversion
+      AND original.idCulinaryUnitConversion < duplicate.idCulinaryUnitConversion`
+  );
+  await connection.execute(
+    `ALTER TABLE culinary_unit_conversions
+     ADD UNIQUE KEY uqCulinaryUnitConversions
+     (idFromCulinaryUnitConversion, idToCulinaryUnitConversion, idPhysicalStateCulinaryUnitConversion)`
+  );
 };
 
 const columnExists = async (connection, tableName, columnName) => {
@@ -145,9 +233,24 @@ const migrateColumnNames = async (connection) => {
   await renameColumn(connection, "culinary_units", "id", "idCulinaryUnit", "INT NOT NULL AUTO_INCREMENT");
   await renameColumn(connection, "culinary_units", "code", "codeCulinaryUnit", "VARCHAR(20) NOT NULL");
   await renameColumn(connection, "culinary_units", "name", "nameCulinaryUnit", "VARCHAR(50) NOT NULL");
-  await renameColumn(connection, "culinary_units", "base_unit", "baseUnitCulinaryUnit", "ENUM('g', 'ml', 'un') NOT NULL");
-  await renameColumn(connection, "culinary_units", "category", "categoryCulinaryUnit", "ENUM('weight', 'volume', 'unit') NOT NULL");
+  await renameColumn(connection, "culinary_units", "base_unit", "baseUnitCulinaryUnit", "ENUM('g', 'ml', 'un', 'common') NOT NULL");
+  await renameColumn(connection, "culinary_units", "category", "categoryCulinaryUnit", "ENUM('weight', 'volume', 'unit', 'general') NOT NULL");
   await renameColumn(connection, "culinary_units", "description", "descriptionCulinaryUnit", "VARCHAR(100) NULL");
+  await connection.query(
+    `ALTER TABLE culinary_units
+     MODIFY COLUMN baseUnitCulinaryUnit ENUM('g', 'ml', 'un', 'common') NOT NULL,
+     MODIFY COLUMN categoryCulinaryUnit ENUM('weight', 'volume', 'unit', 'general') NOT NULL`
+  );
+  if (!(await columnExists(connection, "culinary_units", "isActiveCulinaryUnit"))) {
+    await connection.query(
+      "ALTER TABLE culinary_units ADD COLUMN isActiveCulinaryUnit TINYINT(1) NOT NULL DEFAULT 1"
+    );
+  }
+  if (!(await columnExists(connection, "physical_states", "isActivePhysicalState"))) {
+    await connection.query(
+      "ALTER TABLE physical_states ADD COLUMN isActivePhysicalState TINYINT(1) NOT NULL DEFAULT 1"
+    );
+  }
 
   await renameColumn(connection, "culinary_unit_conversions", "id", "idCulinaryUnitConversion", "INT NOT NULL AUTO_INCREMENT");
   await renameColumn(connection, "culinary_unit_conversions", "from_unit_id", "idFromCulinaryUnitConversion", "INT NOT NULL");
@@ -164,7 +267,8 @@ const upsertReferenceRows = async (connection) => {
        VALUES (?, ?, ?)
        ON DUPLICATE KEY UPDATE
          namePhysicalState = VALUES(namePhysicalState),
-         descriptionPhysicalState = VALUES(descriptionPhysicalState)`,
+           descriptionPhysicalState = VALUES(descriptionPhysicalState),
+           isActivePhysicalState = 1`,
       [code, name, description]
     );
   }
@@ -177,8 +281,9 @@ const upsertReferenceRows = async (connection) => {
          nameCulinaryUnit = VALUES(nameCulinaryUnit),
          baseUnitCulinaryUnit = VALUES(baseUnitCulinaryUnit),
          categoryCulinaryUnit = VALUES(categoryCulinaryUnit),
-         descriptionCulinaryUnit = VALUES(descriptionCulinaryUnit)`,
-      [code, name, baseUnit, category, description]
+         descriptionCulinaryUnit = VALUES(descriptionCulinaryUnit),
+         isActiveCulinaryUnit = 1`,
+      [code, normalizeCulinaryUnitName(name), baseUnit, category, description]
     );
   }
 };
@@ -235,10 +340,43 @@ const upsertConversions = async (connection) => {
       );
     }
   }
+  await connection.execute(`
+    INSERT INTO culinary_unit_conversions
+      (idFromCulinaryUnitConversion, idToCulinaryUnitConversion,
+       idPhysicalStateCulinaryUnitConversion, factorCulinaryUnitConversion,
+       notesCulinaryUnitConversion)
+    SELECT source.idCulinaryUnit, target.idCulinaryUnit, state.idPhysicalState,
+           CASE source.codeCulinaryUnit
+             WHEN 'g' THEN 1
+             WHEN 'kg' THEN 1000
+             WHEN 'ml' THEN 1
+             WHEN 'l' THEN 1000
+             WHEN 'un' THEN 1
+             WHEN 'duzia' THEN 12
+           END
+           / CASE target.codeCulinaryUnit
+             WHEN 'g' THEN 1
+             WHEN 'kg' THEN 1000
+             WHEN 'ml' THEN 1
+             WHEN 'l' THEN 1000
+             WHEN 'un' THEN 1
+             WHEN 'duzia' THEN 12
+           END,
+           'Conversão universal entre unidades fixas'
+    FROM culinary_units source
+    INNER JOIN culinary_units target
+      ON target.baseUnitCulinaryUnit = source.baseUnitCulinaryUnit
+     AND target.codeCulinaryUnit IN ('g', 'kg', 'ml', 'l', 'un', 'duzia')
+    CROSS JOIN physical_states state
+    WHERE source.codeCulinaryUnit IN ('g', 'kg', 'ml', 'l', 'un', 'duzia')
+    ON DUPLICATE KEY UPDATE
+      factorCulinaryUnitConversion = VALUES(factorCulinaryUnitConversion),
+      notesCulinaryUnitConversion = VALUES(notesCulinaryUnitConversion)
+  `);
 };
 
 const main = async () => {
-  const config = getConfig();
+  const config = await loadMigrationConfig();
   const connection = await mysql.createConnection({
     host: config.database.host,
     port: config.database.port,
@@ -252,6 +390,7 @@ const main = async () => {
   try {
     await createSchema(connection);
     await migrateColumnNames(connection);
+    await ensureConversionUniqueIndex(connection);
     await connection.beginTransaction();
     await upsertReferenceRows(connection);
     await upsertConversions(connection);

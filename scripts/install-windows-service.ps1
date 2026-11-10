@@ -97,8 +97,7 @@ $config = @"
   <delayedAutoStart>true</delayedAutoStart>
   <depend>MariaDB</depend>
   <logpath>$escapedLog</logpath>
-  <log mode="roll-by-size">
-    <sizeThreshold>10485760</sizeThreshold>
+  <log mode="roll-by-time">
     <pattern>yyyyMMdd</pattern>
     <keepFiles>14</keepFiles>
   </log>

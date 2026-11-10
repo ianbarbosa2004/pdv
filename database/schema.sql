@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS products (
   controlsStockProduct TINYINT(1) NOT NULL DEFAULT 1,
   isBuffetProduct TINYINT(1) NOT NULL DEFAULT 0,
   isFractionalProduct TINYINT(1) NOT NULL DEFAULT 0,
-  printsPlace VARCHAR(20) NOT NULL DEFAULT 'NÃO IMPRIMIR',
+  printsPlace VARCHAR(20) NOT NULL DEFAULT 'Não Imprimir',
   showsInPdvProduct TINYINT(1) NOT NULL DEFAULT 1,
   isActiveProduct TINYINT(1) NOT NULL DEFAULT 1,
   createdAtProduct TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -82,6 +82,8 @@ CREATE TABLE IF NOT EXISTS recipe_definitions (
   nameRecipe VARCHAR(180) NOT NULL,
   kindRecipe ENUM('production', 'composition') NOT NULL,
   idResultProductRecipe BIGINT UNSIGNED NULL,
+  idCulinaryUnitYieldRecipe BIGINT UNSIGNED NULL,
+  idUnitYieldRecipe BIGINT UNSIGNED NULL,
   statusRecipe ENUM('draft', 'active', 'review_required', 'archived') NOT NULL DEFAULT 'draft',
   versionRecipe INT UNSIGNED NOT NULL DEFAULT 1,
   yieldQuantityRecipe DECIMAL(12,3) NOT NULL DEFAULT 1,
@@ -92,6 +94,8 @@ CREATE TABLE IF NOT EXISTS recipe_definitions (
   UNIQUE KEY uqRecipeNameKind (nameRecipe, kindRecipe),
   KEY idxRecipeStatus (statusRecipe, kindRecipe),
   KEY idxRecipeResultProduct (idResultProductRecipe),
+  KEY idxRecipeYieldCulinaryUnit (idCulinaryUnitYieldRecipe),
+  KEY idxRecipeYieldUnit (idUnitYieldRecipe),
   CONSTRAINT fkRecipeResultProduct
     FOREIGN KEY (idResultProductRecipe) REFERENCES products (idProduct)
     ON DELETE RESTRICT
@@ -103,6 +107,9 @@ CREATE TABLE IF NOT EXISTS recipe_components (
   componentTypeRecipe ENUM('product', 'recipe') NOT NULL DEFAULT 'product',
   idComponentProductRecipe BIGINT UNSIGNED NULL,
   idComponentRecipe BIGINT UNSIGNED NULL,
+  orderRecipeComponent INT UNSIGNED NOT NULL DEFAULT 0,
+  idCulinaryUnitRecipeComponent BIGINT UNSIGNED NULL,
+  idCulinaryUnitConversionRecipeComponent BIGINT UNSIGNED NULL,
   quantityRecipeComponent DECIMAL(12,4) NOT NULL,
   lossPercentRecipeComponent DECIMAL(7,4) NOT NULL DEFAULT 0,
   createdAtRecipeComponent TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -117,7 +124,9 @@ CREATE TABLE IF NOT EXISTS recipe_components (
     ON DELETE RESTRICT,
   CONSTRAINT fkRecipeComponentsRecipe
     FOREIGN KEY (idComponentRecipe) REFERENCES recipe_definitions (idRecipe)
-    ON DELETE RESTRICT
+    ON DELETE RESTRICT,
+  KEY idxRecipeComponentsCulinaryUnit (idCulinaryUnitRecipeComponent),
+  KEY idxRecipeComponentsCulinaryConversion (idCulinaryUnitConversionRecipeComponent)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS product_recipe_links (
@@ -167,11 +176,29 @@ ON DUPLICATE KEY UPDATE isActiveProductType = 1;
 
 CREATE TABLE IF NOT EXISTS units (
   idUnit BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  codeUnit CHAR(6) NOT NULL,
+  codeUnit VARCHAR(20) NOT NULL,
   descriptionUnit VARCHAR(80) NOT NULL,
   isActiveUnit TINYINT(1) NOT NULL DEFAULT 1,
+  isTaxableUnit TINYINT(1) NOT NULL DEFAULT 1,
+  isCulinaryUnit TINYINT(1) NOT NULL DEFAULT 0,
+  baseUnitUnit ENUM('g', 'ml', 'un', 'common') NULL,
+  categoryUnit ENUM('weight', 'volume', 'unit', 'general') NULL,
   PRIMARY KEY (idUnit),
   UNIQUE KEY uqUnitsCode (codeUnit)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS unit_conversions (
+  idUnitConversion INT NOT NULL AUTO_INCREMENT,
+  idFromUnitConversion BIGINT UNSIGNED NOT NULL,
+  idToUnitConversion BIGINT UNSIGNED NOT NULL,
+  idPhysicalStateUnitConversion INT NOT NULL,
+  factorUnitConversion DECIMAL(10, 4) NOT NULL,
+  notesUnitConversion VARCHAR(150) NULL,
+  PRIMARY KEY (idUnitConversion),
+  UNIQUE KEY uqUnitConversions (idFromUnitConversion, idToUnitConversion, idPhysicalStateUnitConversion),
+  CONSTRAINT fkUnitConversionsFrom FOREIGN KEY (idFromUnitConversion) REFERENCES units (idUnit) ON DELETE CASCADE,
+  CONSTRAINT fkUnitConversionsTo FOREIGN KEY (idToUnitConversion) REFERENCES units (idUnit) ON DELETE CASCADE,
+  CONSTRAINT fkUnitConversionsPhysicalState FOREIGN KEY (idPhysicalStateUnitConversion) REFERENCES physical_states (idPhysicalState) ON DELETE RESTRICT
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS ncm_catalog (
@@ -271,7 +298,7 @@ CREATE TABLE IF NOT EXISTS operator_sessions (
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS cash_registers (
-  idCashRegister TINYINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  idCashRegister SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT,
   nameCashRegister VARCHAR(80) NOT NULL,
   isActiveCashRegister TINYINT(1) NOT NULL DEFAULT 1,
   PRIMARY KEY (idCashRegister),
@@ -284,7 +311,7 @@ ON DUPLICATE KEY UPDATE isActiveCashRegister = 1;
 
 CREATE TABLE IF NOT EXISTS cash_sessions (
   idCashSession BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  idCashRegister TINYINT UNSIGNED NOT NULL,
+  idCashRegister SMALLINT UNSIGNED NOT NULL,
   idOperatorOpened BIGINT UNSIGNED NOT NULL,
   openingAmountCashSession DECIMAL(12,2) NOT NULL,
   expectedClosingAmountCashSession DECIMAL(12,2) NOT NULL,
@@ -640,26 +667,3 @@ CREATE TABLE IF NOT EXISTS cash_movements (
     FOREIGN KEY (idSale) REFERENCES sales (idSale)
     ON DELETE RESTRICT
 ) ENGINE=InnoDB;
-
-CREATE TABLE IF NOT EXISTS culinary_units (
-  idCulinaryUnit INT AUTO_INCREMENT PRIMARY KEY,
-  codeCulinaryUnit VARCHAR(20) NOT NULL UNIQUE,
-  nameCulinaryUnit VARCHAR(50) NOT NULL,
-  baseUnitCulinaryUnit ENUM('g', 'ml', 'un') NOT NULL,
-  categoryCulinaryUnit ENUM('weight', 'volume', 'unit') NOT NULL,
-  descriptionCulinaryUnit VARCHAR(100) NULL,
-  isActiveCulinaryUnit TINYINT(1) NOT NULL DEFAULT 1
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS culinary_unit_conversions (
-  idCulinaryUnitConversion INT AUTO_INCREMENT PRIMARY KEY,
-  idFromCulinaryUnitConversion INT NOT NULL,
-  idToCulinaryUnitConversion INT NOT NULL,
-  idPhysicalStateCulinaryUnitConversion INT NOT NULL,
-  factorCulinaryUnitConversion DECIMAL(10, 4) NOT NULL,
-  notesCulinaryUnitConversion VARCHAR(150) NULL,
-  FOREIGN KEY (idFromCulinaryUnitConversion) REFERENCES culinary_units(idCulinaryUnit) ON DELETE CASCADE,
-  FOREIGN KEY (idToCulinaryUnitConversion) REFERENCES culinary_units(idCulinaryUnit) ON DELETE CASCADE,
-  FOREIGN KEY (idPhysicalStateCulinaryUnitConversion) REFERENCES physical_states(idPhysicalState) ON DELETE RESTRICT,
-  UNIQUE KEY uqCulinaryUnitConversions (idFromCulinaryUnitConversion, idToCulinaryUnitConversion, idPhysicalStateCulinaryUnitConversion)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

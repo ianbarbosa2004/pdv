@@ -18,6 +18,31 @@ function Write-Step([string]$Message) {
   Write-Host "[PDV] $Message" -ForegroundColor Cyan
 }
 
+function Read-MariaDbPassword([string]$Prompt) {
+  Write-Host "$Prompt (cole com Ctrl+V ou botão direito; Enter confirma): " -NoNewline
+  $securePassword = New-Object System.Security.SecureString
+  while ($true) {
+    $key = [Console]::ReadKey($true)
+    if ($key.Key -eq [ConsoleKey]::Enter) { break }
+    if ($key.Key -eq [ConsoleKey]::Backspace) {
+      if ($securePassword.Length -gt 0) {
+        $securePassword.RemoveAt($securePassword.Length - 1)
+        Write-Host "`b `b" -NoNewline
+      }
+      continue
+    }
+    if ([int][char]$key.KeyChar -eq 3) {
+      throw 'Entrada da senha cancelada.'
+    }
+    if (-not [char]::IsControl($key.KeyChar)) {
+      $securePassword.AppendChar($key.KeyChar)
+      Write-Host '*' -NoNewline
+    }
+  }
+  Write-Host
+  return $securePassword
+}
+
 Write-Step 'Validando permissões administrativas e ferramentas instaladas...'
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -34,7 +59,7 @@ $mysqlPath = @(
 ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 if (-not $mysqlPath) { throw 'mysql.exe não foi encontrado.' }
 
-$rootPasswordSecure = Read-Host 'Senha do usuário administrativo do MariaDB' -AsSecureString
+$rootPasswordSecure = Read-MariaDbPassword 'Senha do usuário administrativo do MariaDB'
 $rootPassword = [System.Net.NetworkCredential]::new('', $rootPasswordSecure).Password
 if ([string]::IsNullOrWhiteSpace($rootPassword)) {
   throw 'A senha administrativa do MariaDB não pode estar vazia.'

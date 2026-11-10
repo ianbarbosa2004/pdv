@@ -195,7 +195,7 @@ const ensureCustomerConsumerSchema = async () => {
   ) ENGINE=InnoDB`);
 };
 
-const ensureRecipeSchema = async () => {
+const ensureRecipeSchemaOnce = async () => {
   const [productColumns] = await pool.query(
     `SELECT COLUMN_NAME
      FROM information_schema.COLUMNS
@@ -211,6 +211,8 @@ const ensureRecipeSchema = async () => {
     nameRecipe VARCHAR(180) NOT NULL,
     kindRecipe ENUM('production', 'composition') NOT NULL,
     idResultProductRecipe BIGINT UNSIGNED NULL,
+    idCulinaryUnitYieldRecipe BIGINT UNSIGNED NULL,
+    idUnitYieldRecipe BIGINT UNSIGNED NULL,
     statusRecipe ENUM('draft', 'active', 'review_required', 'archived') NOT NULL DEFAULT 'draft',
     versionRecipe INT UNSIGNED NOT NULL DEFAULT 1,
     yieldQuantityRecipe DECIMAL(12,3) NOT NULL DEFAULT 1,
@@ -220,6 +222,8 @@ const ensureRecipeSchema = async () => {
     PRIMARY KEY (idRecipe),
     UNIQUE KEY uqRecipeNameKind (nameRecipe, kindRecipe),
     KEY idxRecipeStatus (statusRecipe, kindRecipe),
+    KEY idxRecipeYieldCulinaryUnit (idCulinaryUnitYieldRecipe),
+    KEY idxRecipeYieldUnit (idUnitYieldRecipe),
     CONSTRAINT fkRecipeResultProduct
       FOREIGN KEY (idResultProductRecipe) REFERENCES products (idProduct)
       ON DELETE RESTRICT
@@ -242,6 +246,12 @@ const ensureRecipeSchema = async () => {
   if (recipeColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "idResultProductRecipe")) {
     await pool.query("ALTER TABLE recipe_definitions MODIFY COLUMN idResultProductRecipe BIGINT UNSIGNED NULL");
   }
+  if (!recipeColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "idCulinaryUnitYieldRecipe")) {
+    await pool.query("ALTER TABLE recipe_definitions ADD COLUMN idCulinaryUnitYieldRecipe BIGINT UNSIGNED NULL AFTER idResultProductRecipe");
+  }
+  if (!recipeColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "idUnitYieldRecipe")) {
+    await pool.query("ALTER TABLE recipe_definitions ADD COLUMN idUnitYieldRecipe BIGINT UNSIGNED NULL AFTER idCulinaryUnitYieldRecipe");
+  }
   const [recipeIndexes] = await pool.query(
     `SHOW INDEX FROM recipe_definitions`
   );
@@ -249,6 +259,14 @@ const ensureRecipeSchema = async () => {
     await pool.query(
       "ALTER TABLE recipe_definitions ADD KEY idxRecipeResultProduct (idResultProductRecipe)"
     );
+  }
+  if (!recipeIndexes.some(({ Key_name }) => Key_name === "idxRecipeYieldCulinaryUnit")) {
+    await pool.query(
+      "ALTER TABLE recipe_definitions ADD KEY idxRecipeYieldCulinaryUnit (idCulinaryUnitYieldRecipe)"
+    );
+  }
+  if (!recipeIndexes.some(({ Key_name }) => Key_name === "idxRecipeYieldUnit")) {
+    await pool.query("ALTER TABLE recipe_definitions ADD KEY idxRecipeYieldUnit (idUnitYieldRecipe)");
   }
   if (recipeIndexes.some(({ Key_name }) => Key_name === "uqRecipeResultKind")) {
     await pool.query("ALTER TABLE recipe_definitions DROP INDEX uqRecipeResultKind");
@@ -262,6 +280,9 @@ const ensureRecipeSchema = async () => {
     componentTypeRecipe ENUM('product', 'recipe') NOT NULL DEFAULT 'product',
     idComponentProductRecipe BIGINT UNSIGNED NULL,
     idComponentRecipe BIGINT UNSIGNED NULL,
+    orderRecipeComponent INT UNSIGNED NOT NULL DEFAULT 0,
+    idCulinaryUnitRecipeComponent BIGINT UNSIGNED NULL,
+    idCulinaryUnitConversionRecipeComponent BIGINT UNSIGNED NULL,
     quantityRecipeComponent DECIMAL(12,4) NOT NULL,
     lossPercentRecipeComponent DECIMAL(7,4) NOT NULL DEFAULT 0,
     createdAtRecipeComponent TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -276,7 +297,9 @@ const ensureRecipeSchema = async () => {
       ON DELETE RESTRICT,
     CONSTRAINT fkRecipeComponentsNestedRecipe
       FOREIGN KEY (idComponentRecipe) REFERENCES recipe_definitions (idRecipe)
-      ON DELETE RESTRICT
+      ON DELETE RESTRICT,
+    KEY idxRecipeComponentsCulinaryUnit (idCulinaryUnitRecipeComponent),
+    KEY idxRecipeComponentsCulinaryConversion (idCulinaryUnitConversionRecipeComponent)
   ) ENGINE=InnoDB`);
   const [componentColumns] = await pool.query(
     `SELECT COLUMN_NAME
@@ -288,6 +311,16 @@ const ensureRecipeSchema = async () => {
   }
   if (!componentColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "idComponentRecipe")) {
     await pool.query("ALTER TABLE recipe_components ADD COLUMN idComponentRecipe BIGINT UNSIGNED NULL AFTER idComponentProductRecipe");
+  }
+  if (!componentColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "orderRecipeComponent")) {
+    await pool.query("ALTER TABLE recipe_components ADD COLUMN orderRecipeComponent INT UNSIGNED NOT NULL DEFAULT 0 AFTER idComponentRecipe");
+    await pool.query("UPDATE recipe_components SET orderRecipeComponent = idRecipeComponent WHERE orderRecipeComponent = 0");
+  }
+  if (!componentColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "idCulinaryUnitRecipeComponent")) {
+    await pool.query("ALTER TABLE recipe_components ADD COLUMN idCulinaryUnitRecipeComponent BIGINT UNSIGNED NULL AFTER idComponentRecipe");
+  }
+  if (!componentColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "idCulinaryUnitConversionRecipeComponent")) {
+    await pool.query("ALTER TABLE recipe_components ADD COLUMN idCulinaryUnitConversionRecipeComponent BIGINT UNSIGNED NULL AFTER idCulinaryUnitRecipeComponent");
   }
   await pool.query("ALTER TABLE recipe_components MODIFY COLUMN idComponentProductRecipe BIGINT UNSIGNED NULL");
   const [componentForeignKeys] = await pool.query(
@@ -336,6 +369,18 @@ const ensureRecipeSchema = async () => {
       FOREIGN KEY (idRecipe) REFERENCES recipe_definitions (idRecipe)
       ON DELETE CASCADE
   ) ENGINE=InnoDB`);
+};
+
+let recipeSchemaPromise = null;
+
+const ensureRecipeSchema = () => {
+  if (!recipeSchemaPromise) {
+    recipeSchemaPromise = ensureRecipeSchemaOnce().catch((error) => {
+      recipeSchemaPromise = null;
+      throw error;
+    });
+  }
+  return recipeSchemaPromise;
 };
 
 const migrateCustomerConsumerSchema = async () => {
@@ -544,7 +589,11 @@ const ensureProductFiscalSchema = async () => {
   }
 };
 
-const ensureProductCatalogSchema = async () => {
+let productCatalogSchemaPromise = null;
+
+const ensureProductCatalogSchema = () => {
+  if (productCatalogSchemaPromise) return productCatalogSchemaPromise;
+  productCatalogSchemaPromise = (async () => {
   await pool.query(`CREATE TABLE IF NOT EXISTS product_types (
     idProductType BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     codeSpedProductType VARCHAR(30) NULL,
@@ -571,12 +620,31 @@ const ensureProductCatalogSchema = async () => {
   );
   await pool.query(`CREATE TABLE IF NOT EXISTS units (
     idUnit BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    codeUnit CHAR(6) NOT NULL,
+    codeUnit VARCHAR(20) NOT NULL,
     descriptionUnit VARCHAR(80) NOT NULL,
     isActiveUnit TINYINT(1) NOT NULL DEFAULT 1,
     PRIMARY KEY (idUnit),
     UNIQUE KEY uqUnitsCode (codeUnit)
   ) ENGINE=InnoDB`);
+  const [unitColumns] = await pool.query(
+    `SELECT COLUMN_NAME
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'units'`
+  );
+  const unitColumnNames = new Set(unitColumns.map(({ COLUMN_NAME }) => COLUMN_NAME));
+  if (!unitColumnNames.has("isTaxableUnit")) {
+    await pool.query("ALTER TABLE units ADD COLUMN isTaxableUnit TINYINT(1) NOT NULL DEFAULT 1 AFTER isActiveUnit");
+  }
+  if (!unitColumnNames.has("isCulinaryUnit")) {
+    await pool.query("ALTER TABLE units ADD COLUMN isCulinaryUnit TINYINT(1) NOT NULL DEFAULT 0 AFTER isTaxableUnit");
+  }
+  if (!unitColumnNames.has("baseUnitUnit")) {
+    await pool.query("ALTER TABLE units ADD COLUMN baseUnitUnit VARCHAR(20) NULL AFTER isCulinaryUnit");
+  }
+  if (!unitColumnNames.has("categoryUnit")) {
+    await pool.query("ALTER TABLE units ADD COLUMN categoryUnit VARCHAR(30) NULL AFTER baseUnitUnit");
+  }
+  await pool.query("ALTER TABLE units MODIFY COLUMN codeUnit VARCHAR(20) NOT NULL");
   await ensureProductFiscalSchema();
   await ensureFiscalOperationSchema();
   const [columns] = await pool.query(
@@ -594,10 +662,10 @@ const ensureProductCatalogSchema = async () => {
   }
   if (!existing.has("printsPlace") && existing.has("printsKitchenProduct")) {
     await pool.query(
-      "ALTER TABLE products ADD COLUMN printsPlace VARCHAR(20) NOT NULL DEFAULT 'NÃO IMPRIMIR' AFTER isFractionalProduct"
+      "ALTER TABLE products ADD COLUMN printsPlace VARCHAR(20) NOT NULL DEFAULT 'Não Imprimir' AFTER isFractionalProduct"
     );
     await pool.query(
-      "UPDATE products SET printsPlace = CASE WHEN printsKitchenProduct = 1 THEN 'COZINHA' ELSE 'NÃO IMPRIMIR' END"
+      "UPDATE products SET printsPlace = CASE WHEN printsKitchenProduct = 1 THEN 'Cozinha' ELSE 'Não Imprimir' END"
     );
     await pool.query("ALTER TABLE products DROP COLUMN printsKitchenProduct");
     existing.delete("printsKitchenProduct");
@@ -613,7 +681,7 @@ const ensureProductCatalogSchema = async () => {
     ["idUnitProduct", "ALTER TABLE products ADD COLUMN idUnitProduct BIGINT UNSIGNED NULL AFTER idProductTypeProduct"],
     ["controlsStockProduct", "ALTER TABLE products ADD COLUMN controlsStockProduct TINYINT(1) NOT NULL DEFAULT 1 AFTER stockQuantityProduct"],
     ["isFractionalProduct", "ALTER TABLE products ADD COLUMN isFractionalProduct TINYINT(1) NOT NULL DEFAULT 0 AFTER controlsStockProduct"],
-    ["printsPlace", "ALTER TABLE products ADD COLUMN printsPlace VARCHAR(20) NOT NULL DEFAULT 'NÃO IMPRIMIR' AFTER isFractionalProduct"],
+    ["printsPlace", "ALTER TABLE products ADD COLUMN printsPlace VARCHAR(20) NOT NULL DEFAULT 'Não Imprimir' AFTER isFractionalProduct"],
     ["showsInPdvProduct", "ALTER TABLE products ADD COLUMN showsInPdvProduct TINYINT(1) NOT NULL DEFAULT 1 AFTER printsPlace"],
     ["costPriceProduct", "ALTER TABLE products ADD COLUMN costPriceProduct DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER priceProduct"]
   ];
@@ -623,7 +691,7 @@ const ensureProductCatalogSchema = async () => {
   await pool.query(
     `UPDATE products
      LEFT JOIN product_types ON product_types.idProductType = products.idProductTypeProduct
-     SET products.printsPlace = 'NÃO IMPRIMIR'
+     SET products.printsPlace = 'Não Imprimir'
      WHERE products.printsPlace IS NULL
         OR product_types.idProductType IS NULL
         OR UPPER(product_types.descriptionProductType) NOT IN ('MERCADORIA PARA REVENDA', 'PRODUTO ACABADO', 'PRODUTOS ACABADOS')`
@@ -644,20 +712,17 @@ const ensureProductCatalogSchema = async () => {
   if (!groupColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "showsInPdvGroup")) {
     await pool.query("ALTER TABLE `groups` ADD COLUMN showsInPdvGroup TINYINT(1) NOT NULL DEFAULT 0 AFTER idClass");
   }
+  })();
+  productCatalogSchemaPromise.catch(() => {
+    productCatalogSchemaPromise = null;
+  });
+  return productCatalogSchemaPromise;
 };
 
 let culinarySchemaPromise = null;
 
 const ensureCulinarySchema = () => culinarySchemaPromise ??= (async () => {
-  await pool.query(`CREATE TABLE IF NOT EXISTS culinary_units (
-    idCulinaryUnit INT AUTO_INCREMENT PRIMARY KEY,
-    codeCulinaryUnit VARCHAR(20) NOT NULL UNIQUE,
-    nameCulinaryUnit VARCHAR(50) NOT NULL,
-    baseUnitCulinaryUnit ENUM('g', 'ml', 'un') NOT NULL,
-    categoryCulinaryUnit ENUM('weight', 'volume', 'unit') NOT NULL,
-    descriptionCulinaryUnit VARCHAR(100) NULL,
-    isActiveCulinaryUnit TINYINT(1) NOT NULL DEFAULT 1
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  await ensureProductCatalogSchema();
   await pool.query(`CREATE TABLE IF NOT EXISTS physical_states (
     idPhysicalState INT AUTO_INCREMENT PRIMARY KEY,
     codePhysicalState VARCHAR(30) NOT NULL UNIQUE,
@@ -665,175 +730,142 @@ const ensureCulinarySchema = () => culinarySchemaPromise ??= (async () => {
     descriptionPhysicalState VARCHAR(150) NULL,
     isActivePhysicalState TINYINT(1) NOT NULL DEFAULT 1
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
-  await pool.query(`CREATE TABLE IF NOT EXISTS culinary_unit_conversions (
-    idCulinaryUnitConversion INT AUTO_INCREMENT PRIMARY KEY,
-    idFromCulinaryUnitConversion INT NOT NULL,
-    idToCulinaryUnitConversion INT NOT NULL,
-    idPhysicalStateCulinaryUnitConversion INT NOT NULL,
-    factorCulinaryUnitConversion DECIMAL(10, 4) NOT NULL,
-    notesCulinaryUnitConversion VARCHAR(150) NULL,
-    UNIQUE KEY uqCulinaryUnitConversions (idFromCulinaryUnitConversion, idToCulinaryUnitConversion, idPhysicalStateCulinaryUnitConversion),
-    FOREIGN KEY (idFromCulinaryUnitConversion) REFERENCES culinary_units(idCulinaryUnit) ON DELETE CASCADE,
-    FOREIGN KEY (idToCulinaryUnitConversion) REFERENCES culinary_units(idCulinaryUnit) ON DELETE CASCADE,
-    FOREIGN KEY (idPhysicalStateCulinaryUnitConversion) REFERENCES physical_states(idPhysicalState) ON DELETE RESTRICT
+  await pool.query(`CREATE TABLE IF NOT EXISTS unit_conversions (
+    idUnitConversion INT NOT NULL AUTO_INCREMENT,
+    idFromUnitConversion BIGINT UNSIGNED NOT NULL,
+    idToUnitConversion BIGINT UNSIGNED NOT NULL,
+    idPhysicalStateUnitConversion INT NOT NULL,
+    factorUnitConversion DECIMAL(10, 4) NOT NULL,
+    notesUnitConversion VARCHAR(150) NULL,
+    PRIMARY KEY (idUnitConversion),
+    UNIQUE KEY uqUnitConversions (idFromUnitConversion, idToUnitConversion, idPhysicalStateUnitConversion),
+    FOREIGN KEY (idFromUnitConversion) REFERENCES units (idUnit) ON DELETE CASCADE,
+    FOREIGN KEY (idToUnitConversion) REFERENCES units (idUnit) ON DELETE CASCADE,
+    FOREIGN KEY (idPhysicalStateUnitConversion) REFERENCES physical_states (idPhysicalState) ON DELETE RESTRICT
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
-  for (const [table, column] of [
-    ["culinary_units", "isActiveCulinaryUnit"],
-    ["physical_states", "isActivePhysicalState"]
-  ]) {
-    const [columns] = await pool.query(
-      `SELECT COLUMN_NAME FROM information_schema.COLUMNS
-       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
-      [table, column]
-    );
-    if (!columns.length) {
-      await pool.query(`ALTER TABLE \`${table}\` ADD COLUMN ${column} TINYINT(1) NOT NULL DEFAULT 1`);
-    }
-  }
-  const culinaryUnits = [
-    ["g", "Grama", "g", "weight", "Massa/Peso base em gramas"],
-    ["ml", "Mililitro", "ml", "volume", "Volume base em mililitros"],
-    ["un", "Unidade", "un", "unit", "Contagem unitária"],
-    ["kg", "Quilograma", "g", "weight", "Massa equivalente a 1.000 gramas"],
-    ["l", "Litro", "ml", "volume", "Volume equivalente a 1.000 mililitros"],
-    ["gota", "Gota", "ml", "volume", "Gotas (extratos, adoçantes, bitters)"],
-    ["pitada", "Pitada (Pinch)", "g", "weight", "Pitada de condimentos sólidos/pós"],
-    ["colher_cafe", "Colher de Café", "ml", "volume", "Colher de café padrão (~2,5ml)"],
-    ["colher_cha", "Colher de Chá", "ml", "volume", "Colher de chá padrão (~5ml)"],
-    ["colher_sobremesa", "Colher de Sobremesa", "ml", "volume", "Colher de sobremesa padrão (~10ml)"],
-    ["colher_sopa", "Colher de Sopa", "ml", "volume", "Colher de sopa padrão (~15ml)"],
-    ["dose_jigger", "Dose / Jigger", "ml", "volume", "Dose padrão de bar (50ml)"],
-    ["xicara_cha", "Xícara de Chá", "ml", "volume", "Xícara de chá padrão (~240ml)"],
-    ["duzia", "Dúzia", "un", "unit", "Quantidade equivalente a 12 unidades"]
+
+  const units = [
+    ["G", "Grama", "g", "weight", 1],
+    ["ML", "Mililitro", "ml", "volume", 1],
+    ["UN", "Unidade", "un", "unit", 1],
+    ["KG", "Quilograma", "g", "weight", 1],
+    ["L", "Litro", "ml", "volume", 1],
+    ["GOTA", "Gota", "ml", "volume", 0],
+    ["PITADA", "Pitada", "g", "weight", 0],
+    ["COLHER_CAFE", "Colher de Café", "common", "general", 0],
+    ["COLHER_CHA", "Colher de Chá", "common", "general", 0],
+    ["COLHER_SOBREMESA", "Colher de Sobremesa", "common", "general", 0],
+    ["COLHER_SOPA", "Colher de Sopa", "common", "general", 0],
+    ["DOSE_JIGGER", "Dose / Jigger", "common", "general", 0],
+    ["XICARA_CHA", "Xícara de Chá", "common", "general", 0],
+    ["DZ", "Dúzia", "un", "unit", 1]
   ];
-  for (const [code, name, baseUnit, category, description] of culinaryUnits) {
+  for (const [code, description, baseUnit, category, isTaxable] of units) {
     await pool.query(
-      `INSERT INTO culinary_units
-        (codeCulinaryUnit, nameCulinaryUnit, baseUnitCulinaryUnit, categoryCulinaryUnit, descriptionCulinaryUnit)
-       VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO units
+        (codeUnit, descriptionUnit, isActiveUnit, isTaxableUnit, isCulinaryUnit, baseUnitUnit, categoryUnit)
+       VALUES (?, ?, 1, ?, 1, ?, ?)
        ON DUPLICATE KEY UPDATE
-         nameCulinaryUnit = VALUES(nameCulinaryUnit),
-         baseUnitCulinaryUnit = VALUES(baseUnitCulinaryUnit),
-         categoryCulinaryUnit = VALUES(categoryCulinaryUnit),
-         descriptionCulinaryUnit = VALUES(descriptionCulinaryUnit)`,
-      [code, name, baseUnit, category, description]
+         descriptionUnit = VALUES(descriptionUnit),
+         isActiveUnit = 1,
+         isTaxableUnit = VALUES(isTaxableUnit),
+         isCulinaryUnit = 1,
+         baseUnitUnit = VALUES(baseUnitUnit),
+         categoryUnit = VALUES(categoryUnit)`,
+      [code, description, isTaxable, baseUnit, category]
     );
   }
-  const physicalStates = [
-    ["liquid_light", "Líquido Fluído / Leve", "Água, sucos, destilados, azeite, vinagre"],
-    ["liquid_viscous", "Líquido Viscoso / Denso", "Leite condensado, mel, xaropes densos, melaço"],
-    ["powder_light", "Pó Fino / Leve", "Farinha de trigo, fermento, cacau em pó, amido de milho"],
-    ["powder_heavy", "Granulado / Pó Pesado", "Açúcar refinado, sal, café moído, grãos crus"],
-    ["pasty", "Pastoso / Emulsão", "Maionese, requeijão, manteiga, ketchup, catupiry"],
-    ["solid_chopped", "Sólido Picado / Cubos", "Bacon picado, alho picado, ervas e legumes em cubos"],
-    ["solid_whole", "Sólido Inteiro / Peça", "Ovos, frutas, legumes e peças inteiras"],
-    ["solid_sliced", "Sólido Fatiado", "Frutas, legumes, carnes e queijos fatiados"],
-    ["solid_grated", "Sólido Ralado / Triturado", "Queijos, coco, alho e outros ingredientes ralados ou triturados"],
-    ["frozen", "Congelado", "Polpas, legumes e outros alimentos mantidos congelados"]
+
+  const states = [
+    ["liquid_light", "Líquido Fluído / Leve", "Água, sucos, destilados, azeite e vinagre"],
+    ["liquid_viscous", "Líquido Viscoso / Denso", "Mel, xaropes e cremes densos"],
+    ["powder_light", "Pó Fino / Leve", "Farinha, fermento e cacau em pó"],
+    ["powder_heavy", "Granulado / Pó Pesado", "Açúcar, sal, café e grãos"],
+    ["pasty", "Pastoso / Emulsão", "Maionese, requeijão e manteiga"],
+    ["solid_whole", "Sólido Inteiro / Peça", "Ovos, frutas e peças inteiras"],
+    ["solid_sliced", "Sólido Fatiado", "Frutas, legumes, carnes e queijos"],
+    ["frozen", "Congelado", "Polpas e alimentos congelados"]
   ];
-  for (const [code, name, description] of physicalStates) {
+  for (const [code, name, description] of states) {
     await pool.query(
       `INSERT INTO physical_states (codePhysicalState, namePhysicalState, descriptionPhysicalState)
        VALUES (?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         namePhysicalState = VALUES(namePhysicalState),
-         descriptionPhysicalState = VALUES(descriptionPhysicalState)`,
+       ON DUPLICATE KEY UPDATE namePhysicalState = VALUES(namePhysicalState),
+         descriptionPhysicalState = VALUES(descriptionPhysicalState),
+         isActivePhysicalState = 1`,
       [code, name, description]
     );
   }
+
   await pool.query(
-    `INSERT INTO culinary_unit_conversions
-      (idFromCulinaryUnitConversion, idToCulinaryUnitConversion,
-       idPhysicalStateCulinaryUnitConversion, factorCulinaryUnitConversion,
-       notesCulinaryUnitConversion)
-     SELECT unit.idCulinaryUnit, unit.idCulinaryUnit, state.idPhysicalState, 1.0000, 'Unidade base'
-     FROM culinary_units unit
+    `INSERT INTO unit_conversions
+      (idFromUnitConversion, idToUnitConversion, idPhysicalStateUnitConversion,
+       factorUnitConversion, notesUnitConversion)
+     SELECT source.idUnit, target.idUnit, state.idPhysicalState, 1, 'Unidade base'
+     FROM units source
+     INNER JOIN units target ON target.idUnit = source.idUnit
      CROSS JOIN physical_states state
-     WHERE unit.codeCulinaryUnit IN ('g', 'ml', 'un')
-     ON DUPLICATE KEY UPDATE
-       factorCulinaryUnitConversion = VALUES(factorCulinaryUnitConversion),
-       notesCulinaryUnitConversion = VALUES(notesCulinaryUnitConversion)`
+     WHERE source.isCulinaryUnit = 1
+     ON DUPLICATE KEY UPDATE factorUnitConversion = VALUES(factorUnitConversion)`
   );
-  const approximateConversions = [
-    ["solid_whole", "Referência aproximada para sólidos inteiros fracionados"],
-    ["solid_sliced", "Referência aproximada para sólidos fatiados"],
-    ["solid_grated", "Referência aproximada para sólidos ralados ou triturados"],
-    ["frozen", "Referência aproximada para alimentos congelados"]
+  const universalConversions = [
+    ["KG", "G", 1000, "Conversão universal de massa"],
+    ["G", "KG", 0.001, "Conversão universal de massa"],
+    ["L", "ML", 1000, "Conversão universal de volume"],
+    ["ML", "L", 0.001, "Conversão universal de volume"],
+    ["DZ", "UN", 12, "Conversão universal de contagem"]
   ];
-  for (const [stateCode, notes] of approximateConversions) {
+  for (const [fromCode, toCode, factor, notes] of universalConversions) {
     await pool.query(
-      `INSERT INTO culinary_unit_conversions
-        (idFromCulinaryUnitConversion, idToCulinaryUnitConversion,
-         idPhysicalStateCulinaryUnitConversion, factorCulinaryUnitConversion,
-         notesCulinaryUnitConversion)
-       SELECT source.idCulinaryUnit, target.idCulinaryUnit, state.idPhysicalState, factors.factor, ?
-       FROM culinary_units source
-       INNER JOIN culinary_units target ON target.codeCulinaryUnit = 'g'
-       INNER JOIN physical_states state ON state.codePhysicalState = ?
-       INNER JOIN (
-         SELECT 'colher_sopa' AS codeCulinaryUnit, 10.0000 AS factor
-         UNION ALL
-         SELECT 'xicara_cha', 115.0000
-       ) factors ON factors.codeCulinaryUnit = source.codeCulinaryUnit
-       ON DUPLICATE KEY UPDATE
-         factorCulinaryUnitConversion = VALUES(factorCulinaryUnitConversion),
-         notesCulinaryUnitConversion = VALUES(notesCulinaryUnitConversion)`,
-      [notes, stateCode]
+      `INSERT INTO unit_conversions
+        (idFromUnitConversion, idToUnitConversion, idPhysicalStateUnitConversion,
+         factorUnitConversion, notesUnitConversion)
+       SELECT source.idUnit, target.idUnit, state.idPhysicalState, ?, ?
+       FROM units source
+       INNER JOIN units target ON target.codeUnit = ?
+       CROSS JOIN physical_states state
+       WHERE source.codeUnit = ?
+       ON DUPLICATE KEY UPDATE factorUnitConversion = VALUES(factorUnitConversion),
+         notesUnitConversion = VALUES(notesUnitConversion)`,
+      [factor, notes, toCode, fromCode]
     );
   }
-  const standardConversions = [
-    ["gota", "ml", "liquid_light", 0.05, "Adoçante, corante, amargo/bitters"],
-    ["colher_cha", "ml", "liquid_light", 5, "Essências, suco de limão concentrado"],
-    ["colher_sopa", "ml", "liquid_light", 15, "Azeite, molho de soja, vinagre, xaropes"],
-    ["dose_jigger", "ml", "liquid_light", 50, "Destilados (Cachaça, Gin, Rum, Vodka)"],
-    ["xicara_cha", "ml", "liquid_light", 240, "Água, leite, sucos, caldos fluídos"],
-    ["colher_cha", "g", "liquid_viscous", 7, "Mel, melaço, glicose"],
-    ["colher_sopa", "g", "liquid_viscous", 20, "Leite condensado, mel, cobertura de chocolate"],
-    ["xicara_cha", "g", "liquid_viscous", 300, "Leite condensado, doce de leite concentrado"],
-    ["pitada", "g", "powder_light", 0.5, "Pimenta, canela em pó, noz-moscada"],
-    ["colher_cha", "g", "powder_light", 3, "Fermento em pó, bicarbonato, cacau"],
-    ["colher_sopa", "g", "powder_light", 10, "Farinha de trigo, leite em pó, amido de milho"],
-    ["xicara_cha", "g", "powder_light", 120, "Farinha de trigo peneirada, cacau em pó"],
-    ["pitada", "g", "powder_heavy", 0.5, "Sal refinado"],
-    ["colher_cha", "g", "powder_heavy", 5, "Sal refinado, açúcar refinado"],
-    ["colher_sopa", "g", "powder_heavy", 15, "Açúcar refinado, sal grosso, café moído"],
-    ["xicara_cha", "g", "powder_heavy", 190, "Açúcar refinado, arroz cru, feijão cru"],
-    ["colher_cha", "g", "pasty", 5, "Manteiga, margarina, mostarda, ketchup"],
-    ["colher_sopa", "g", "pasty", 16, "Requeijão, maionese, catupiry, cream cheese"],
-    ["xicara_cha", "g", "pasty", 230, "Maionese base, requeijão cremoso"],
-    ["colher_sopa", "g", "solid_chopped", 10, "Cheiro-verde picado, alho picado/triturado"],
-    ["xicara_cha", "g", "solid_chopped", 115, "Bacon picado, alho picado, ervas e legumes em cubos"],
-    ["kg", "g", "liquid_light", 1000, "Conversão universal de massa"],
-    ["kg", "g", "liquid_viscous", 1000, "Conversão universal de massa"],
-    ["kg", "g", "powder_light", 1000, "Conversão universal de massa"],
-    ["kg", "g", "powder_heavy", 1000, "Conversão universal de massa"],
-    ["kg", "g", "pasty", 1000, "Conversão universal de massa"],
-    ["kg", "g", "solid_chopped", 1000, "Conversão universal de massa"],
-    ["kg", "g", "solid_whole", 1000, "Conversão universal de massa"],
-    ["kg", "g", "solid_sliced", 1000, "Conversão universal de massa"],
-    ["kg", "g", "solid_grated", 1000, "Conversão universal de massa"],
-    ["kg", "g", "frozen", 1000, "Conversão universal de massa"],
-    ["l", "ml", "liquid_light", 1000, "Conversão universal de volume"],
-    ["l", "ml", "liquid_viscous", 1000, "Conversão universal de volume"],
-    ["colher_cafe", "ml", "liquid_light", 2.5, "Medida culinária volumétrica aproximada"],
-    ["colher_sobremesa", "ml", "liquid_light", 10, "Medida culinária volumétrica aproximada"],
-    ["duzia", "un", "solid_whole", 12, "Conversão de contagem"]
-  ];
-  for (const [fromCode, toCode, stateCode, factor, notes] of standardConversions) {
+
+  const [duziaCandidates] = await pool.query(
+    `SELECT unit.idUnit,
+            unit.codeUnit,
+            COALESCE(conversionUsage.referenceCount, 0) AS conversionReferenceCount
+     FROM units unit
+     LEFT JOIN (
+       SELECT idUnit, COUNT(*) AS referenceCount
+       FROM (
+         SELECT idFromUnitConversion AS idUnit FROM unit_conversions
+         UNION ALL
+         SELECT idToUnitConversion AS idUnit FROM unit_conversions
+       ) conversionReferences
+       GROUP BY idUnit
+     ) conversionUsage ON conversionUsage.idUnit = unit.idUnit
+     WHERE LOWER(TRIM(unit.codeUnit)) IN ('duzia', 'dz')
+     ORDER BY conversionReferenceCount DESC,
+              CASE WHEN unit.codeUnit = 'DZ' THEN 0 ELSE 1 END,
+              unit.idUnit`
+  );
+  if (duziaCandidates.length > 1) {
+    const [keeper, ...duplicates] = duziaCandidates;
+    for (const duplicate of duplicates) {
+      if (Number(duplicate.conversionReferenceCount) !== 0) continue;
+      await pool.query("DELETE FROM units WHERE idUnit = ?", [duplicate.idUnit]);
+    }
     await pool.query(
-      `INSERT INTO culinary_unit_conversions
-        (idFromCulinaryUnitConversion, idToCulinaryUnitConversion,
-         idPhysicalStateCulinaryUnitConversion, factorCulinaryUnitConversion,
-         notesCulinaryUnitConversion)
-       SELECT source.idCulinaryUnit, target.idCulinaryUnit, state.idPhysicalState, ?, ?
-       FROM culinary_units source
-       INNER JOIN culinary_units target ON target.codeCulinaryUnit = ?
-       INNER JOIN physical_states state ON state.codePhysicalState = ?
-       WHERE source.codeCulinaryUnit = ?
-       ON DUPLICATE KEY UPDATE
-         factorCulinaryUnitConversion = VALUES(factorCulinaryUnitConversion),
-         notesCulinaryUnitConversion = VALUES(notesCulinaryUnitConversion)`,
-      [factor, notes, toCode, stateCode, fromCode]
+      `UPDATE units
+       SET codeUnit = 'DZ',
+           descriptionUnit = 'Dúzia',
+           isTaxableUnit = 1,
+           baseUnitUnit = 'un',
+           categoryUnit = 'unit',
+           isCulinaryUnit = 1
+       WHERE idUnit = ?`,
+      [keeper.idUnit]
     );
   }
 })().catch((error) => {
@@ -1512,34 +1544,6 @@ const ensureNavigationSchema = (() => {
   };
 })();
 
-const ensureUppercaseTextData = async () => {
-  const updates = [
-    ["classes", ["descriptionClass"]],
-    ["groups", ["descriptionGroup"]],
-    ["products", ["nameProduct"]],
-    ["product_types", ["descriptionProductType"]],
-    ["units", ["descriptionUnit"]],
-    ["ncm_catalog", ["descriptionNcm"]],
-    ["cest_catalog", ["descriptionCest", "segmentCest"]],
-    ["payment_methods", ["namePaymentMethod"]],
-    ["suppliers", [
-      "companyNameSupplier", "tradeNameSupplier", "contactNameSupplier", "addressSupplier",
-      "addressComplementSupplier", "neighborhoodSupplier", "citySupplier", "countrySupplier",
-      "notesSupplier"
-    ]],
-    ["customers", ["nameCustomer", "addressCustomer", "notesCustomer"]],
-    ["consumers", ["nameConsumer", "nicknameConsumer", "notesConsumer"]],
-    ["fiscal_operations", ["descriptionFiscalOperation", "operationNatureFiscalOperation", "legalBasisFiscalOperation"]],
-    ["fiscal_catalog_items", ["descriptionFiscalCatalogItem"]],
-    ["sale_items", ["productNameSaleItem"]]
-  ];
-  for (const [table, columns] of updates) {
-    for (const column of columns) {
-      await pool.query(`UPDATE \`${table}\` SET \`${column}\` = UPPER(\`${column}\`) WHERE \`${column}\` IS NOT NULL`);
-    }
-  }
-};
-
 const ensurePaymentMethodSchema = async () => {
   await pool.query(`CREATE TABLE IF NOT EXISTS payment_methods (
     idPaymentMethod BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -1636,20 +1640,15 @@ const ensureOperatorCashSchema = async () => {
       ON DELETE CASCADE
   ) ENGINE=InnoDB`);
   await pool.query(`CREATE TABLE IF NOT EXISTS cash_registers (
-    idCashRegister TINYINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    idCashRegister SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT,
     nameCashRegister VARCHAR(80) NOT NULL,
     isActiveCashRegister TINYINT(1) NOT NULL DEFAULT 1,
     PRIMARY KEY (idCashRegister),
     UNIQUE KEY uqCashRegistersName (nameCashRegister)
   ) ENGINE=InnoDB`);
-  await pool.query(
-    `INSERT INTO cash_registers (nameCashRegister, isActiveCashRegister)
-     VALUES ('Caixa principal', 1)
-     ON DUPLICATE KEY UPDATE isActiveCashRegister = 1`
-  );
   await pool.query(`CREATE TABLE IF NOT EXISTS cash_sessions (
     idCashSession BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    idCashRegister TINYINT UNSIGNED NOT NULL,
+    idCashRegister SMALLINT UNSIGNED NOT NULL,
     idOperatorOpened BIGINT UNSIGNED NOT NULL,
     openingAmountCashSession DECIMAL(12,2) NOT NULL,
     expectedClosingAmountCashSession DECIMAL(12,2) NOT NULL,
@@ -1672,6 +1671,55 @@ const ensureOperatorCashSchema = async () => {
       FOREIGN KEY (idOperatorClosed) REFERENCES operators (idOperator)
       ON DELETE RESTRICT
   ) ENGINE=InnoDB`);
+  const [cashRegisterColumnRows] = await pool.query(
+    `SELECT DATA_TYPE
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'cash_registers'
+       AND COLUMN_NAME = 'idCashRegister'`
+  );
+  const [cashSessionColumnRows] = await pool.query(
+    `SELECT DATA_TYPE
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'cash_sessions'
+       AND COLUMN_NAME = 'idCashRegister'`
+  );
+  const cashRegisterUsesTinyInt = cashRegisterColumnRows[0]?.DATA_TYPE === "tinyint";
+  const cashSessionUsesTinyInt = cashSessionColumnRows[0]?.DATA_TYPE === "tinyint";
+  if (cashRegisterUsesTinyInt || cashSessionUsesTinyInt) {
+    const [foreignKeyRows] = await pool.query(
+      `SELECT CONSTRAINT_NAME
+       FROM information_schema.REFERENTIAL_CONSTRAINTS
+       WHERE CONSTRAINT_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'cash_sessions'
+         AND CONSTRAINT_NAME = 'fkCashSessionsRegister'`
+    );
+    if (foreignKeyRows.length) {
+      await pool.query("ALTER TABLE cash_sessions DROP FOREIGN KEY fkCashSessionsRegister");
+    }
+    if (cashRegisterUsesTinyInt) {
+      await pool.query(
+        "ALTER TABLE cash_registers MODIFY COLUMN idCashRegister SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT"
+      );
+    }
+    if (cashSessionUsesTinyInt) {
+      await pool.query(
+        "ALTER TABLE cash_sessions MODIFY COLUMN idCashRegister SMALLINT UNSIGNED NOT NULL"
+      );
+    }
+    await pool.query(
+      `ALTER TABLE cash_sessions
+       ADD CONSTRAINT fkCashSessionsRegister
+       FOREIGN KEY (idCashRegister) REFERENCES cash_registers (idCashRegister)
+       ON DELETE RESTRICT`
+    );
+  }
+  await pool.query(
+    `INSERT INTO cash_registers (nameCashRegister, isActiveCashRegister)
+     VALUES ('Caixa principal', 1)
+     ON DUPLICATE KEY UPDATE isActiveCashRegister = 1`
+  );
   await pool.query(`CREATE TABLE IF NOT EXISTS cash_movements (
     idCashMovement BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     idCashSession BIGINT UNSIGNED NOT NULL,
@@ -1789,7 +1837,6 @@ const ensureOperatorCashSchema = async () => {
     ensureProductCatalogSchema,
     ensureCulinarySchema,
     ensureNavigationSchema,
-    ensureUppercaseTextData,
     ensurePaymentMethodSchema,
     ensureSupplierSchema,
     ensureOperatorCashSchema

@@ -67,6 +67,9 @@ A fundação inicial já está criada:
 - tela de Status da API com reinício controlado e log visual;
 - backup e restauração compactados do banco em Ferramentas;
 - editor de ícone da empresa aplicado em runtime ao frontend e à janela Tauri.
+- autenticação individual de operadores, sessões expiráveis e controle de caixa;
+- preparação idempotente do schema de caixa, com identificadores
+  `SMALLINT UNSIGNED` para evitar estouro do contador de caixas.
 
 O catálogo da interface depende da API e pode aparecer vazio até que produtos
 sejam cadastrados no MariaDB. Uma venda só será considerada persistida quando o
@@ -376,8 +379,8 @@ textuais humanos são normalizados para maiúsculas pela API.
 
 As configurações de empresa e NFC-e são separadas: `/api/company` mantém os
 dados cadastrais e `/api/company/nfce` mantém os parâmetros fiscais. Os campos
-textuais de Dados da Empresa preservam a capitalização digitada; a
-normalização automática para maiúsculas permanece restrita aos cadastros que
+textuais usam capitalização de título, como **Colher de Sopa**, enquanto a
+normalização automática para maiúsculas permanece restrita ao SKU. Os cadastros que
 exigem essa convenção. A API não devolve o conteúdo do certificado A1 nem sua
 senha. A configuração de
 impressoras em `/api/printer-settings` contém somente os nomes das filas e o

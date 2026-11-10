@@ -11,7 +11,7 @@ const productNavigation = [
   ["packaging", "Embalagem"],
   ["consumables", "Material de Uso e Consumo"],
   ["product-types", "Tipo de Produto"],
-  ["units", "Unidade tributável"],
+  ["units", "Unidades"],
   ["classes", "Classes"],
   ["groups", "Grupos"],
   ["ncm-cest", "NCM / CEST"]

@@ -11,6 +11,8 @@ import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } fro
 import { apiFetch, getApiUrl } from "../shared/api.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
 import { parseBrazilianDecimal } from "../shared/decimal.js";
+import { buildDuplicatedProductDraft } from "../shared/product.js";
+import { normalizePrintPlace } from "../shared/print-place.js";
 
 const escapeHtml = (value) =>
   String(value)
@@ -107,8 +109,9 @@ export function createCatalogScreen({
     controlsStockProduct: defaultControlsStock,
     isBuffetProduct: false,
     isFractionalProduct: defaultIsFractionalProduct,
-    printsPlace: "NÃO IMPRIMIR",
-    showsInPdvProduct: defaultShowsInPdv
+    printsPlace: "Não Imprimir",
+    showsInPdvProduct: defaultShowsInPdv,
+    isActiveProduct: true
   };
   let ncmLookupOpen = false;
   let ncmLookupTerm = "";
@@ -196,49 +199,49 @@ export function createCatalogScreen({
         </div>
       </label>
     `;
+  };
 
-    const renderProductRecipeLinks = () => {
-      if (isNonSaleCatalog) return "";
-      return `
-        <div class="classic-panel-header nested-panel-header">Receitas e Composições do produto</div>
-        <p class="form-help">Vincule as estruturas que fazem parte deste produto comercial.</p>
-        <div class="recipe-component-list">
-          ${productRecipesLoading
-            ? '<p class="classic-empty">Carregando vínculos...</p>'
-            : productRecipeLinks.length
-              ? productRecipeLinks.map((link, index) => `
-                <div class="recipe-component-row">
-                  <span>${escapeHtml(link.nameRecipe || "Receita não encontrada")}</span>
-                  <span>${escapeHtml(link.quantityProductRecipeLink)} un.</span>
-                  <span>Perda: ${escapeHtml(link.lossPercentProductRecipeLink)}%</span>
-                  <button class="icon-button delete" type="button" data-remove-product-recipe="${index}" aria-label="Remover vínculo"><i data-lucide="trash-2"></i></button>
-                </div>
-              `).join("")
-              : '<p class="classic-empty">Nenhuma Receita ou Composição vinculada.</p>'}
-        </div>
-        <div class="classic-form-grid">
-          <label class="form-field"><span>Receita ou Composição</span><select data-product-recipe-target>
-            <option value="">Selecione</option>
-            ${recipes
-              .filter(({ statusRecipe }) => statusRecipe === "active")
-              .map((recipe) => `<option value="${recipe.idRecipe}" ${String(recipeLinkDraft.idRecipe) === String(recipe.idRecipe) ? "selected" : ""}>${escapeHtml(recipe.nameRecipe)}</option>`)
-              .join("")}
-          </select></label>
-          <label class="form-field"><span>Quantidade</span><input data-product-recipe-quantity inputmode="decimal" value="${escapeHtml(recipeLinkDraft.quantity)}" /></label>
-          <label class="form-field"><span>Perda (%)</span><input data-product-recipe-loss inputmode="decimal" value="${escapeHtml(recipeLinkDraft.lossPercent)}" /></label>
-          <button class="classic-button" data-add-product-recipe type="button">Adicionar vínculo</button>
-        </div>
-      `;
-    };
+  const renderProductRecipeLinks = () => {
+    if (isNonSaleCatalog) return "";
+    return `
+      <div class="classic-panel-header nested-panel-header">Receitas e Composições do produto</div>
+      <p class="form-help">Vincule as estruturas que fazem parte deste produto comercial.</p>
+      <div class="recipe-component-list">
+        ${productRecipesLoading
+          ? '<p class="classic-empty">Carregando vínculos...</p>'
+          : productRecipeLinks.length
+            ? productRecipeLinks.map((link, index) => `
+              <div class="recipe-component-row">
+                <span>${escapeHtml(link.nameRecipe || "Receita não encontrada")}</span>
+                <span>${escapeHtml(link.quantityProductRecipeLink)} un.</span>
+                <span>Perda: ${escapeHtml(link.lossPercentProductRecipeLink)}%</span>
+                <button class="icon-button delete" type="button" data-remove-product-recipe="${index}" aria-label="Remover vínculo"><i data-lucide="trash-2"></i></button>
+              </div>
+            `).join("")
+            : '<p class="classic-empty">Nenhuma Receita ou Composição vinculada.</p>'}
+      </div>
+      <div class="classic-form-grid">
+        <label class="form-field"><span>Receita ou Composição</span><select data-product-recipe-target>
+          <option value="">Selecione</option>
+          ${recipes
+            .filter(({ statusRecipe }) => statusRecipe === "active")
+            .map((recipe) => `<option value="${recipe.idRecipe}" ${String(recipeLinkDraft.idRecipe) === String(recipe.idRecipe) ? "selected" : ""}>${escapeHtml(recipe.nameRecipe)}</option>`)
+            .join("")}
+        </select></label>
+        <label class="form-field"><span>Quantidade</span><input data-product-recipe-quantity inputmode="decimal" value="${escapeHtml(recipeLinkDraft.quantity)}" /></label>
+        <label class="form-field"><span>Perda (%)</span><input data-product-recipe-loss inputmode="decimal" value="${escapeHtml(recipeLinkDraft.lossPercent)}" /></label>
+        <button class="classic-button" data-add-product-recipe type="button">Adicionar vínculo</button>
+      </div>
+    `;
   };
 
   const renderCestOptions = (selectedValue) =>
     `<option value="">${cestOptions.length ? "Não informado" : "Nenhum CEST relacionado"}</option>${cestOptions.map((cest) => `<option value="${cest.codeCest}" ${String(selectedValue ?? "") === String(cest.codeCest) ? "selected" : ""}>${escapeHtml(cest.codeCest)} - ${escapeHtml(cest.descriptionCest)}</option>`).join("")}`;
 
-  const captureNewProductDraft = () => {
+  const captureNewProductDraft = (currentFormData = null) => {
     const form = root.querySelector("[data-product-form]");
-    if (!form) return;
-    const formData = new FormData(form);
+    const formData = currentFormData || (form ? new FormData(form) : null);
+    if (!formData) return;
     newProductDraft = {
       nameProduct: String(formData.get("nameProduct") ?? ""),
       skuProduct: normalizeSku(formData.get("skuProduct")),
@@ -256,8 +259,9 @@ export function createCatalogScreen({
       controlsStockProduct: formData.get("controlsStockProduct") === "on",
       isBuffetProduct: formData.get("isBuffetProduct") === "on",
       isFractionalProduct: formData.get("isFractionalProduct") === "on",
-      printsPlace: formData.get("printsPlace") || "NÃO IMPRIMIR",
-      showsInPdvProduct: formData.get("showsInPdvProduct") === "on"
+      printsPlace: formData.get("printsPlace") || "Não Imprimir",
+      showsInPdvProduct: formData.get("showsInPdvProduct") === "on",
+      isActiveProduct: newProductDraft.isActiveProduct !== false
     };
   };
 
@@ -272,7 +276,7 @@ export function createCatalogScreen({
     ).join("")}`;
 
   const renderUnitOptions = (selectedValue) =>
-    `<option value="">Selecione</option>${units.map((unit) =>
+    `<option value="">Selecione</option>${units.filter((unit) => Number(unit.isTaxableUnit) === 1).map((unit) =>
       `<option value="${unit.idUnit}" ${String(selectedValue ?? "") === String(unit.idUnit) ? "selected" : ""}>${escapeHtml(unit.codeUnit)} - ${escapeHtml(unit.descriptionUnit)}</option>`
     ).join("")}`;
 
@@ -303,20 +307,21 @@ export function createCatalogScreen({
     "PRODUTOS ACABADOS"
   ].includes(productTypeDescription.toLocaleUpperCase("pt-BR"));
 
-  const renderPriceFields = (product, isEdit = false) => {
+  const renderCostField = (product, isEdit = false) => {
     const costValue = isEdit
       ? formatMaskedNumber(product.costPriceProduct ?? product.priceProduct)
       : product.costPriceProduct;
-    if (isNonSaleCatalog) {
-      return `<label class="form-field"><span>Preço de custo</span><input name="costPriceProduct" data-number-mask inputmode="decimal" required value="${escapeHtml(costValue)}" /></label>`;
-    }
+    return `<label class="form-field"><span>Preço de custo</span><input name="costPriceProduct" data-number-mask inputmode="decimal" required value="${escapeHtml(costValue)}" /></label>`;
+  };
+
+  const renderSalePriceField = (product, isEdit = false) => {
     const saleValue = isEdit ? formatMaskedNumber(product.priceProduct) : product.priceProduct;
-    return `<label class="form-field"><span>Preço de venda</span><input name="priceProduct" data-number-mask inputmode="decimal" required value="${escapeHtml(saleValue)}" /></label>
-      <label class="form-field"><span>Preço de custo</span><input name="costPriceProduct" data-number-mask inputmode="decimal" required value="${escapeHtml(costValue)}" /></label>`;
+    return `<label class="form-field"><span>Preço de venda</span><input name="priceProduct" data-number-mask inputmode="decimal" required value="${escapeHtml(saleValue)}" /></label>`;
   };
 
   const getDefaultUnit = () =>
-    units.find(({ codeUnit }) => codeUnit === "UN") || units[0];
+    units.find(({ codeUnit, isTaxableUnit }) => codeUnit === "UN" && Number(isTaxableUnit) === 1)
+      || units.find(({ isTaxableUnit }) => Number(isTaxableUnit) === 1);
 
   const getDefaultFiscalOperation = () =>
     defaultFiscalOperation &&
@@ -345,12 +350,35 @@ export function createCatalogScreen({
       controlsStockProduct: defaultControlsStock,
       isBuffetProduct: false,
       isFractionalProduct: defaultIsFractionalProduct,
-      printsPlace: "NÃO IMPRIMIR",
-      showsInPdvProduct: defaultShowsInPdv
+      printsPlace: "Não Imprimir",
+      showsInPdvProduct: defaultShowsInPdv,
+      isActiveProduct: true
     };
     newNcmProduct = "";
     newCestProduct = "";
     cestOptions = [];
+  };
+
+  const duplicateProduct = (product) => {
+    if (!product) return;
+    editingProduct = null;
+    productRecipeLinks = [];
+    recipeLinkDraft = { idRecipe: "", quantity: "1", lossPercent: "0" };
+    newProductDraft = {
+      ...buildDuplicatedProductDraft(product, {
+        existingNames: products.map(({ nameProduct }) => nameProduct)
+      }),
+      priceProduct: formatMaskedNumber(product.priceProduct),
+      costPriceProduct: formatMaskedNumber(product.costPriceProduct)
+    };
+    newNcmProduct = product.ncmProduct || "";
+    newCestProduct = product.cestProduct || "";
+    cestOptions = [];
+    error = "";
+    message = "";
+    render();
+    void loadCestOptions(newNcmProduct);
+    root.querySelector("[data-product-form] [name='nameProduct']")?.focus();
   };
 
   const isStockControlled = (product) =>
@@ -368,8 +396,8 @@ export function createCatalogScreen({
 
   const renderPrintPlaceField = (product) => canConfigurePrintPlace
     ? `<label class="form-field"><span>Local de impressão</span><select name="printsPlace">
-        ${["NÃO IMPRIMIR", "BAR", "COPA", "COZINHA"].map((place) =>
-          `<option value="${place}" ${String(product.printsPlace || "NÃO IMPRIMIR") === place ? "selected" : ""}>${place}</option>`
+        ${["Não Imprimir", "Bar", "Copa", "Cozinha"].map((place) =>
+          `<option value="${place}" ${normalizePrintPlace(product.printsPlace) === place ? "selected" : ""}>${place}</option>`
         ).join("")}
       </select></label>`
     : "";
@@ -407,7 +435,6 @@ export function createCatalogScreen({
           <label class="form-field"><span>Nome</span><input name="nameProduct" required maxlength="180" value="${escapeHtml(newProductDraft.nameProduct)}" /></label>
           <div class="classic-form-grid">
             <label class="form-field"><span>SKU</span><input name="skuProduct" data-uppercase-mask required maxlength="64" value="${escapeHtml(normalizeSku(newProductDraft.skuProduct))}" /></label>
-            <label class="form-field"><span>Código PDV</span><input name="pdvCodeProduct" maxlength="64" value="${escapeHtml(newProductDraft.pdvCodeProduct)}" /></label>
           </div>
           <div class="classic-form-grid">
             <label class="form-field"><span>Grupo</span>
@@ -430,13 +457,12 @@ export function createCatalogScreen({
             ${renderNcmField(newNcmProduct)}
             <label class="form-field"><span>CEST</span><select name="cestProduct" ${cestOptions.length ? "" : "disabled"}>${renderCestOptions(newCestProduct)}</select></label>
           </div>
-          <div class="classic-form-grid">
-            ${renderPriceFields(newProductDraft)}
-          </div>
-          <div class="classic-form-grid">
+          ${isNonSaleCatalog ? "" : `<div class="classic-form-grid product-sale-price-row">${renderSalePriceField(newProductDraft)}</div>`}
+          <div class="classic-form-grid product-cost-stock-row">
+            ${renderCostField(newProductDraft)}
             ${renderStockInput(newProductDraft, "Estoque inicial")}
-            ${renderPrintPlaceField(newProductDraft)}
           </div>
+          <div class="classic-form-grid">${renderPrintPlaceField(newProductDraft)}</div>
           ${renderProductFlags()}
           ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}
           </div>
@@ -460,36 +486,36 @@ export function createCatalogScreen({
                   ? `<table class="classic-table">
                       <thead><tr>
                         ${[
-                          ["pdvCodeProduct", "# PDV"],
-                          ["nameProduct", "Produto"],
-                          ["descriptionGroup", "Grupo"],
-                          ...(isNonSaleCatalog
-                            ? [["costPriceProduct", "Preço de custo"]]
-                            : [["priceProduct", "Preço de venda"], ["costPriceProduct", "Preço de custo"]]),
-                          ["stockQuantityProduct", "Estoque"]
-                        ].map(([key, label]) => `
-                          <th aria-sort="${sortState.key === key ? (sortState.direction === "asc" ? "ascending" : "descending") : "none"}">
+                          ["pdvCodeProduct", "# PDV", "product-pdv-column"],
+                          ["nameProduct", "Produto", "product-name-column"],
+                          ["descriptionGroup", "Grupo", "product-group-column"],
+                          ...(!isNonSaleCatalog
+                            ? [["priceProduct", "Preço de venda", "product-sale-price-column"]]
+                            : []),
+                          ["stockQuantityProduct", "Estoque", "product-stock-column"]
+                        ].map(([key, label, columnClass]) => `
+                          <th class="${columnClass}" aria-sort="${sortState.key === key ? (sortState.direction === "asc" ? "ascending" : "descending") : "none"}">
                             <button class="table-sort-button" type="button" data-sort="${key}">${label} <span aria-hidden="true">${sortIndicator(key)}</span></button>
                           </th>
                         `).join("")}
-                        <th>Exibir no PDV</th><th>Status</th><th class="actions-column">Ações</th>
+                        <th class="product-visibility-column">PDV</th><th class="product-status-column">Status</th><th class="actions-column">Ações</th>
                       </tr></thead>
                       <tbody>${getVisibleProducts().map((product) => `
                         <tr class="${product.isActiveProduct ? "" : "is-inactive"}" data-view-record="${escapeHtml(JSON.stringify(product))}">
-                          <td>${escapeHtml(product.pdvCodeProduct || "—")}</td>
-                          <td>${escapeHtml(product.nameProduct)}</td>
-                          <td>${escapeHtml(product.descriptionGroup || "Sem grupo")}</td>
-                          ${isNonSaleCatalog
-                            ? `<td>R$ ${Number(product.costPriceProduct ?? product.priceProduct ?? 0).toFixed(2).replace(".", ",")}</td>`
-                            : `<td>R$ ${Number(product.priceProduct).toFixed(2).replace(".", ",")}</td><td>R$ ${Number(product.costPriceProduct || 0).toFixed(2).replace(".", ",")}</td>`}
-                          <td>${escapeHtml(product.stockQuantityProduct)}</td>
-                          <td>
+                          <td class="product-pdv-column">${escapeHtml(product.pdvCodeProduct || "—")}</td>
+                          <td class="product-name-column">${escapeHtml(product.nameProduct)}</td>
+                          <td class="product-group-column">${escapeHtml(product.descriptionGroup || "Sem grupo")}</td>
+                          ${!isNonSaleCatalog
+                            ? `<td class="product-sale-price-column">R$ ${Number(product.priceProduct).toFixed(2).replace(".", ",")}</td>`
+                            : ""}
+                          <td class="product-stock-column">${escapeHtml(product.stockQuantityProduct)}</td>
+                          <td class="product-visibility-column">
                             <button class="status-toggle ${Number(product.showsInPdvProduct) ? "is-active" : "is-inactive"}" type="button" role="switch" aria-checked="${Number(product.showsInPdvProduct) ? "true" : "false"}" data-pdv-status-id="${product.idProduct}" aria-label="Alternar exibição de ${escapeHtml(product.nameProduct)} no PDV">
                               <span class="status-toggle-track"><span class="status-toggle-thumb"></span></span>
                               <span class="status-toggle-label">${Number(product.showsInPdvProduct) ? "Sim" : "Não"}</span>
                             </button>
                           </td>
-                          <td>
+                          <td class="product-status-column">
                             <button class="status-toggle ${product.isActiveProduct ? "is-active" : "is-inactive"}" type="button" role="switch" aria-checked="${product.isActiveProduct ? "true" : "false"}" data-status-id="${product.idProduct}" aria-label="Alternar status do produto ${escapeHtml(product.nameProduct)}">
                               <span class="status-toggle-track"><span class="status-toggle-thumb"></span></span>
                               <span class="status-toggle-label">${product.isActiveProduct ? "Ativo" : "Inativo"}</span>
@@ -497,6 +523,7 @@ export function createCatalogScreen({
                           </td>
                           <td class="actions-column">
                             <button class="icon-button edit" type="button" title="Editar ${escapeHtml(singularLabel)}" aria-label="Editar ${escapeHtml(singularLabel)}" data-edit="${product.idProduct}"><i data-lucide="pencil"></i></button>
+                            <button class="icon-button" type="button" title="Duplicar ${escapeHtml(singularLabel)}" aria-label="Duplicar ${escapeHtml(singularLabel)}" data-duplicate="${product.idProduct}"><i data-lucide="copy"></i></button>
                             <button class="icon-button delete" type="button" title="Excluir ${escapeHtml(singularLabel)} definitivamente" aria-label="Excluir ${escapeHtml(singularLabel)} definitivamente" data-delete="${product.idProduct}"><i data-lucide="trash-2"></i></button>
                           </td>
                         </tr>
@@ -516,7 +543,6 @@ export function createCatalogScreen({
                 <label class="form-field"><span>Nome</span><input name="nameProduct" required maxlength="180" value="${escapeHtml(editingProduct.nameProduct)}" /></label>
                 <div class="classic-form-grid">
                   <label class="form-field"><span>SKU</span><input name="skuProduct" data-uppercase-mask required maxlength="64" value="${escapeHtml(normalizeSku(editingProduct.skuProduct))}" /></label>
-                  <label class="form-field"><span>Código PDV</span><input name="pdvCodeProduct" maxlength="64" value="${escapeHtml(editingProduct.pdvCodeProduct || "")}" /></label>
                 </div>
                 <div class="classic-form-grid">
                   <label class="form-field"><span>Grupo</span>
@@ -538,13 +564,12 @@ export function createCatalogScreen({
                   ${renderNcmField(editingProduct.ncmProduct)}
                   <label class="form-field"><span>CEST</span><select name="cestProduct" ${cestOptions.length ? "" : "disabled"}>${renderCestOptions(editingProduct.cestProduct)}</select></label>
                 </div>
-                <div class="classic-form-grid">
-                  ${renderPriceFields(editingProduct, true)}
-                </div>
-                <div class="classic-form-grid">
+                ${isNonSaleCatalog ? "" : `<div class="classic-form-grid product-sale-price-row">${renderSalePriceField(editingProduct, true)}</div>`}
+                <div class="classic-form-grid product-cost-stock-row">
+                  ${renderCostField(editingProduct, true)}
                   ${renderStockInput(editingProduct, "Estoque")}
-                  ${renderPrintPlaceField(editingProduct)}
                 </div>
+                <div class="classic-form-grid">${renderPrintPlaceField(editingProduct)}</div>
                 ${renderProductFlags(editingProduct)}
                 ${renderProductRecipeLinks()}
                 ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}
@@ -716,6 +741,12 @@ export function createCatalogScreen({
     });
     root.querySelectorAll("[data-delete]").forEach((button) => {
       button.addEventListener("click", () => void deleteProduct(Number(button.dataset.delete)));
+    });
+    root.querySelectorAll("[data-duplicate]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const product = products.find(({ idProduct }) => String(idProduct) === button.dataset.duplicate);
+        duplicateProduct(product);
+      });
     });
     root.querySelectorAll("[data-status-id]").forEach((toggle) => {
       toggle.addEventListener("click", () =>
@@ -981,6 +1012,7 @@ export function createCatalogScreen({
   };
 
   const createProduct = async (formData, productId = null) => {
+    if (!productId) captureNewProductDraft(formData);
     submitting = true;
     error = "";
     message = "";
@@ -993,7 +1025,9 @@ export function createCatalogScreen({
           ...(productId ? { idProduct: productId } : {}),
           nameProduct: formData.get("nameProduct"),
           skuProduct: normalizeSku(formData.get("skuProduct")),
-          pdvCodeProduct: formData.get("pdvCodeProduct") || null,
+          pdvCodeProduct: productId
+            ? editingProduct?.pdvCodeProduct || null
+            : formData.get("pdvCodeProduct") || null,
           idGroup: Number(formData.get("idGroup")),
           idFiscalOperationSaleProduct: formData.get("idFiscalOperationSaleProduct") ? Number(formData.get("idFiscalOperationSaleProduct")) : null,
           idProductTypeProduct: formData.get("idProductTypeProduct") ? Number(formData.get("idProductTypeProduct")) : null,
@@ -1013,8 +1047,11 @@ export function createCatalogScreen({
           controlsStockProduct: formData.get("controlsStockProduct") === "on",
           isBuffetProduct: formData.get("isBuffetProduct") === "on",
           isFractionalProduct: formData.get("isFractionalProduct") === "on",
-          printsPlace: formData.get("printsPlace") || "NÃO IMPRIMIR",
-          showsInPdvProduct: formData.get("showsInPdvProduct") === "on"
+          printsPlace: formData.get("printsPlace") || "Não Imprimir",
+          showsInPdvProduct: formData.get("showsInPdvProduct") === "on",
+          ...(!productId
+            ? { isActiveProduct: newProductDraft.isActiveProduct !== false }
+            : {})
         })
       });
       const payload = await response.json();

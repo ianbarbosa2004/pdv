@@ -329,12 +329,12 @@ test("não injeta item fallback quando a barra persistida possui itens ativos", 
   const items = selectContextualNavigationItems(
     navigation,
     "technical-sheet",
-    [["recipes", "Receitas e Composições"], ["culinary-units", "Unidades Culinárias"]]
+    [["recipes", "Receitas e Composições"]]
   );
 
   assert.deepEqual(
     items.slice(1).map(([key]) => key),
-    ["recipes", "culinary-units", "physical-states", "culinary-conversions"]
+    ["recipes", "physical-states", "culinary-conversions"]
   );
 });
 
@@ -660,7 +660,7 @@ test("inclui Views no menu Ferramentas", () => {
 
 test("inclui Ficha Técnica com os cadastros culinários", () => {
   const ficha = DEFAULT_NAVIGATION.items.find((item) => item.keyNavigationItem === "technical-sheet");
-  assert.equal(ficha?.routeNavigationItem, "culinary-units");
+  assert.equal(ficha?.routeNavigationItem, "recipes");
   assert.equal(ficha?.typeNavigationItem, "item");
   assert.deepEqual(
     DEFAULT_NAVIGATION.items
@@ -668,7 +668,6 @@ test("inclui Ficha Técnica com os cadastros culinários", () => {
       .map(({ keyNavigationItem, routeNavigationItem }) => ({ keyNavigationItem, routeNavigationItem })),
     [
       { keyNavigationItem: "recipes", routeNavigationItem: "recipes" },
-      { keyNavigationItem: "culinary-units", routeNavigationItem: "culinary-units" },
       { keyNavigationItem: "physical-states", routeNavigationItem: "physical-states" },
       { keyNavigationItem: "culinary-conversions", routeNavigationItem: "culinary-conversions" }
     ]

@@ -1,4 +1,4 @@
-const numericKeys = new Set(["priceProduct", "costPriceProduct", "stockQuantityProduct"]);
+const numericKeys = new Set(["priceProduct", "stockQuantityProduct"]);
 
 export const sortProductList = (products, sortState) => [...products].sort((left, right) => {
   const comparison = numericKeys.has(sortState.key)
@@ -42,7 +42,6 @@ export const renderProductList = ({
     ["nameProduct", "Produto"],
     ["descriptionGroup", "Grupo"],
     ["priceProduct", "Preço de venda"],
-    ["costPriceProduct", "Preço de custo"],
     ["stockQuantityProduct", "Estoque"]
   ];
   const indicator = (key) =>
@@ -63,7 +62,6 @@ export const renderProductList = ({
         <td>${escapeHtml(product.nameProduct)}</td>
         <td>${escapeHtml(product.descriptionGroup || "Sem grupo")}</td>
         <td>${formatMoney(product.priceProduct)}</td>
-        <td>${formatMoney(product.costPriceProduct)}</td>
         <td>${escapeHtml(product.stockQuantityProduct)}</td>
         <td>
           <button class="status-toggle ${Number(product.showsInPdvProduct) ? "is-active" : "is-inactive"}" type="button" role="switch" aria-checked="${Number(product.showsInPdvProduct) ? "true" : "false"}" data-product-pdv-status="${product.idProduct}" aria-label="Alternar exibição de ${escapeHtml(product.nameProduct)} no PDV">

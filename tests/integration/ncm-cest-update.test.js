@@ -40,8 +40,8 @@ test("interpreta somente códigos NCM de oito dígitos da fonte oficial", () => 
     ]
   });
   assert.deepEqual(result, [
-    { codeNcm: "01012100", descriptionNcm: "CAVALOS" },
-    { codeNcm: "01012900", descriptionNcm: "OUTROS" }
+    { codeNcm: "01012100", descriptionNcm: "Cavalos" },
+    { codeNcm: "01012900", descriptionNcm: "Outros" }
   ]);
 });
 
@@ -51,7 +51,7 @@ test("interpreta CEST, segmento e relação NCM em CSV", () => {
       "Animais;1.0;01.001.00;0101.21.00;Mercadoria de teste\n"
   );
   assert.deepEqual(result.items, [
-    { codeCest: "0100100", descriptionCest: "MERCADORIA DE TESTE", segmentCest: "ANIMAIS" }
+    { codeCest: "0100100", descriptionCest: "Mercadoria de Teste", segmentCest: "Animais" }
   ]);
   assert.deepEqual(result.relations, [{ codeNcm: "01012100", codeCest: "0100100" }]);
 });

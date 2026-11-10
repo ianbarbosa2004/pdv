@@ -1,6 +1,7 @@
 import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { apiFetch, getApiUrl  } from "../shared/api.js";
+import { normalizePrintPlace } from "../shared/print-place.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
 import { getContextualNavigationItems, renderContextualNavigationItems } from "../ui/contextual-navigation.js";
 import { resolveNavigationHandler } from "../ui/navigation-routing.js";
@@ -81,8 +82,8 @@ const renderEditor = (product, groups, physicalStates, submitting, error) => `
             <label class="form-field checkbox-field"><span>Produto Buffet</span><input name="isBuffetProduct" type="checkbox" ${Number(product.isBuffetProduct) ? "checked" : ""} /></label>
             <label class="form-field checkbox-field"><span>Produto fracionado</span><input name="isFractionalProduct" type="checkbox" ${Number(product.isFractionalProduct) ? "checked" : ""} /></label>
             <label class="form-field"><span>Local de impressão</span><select name="printsPlace">
-              ${["NÃO IMPRIMIR", "BAR", "COPA", "COZINHA"].map((place) =>
-                `<option value="${place}" ${String(product.printsPlace || "NÃO IMPRIMIR") === place ? "selected" : ""}>${place}</option>`
+              ${["Não Imprimir", "Bar", "Copa", "Cozinha"].map((place) =>
+                `<option value="${place}" ${normalizePrintPlace(product.printsPlace) === place ? "selected" : ""}>${place}</option>`
               ).join("")}
             </select></label>
             <label class="form-field checkbox-field"><span>Exibir no PDV</span><input name="showsInPdvProduct" type="checkbox" ${Number(product.showsInPdvProduct) ? "checked" : ""} /></label>
@@ -196,7 +197,7 @@ export function createProductViewsScreen({
           controlsStockProduct: formData.get("controlsStockProduct") === "on",
           isBuffetProduct: formData.get("isBuffetProduct") === "on",
           isFractionalProduct: formData.get("isFractionalProduct") === "on",
-          printsPlace: formData.get("printsPlace") || "NÃO IMPRIMIR",
+          printsPlace: formData.get("printsPlace") || "Não Imprimir",
           showsInPdvProduct: formData.get("showsInPdvProduct") === "on"
         })
       });

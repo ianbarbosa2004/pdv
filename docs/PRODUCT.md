@@ -35,6 +35,15 @@ e navegação configurável sem expor credenciais do banco aos terminais.
 - Unidades culinárias, estados físicos e conversões para apoio a fichas técnicas.
 - Receitas de Produção e Composições de Produto independentes de Produto
   comercial, com componentes, perdas, custos e revisões.
+- O cadastro de componentes permite busca sem acentos, exibe a unidade do
+  Produto e seleciona Unidade Culinária e Conversão compatíveis com o estado
+  físico.
+- Receitas registram Rendimento e Unidade Culinária final para identificar a
+  quantidade produzida.
+- Medidas culinárias variáveis, como colheres, xícaras e doses, podem ser
+  convertidas para massa, pó ou líquido conforme o estado físico; por isso não
+  usam a unidade base **Comum** e a categoria **Geral**, sem assumir uma
+  dimensão física única.
 - Vínculos quantificados entre Produtos comerciais e Receitas ou Composições.
 - Produtos Buffet com venda sem baixa de estoque e sem bloqueio do fechamento
   de caixa por Cardápio.

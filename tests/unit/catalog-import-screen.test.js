@@ -81,7 +81,7 @@ test("mantém o exemplo CSV alinhado ao cabeçalho com 18 colunas", async () => 
 test("normaliza o local de impressão sem acento para o valor oficial", async () => {
   const { normalizePrintPlace } = await import("../../src/shared/print-place.js");
 
-  assert.equal(normalizePrintPlace("nao imprimir"), "NÃO IMPRIMIR");
-  assert.equal(normalizePrintPlace(" cozinha "), "COZINHA");
+  assert.equal(normalizePrintPlace("nao imprimir"), "Não Imprimir");
+  assert.equal(normalizePrintPlace(" cozinha "), "Cozinha");
   assert.equal(normalizePrintPlace("impressora"), null);
 });

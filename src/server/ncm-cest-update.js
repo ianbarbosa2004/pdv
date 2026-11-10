@@ -26,11 +26,21 @@ const validateOfficialSourceUrl = (value, label = "fonte") => {
   return parsed.toString();
 };
 
-const normalizeText = (value) =>
-  String(value ?? "")
+const normalizeText = (value) => {
+  const minorWords = new Set(["a", "as", "à", "às", "ao", "aos", "da", "das", "de", "do", "dos", "e", "em", "no", "na", "nos", "nas", "por", "para"]);
+  return String(value ?? "")
     .replace(/\u00a0/g, " ")
     .replace(/\s+/g, " ")
-    .trim();
+    .trim()
+    .toLocaleLowerCase("pt-BR")
+    .split(/(\s+|\/|-)/u)
+    .map((part, index) => {
+      if (!part || /^\s+$/u.test(part) || part === "/" || part === "-") return part;
+      if (index > 0 && minorWords.has(part)) return part;
+      return `${part.charAt(0).toLocaleUpperCase("pt-BR")}${part.slice(1)}`;
+    })
+    .join("");
+};
 
 const normalizeCode = (value, length) => {
   const code = String(value ?? "").replace(/\D/g, "");
@@ -100,7 +110,7 @@ const parseNcmPayload = (payload) => {
   const items = rows
     .map((row) => ({
       codeNcm: normalizeCode(row.Codigo ?? row.codigo ?? row.code, 8),
-      descriptionNcm: normalizeText(row.Descricao ?? row.descricao ?? row.description).toLocaleUpperCase("pt-BR")
+      descriptionNcm: normalizeText(row.Descricao ?? row.descricao ?? row.description)
     }))
     .filter((row) => row.codeNcm && row.descriptionNcm);
   if (!items.length) throw new Error("A fonte NCM não contém códigos fiscais de oito dígitos.");
@@ -121,10 +131,10 @@ const parseCestRows = (rows) => {
     );
     const descriptionCest = normalizeText(
       getField(row, ["descricao", "descricaocest", "description", "item"])
-    ).toLocaleUpperCase("pt-BR");
+    );
     const segmentCest = normalizeText(
       getField(row, ["segmento", "segment", "segmentocest"])
-    ).toLocaleUpperCase("pt-BR");
+    );
     if (!codeCest || !descriptionCest) continue;
     items.push({ codeCest, descriptionCest, segmentCest: segmentCest || null });
     if (codeNcm) relations.push({ codeNcm, codeCest });

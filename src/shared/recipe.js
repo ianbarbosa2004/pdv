@@ -19,11 +19,23 @@ export const calculateGrossQuantity = (quantity, lossPercent = 0) => {
   return netQuantity / (1 - (loss / 100));
 };
 
-export const calculateComponentCost = ({ quantity, lossPercent = 0, unitCost = 0 }) => {
+export const calculateComponentCost = ({
+  quantity,
+  lossPercent = 0,
+  unitCost = 0,
+  conversionFactor = 1
+}) => {
   const grossQuantity = calculateGrossQuantity(quantity, lossPercent);
   const cost = Number(unitCost);
-  if (grossQuantity === null || !Number.isFinite(cost) || cost < 0) return null;
-  return grossQuantity * cost;
+  const factor = Number(conversionFactor);
+  if (
+    grossQuantity === null
+    || !Number.isFinite(cost)
+    || cost < 0
+    || !Number.isFinite(factor)
+    || factor <= 0
+  ) return null;
+  return grossQuantity * factor * cost;
 };
 
 export const validateRecipeDefinition = (definition = {}) => {
@@ -52,6 +64,14 @@ export const validateRecipeDefinition = (definition = {}) => {
     }
     if (asLossPercent(component.lossPercent) === null) {
       errors.push(`Componente ${position}: a perda deve estar entre 0 e 99,99%.`);
+    }
+    if (hasProduct && (!Number.isInteger(Number(component.culinaryUnitId))
+      || Number(component.culinaryUnitId) <= 0)) {
+      errors.push(`Componente ${position}: informe a unidade culinária.`);
+    }
+    if (hasProduct && (!Number.isInteger(Number(component.conversionId))
+      || Number(component.conversionId) <= 0)) {
+      errors.push(`Componente ${position}: informe a conversão.`);
     }
   });
 

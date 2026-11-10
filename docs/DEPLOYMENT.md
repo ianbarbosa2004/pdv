@@ -140,15 +140,15 @@ desativado, portanto os bundles distribuídos para a loja não oferecem troca
 de idioma durante a instalação. A configuração está em
 `src-tauri/tauri.conf.json`.
 
-Para preparar as tabelas de unidades culinárias no banco do servidor, execute:
+Instalações antigas que ainda não possuem as tabelas de compatibilidade podem
+prepará-las uma única vez no servidor do MariaDB:
 
 ```powershell
 npm.cmd run migrate:culinary-units
 ```
 
-A migração usa as credenciais do `.env`, é idempotente e não exige reiniciar a
-API. O comando deve ser executado no servidor que hospeda o MariaDB, antes de
-qualquer funcionalidade que consuma essas tabelas.
+A migração usa as credenciais carregadas por `loadMigrationConfig()` e não deve
+ser executada automaticamente pela API.
 A execução não altera a versão interna do aplicativo nem inclui esse número nos
 nomes dos arquivos publicados. Para regenerar os ícones após trocar
 `src-tauri/icons/icon.png`, acrescente `--refresh-icons`:
@@ -156,6 +156,43 @@ nomes dos arquivos publicados. Para regenerar os ícones após trocar
 ```powershell
 npm.cmd run release:client -- --api-url=http://IP_DO_SERVIDOR:3000 --refresh-icons
 ```
+
+Para copiar os dados legados para o catálogo unificado, execute depois da
+migração acima e somente após confirmar um backup válido do MariaDB:
+
+```powershell
+npm.cmd run migrate:unify-measurement-units
+```
+
+Essa etapa é aditiva e não remove as tabelas legadas. Ela também cria
+conversões explícitas para as unidades
+comerciais `kg` e `l` a partir dos fatores cadastrados para `g` e `ml`, como
+`colher_sopa → kg`, além das identidades e conversões universais entre `g`, `kg`,
+`ml`, `l`, `un` e `DZ`. O relatório do comando deve confirmar que todas as
+unidades e conversões legadas foram mapeadas. Reinicie a API depois da migração
+para que as novas conversões sejam carregadas pela tela. Não publique a etapa de corte da
+API antes de executar a validação de referências e orfandade prevista em
+`docs/DEVELOPMENT.md`.
+
+O comando usa a credencial do Windows Credential Manager quando disponível.
+Caso contrário, solicita a senha do MariaDB em um prompt mascarado que aceita
+colagem com `Ctrl+V` ou botão direito, inclusive nos scripts de migração. A
+senha não é exibida nem deve ser
+colocada diretamente no comando ou em arquivos do projeto.
+
+Antes de publicar a versão que lê somente referências canônicas nas Receitas,
+confirme o backup e execute o corte:
+
+```powershell
+npm.cmd run migrate:cutover-measurement-units
+```
+
+O corte valida e converte as referências das Receitas em uma única transação,
+verifica órfãos e só depois remove `unit_migration_map`,
+`unit_conversion_migration_map`, `culinary_units` e
+`culinary_unit_conversions`. Em caso de erro ocorre rollback. Reinicie o
+serviço `PDV-API` após o corte; não execute essa etapa sem autorização
+operacional explícita.
 Para gerar somente um build Tauri sem instaladores, defina
 `VITE_PDV_API_URL` e use `npm.cmd run tauri -- build --no-bundle`.
 
@@ -165,6 +202,19 @@ durante o startup e nas rotas do domínio. Depois de publicar uma versão que
 altere `src/server/`, reinicie o serviço `PDV-API` para executar essa preparação
 no banco existente antes de validar as telas de Ficha Técnica ou os vínculos do
 cadastro de Produtos. Não execute SQL destrutivo nem remova tabelas existentes.
+
+### Correção do identificador de caixa
+
+O schema de caixa usa `SMALLINT UNSIGNED` em `cash_registers.idCashRegister` e
+`cash_sessions.idCashRegister`. Essa capacidade evita o erro
+`HA_ERR_AUTOINC_ERANGE` quando o contador de caixas de uma instalação antiga
+ultrapassa o limite de `TINYINT UNSIGNED`.
+
+Após publicar essa alteração, reinicie o serviço `PDV-API`. A preparação
+idempotente detecta as colunas antigas, remove temporariamente a foreign key
+`fkCashSessionsRegister`, altera os dois tipos para `SMALLINT UNSIGNED`, recria
+a foreign key e garante o registro `Caixa principal`. Não execute `ALTER TABLE`
+manualmente sem backup e sem confirmar o nome da constraint na instalação.
 
 Não use o endereço do frontend Vite como endereço da API. Se a aplicação
 receber uma página HTML no lugar de JSON, confirme essa variável e valide
@@ -313,10 +363,14 @@ Set-ExecutionPolicy -Scope Process Bypass
 ```
 
 Ao executar a publicação diretamente, o script solicita a senha administrativa
-do MariaDB no início da execução, em prompt oculto. A senha é usada apenas para
-redefinir a credencial do usuário da API e o arquivo temporário criado para o
-cliente `mysql` é removido ao final. Quando chamado pelo instalador, o script
-recebe o arquivo temporário já preparado e não solicita a senha novamente.
+do MariaDB no início da execução, em prompt oculto, e testa imediatamente a
+conexão TCP local com essa credencial. Se a senha estiver incorreta, a execução
+é interrompida antes de copiar arquivos, instalar dependências ou alterar o
+serviço. A senha é usada apenas para redefinir a credencial do usuário da API e
+o arquivo temporário criado para o cliente `mysql` é removido ao final. Quando
+chamado pelo instalador, o script recebe o arquivo temporário já preparado e
+também valida a credencial antes das etapas demoradas, sem solicitar a senha
+novamente.
 
 O script de publicação copia a aplicação para `C:\ProgramData\PDV\app`,
 preservando o `.env` operacional e excluindo `.git`, `.env`, `dist`,
@@ -329,6 +383,12 @@ direito local **Fazer logon como um serviço**; em computadores sujeitos a
 Política de Grupo, essa permissão pode precisar ser atribuída novamente pelo
 administrador.
 
+O provisionamento do Credential Manager carrega explicitamente o perfil da
+conta `PDVApiSvc`. A publicação também atualiza `PDV_DB_PASSWORD` somente no
+`.env` operacional fora do repositório, protegido pelas permissões da pasta
+publicada. Esse fallback mantém a API inicializável mesmo quando o serviço
+Windows não consegue abrir o perfil do Credential Manager.
+
 O arquivo `C:\ProgramData\PDV\app\.env` deve existir antes da publicação. O
 script interrompe a execução se ele não existir e nunca o substitui pelo `.env`
 do checkout. Assim, `PDV_API_TOKEN` e demais configurações operacionais
@@ -336,10 +396,16 @@ permanecem preservados durante atualizações.
 
 O serviço depende do `MariaDB`, inicia automaticamente com atraso e possui
 três tentativas de reinício com atrasos de 10, 30 e 60 segundos. Os logs ficam
-fora do repositório em `C:\ProgramData\PDV\logs`, com rotação por tamanho e
-data. O estado configurado pelo Service Control Manager (`.\PDVApiSvc`) é a
-referência operacional; o XML do WinSW deve permanecer coerente com o diretório
-publicado quando o serviço for reinstalado.
+fora do repositório em `C:\ProgramData\PDV\logs`, com um arquivo de saída e um
+arquivo de erro por dia, mantendo os últimos 14 dias. O estado configurado pelo
+Service Control Manager (`.\PDVApiSvc`) é a referência operacional; o XML do
+WinSW deve permanecer coerente com o diretório publicado quando o serviço for
+reinstalado.
+
+A rotação é por tempo (`yyyyMMdd`), não por tamanho. Isso evita que uma
+execução que produza muitos diagnósticos crie dezenas de arquivos pequenos de
+1 KB. A publicação atualiza essa configuração e reinstala o wrapper; não é
+necessário compilar o aplicativo.
 
 O teste de emissão NFC-e exige o executável `openssl.exe` no servidor. O
 instalador procura uma instalação disponível e registra o caminho no serviço
@@ -416,17 +482,23 @@ Quando houver alteração no schema ou na persistência:
 6. confirme que vendas, estoque, pagamentos e produtos existentes foram
    preservados.
 
-Quando a alteração envolver a política de textos em maiúsculas, execute no
+Quando a alteração envolver a normalização da capitalização dos cadastros,
+execute no
 servidor, com a API parada ou em janela controlada:
 
 ```powershell
 npm.cmd run migrate:uppercase
 ```
 
-O comando verifica colisões em colunas únicas, executa a conversão em uma única
-transação e é idempotente. Faça a primeira execução somente depois de validar
-um backup restaurável; a migração não converte códigos, e-mails, URLs, rotas,
-chaves técnicas nem a formatação do Construtor de Menu.
+O comando usa a credencial armazenada no Credential Manager quando disponível;
+caso contrário, solicita no terminal a senha do `pdv_app` com entrada mascarada
+e suporte a Ctrl+V. Verifica colisões em `products.skuProduct`, executa a
+conversão em uma única transação e é idempotente. Faça a primeira execução somente depois de
+validar um backup restaurável; a migração aplica capitalização de título aos
+textos humanos de `company_settings`, grupos, unidades, produtos e demais
+cadastros previstos, incluindo `products.printsPlace`, e não altera códigos,
+e-mails, URLs, rotas, chaves técnicas nem
+a formatação do Construtor de Menu.
 
 As versões que incluem o cadastro fiscal também criam ou atualizam a tabela
 `fiscal_catalog_items`. A inicialização da API faz somente a criação estrutural

@@ -4,7 +4,9 @@ import { readFile } from "node:fs/promises";
 
 test("instalação limpa solicita a senha sem aceitar credencial por ambiente", async () => {
   const script = await readFile("scripts/install-windows-api.ps1", "utf8");
-  assert.match(script, /Read-Host 'Senha do usuário administrativo do MariaDB' -AsSecureString/u);
+  assert.match(script, /Read-MariaDbPassword 'Senha do usuário administrativo do MariaDB'/u);
+  assert.match(script, /ConsoleKey\]::Enter/u);
+  assert.match(script, /cole com Ctrl\+V ou botão direito/u);
   assert.doesNotMatch(script, /PDV_DB_ROOT_PASSWORD/u);
   assert.match(script, /RandomNumberGenerator/u);
   assert.match(script, /PDV_API_TOKEN=\$apiToken/u);

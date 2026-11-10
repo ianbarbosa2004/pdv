@@ -1,6 +1,6 @@
 {
   "name": "pdv",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,6 +14,8 @@
     "set:database-credential": "node --env-file=.env scripts/set-database-credential.mjs",
     "tauri": "tauri",
     "migrate:culinary-units": "node --env-file=.env scripts/migrations/migrate-culinary-units.mjs",
+    "migrate:unify-measurement-units": "node --env-file=.env scripts/migrations/migrate-unify-measurement-units.mjs",
+    "migrate:cutover-measurement-units": "node --env-file=.env scripts/migrations/migrate-cutover-measurement-units.mjs",
     "migrate:uppercase": "node --env-file=.env scripts/migrations/migrate-uppercase-data.mjs",
     "migrate:remove-nfce-certificate-path": "node --env-file=.env scripts/migrations/migrate-remove-nfce-certificate-path.mjs",
     "migrate:products-physical-state-fk": "node --env-file=.env scripts/migrations/migrate-products-physical-state-fk.mjs",
@@ -27,7 +29,8 @@
     "version:major": "node scripts/increment-version.mjs major"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.8.0",
+    "@tauri-apps/api": "^2.12.4",
+    "@tauri-apps/plugin-fs": "^2.7.1",
     "keytar": "^7.9.0",
     "lucide": "^1.61.0",
     "mysql2": "^3.15.3",
@@ -35,7 +38,7 @@
     "xml-crypto": "^6.0.1"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.8.0",
+    "@tauri-apps/cli": "^2.12.4",
     "vite": "^7.1.7"
   },
   "allowScripts": {

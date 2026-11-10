@@ -47,10 +47,12 @@ import {
 } from "./operator/operator-login-screen.js";
 import { createCashScreen } from "./operator/cash-screen.js";
 import { clearOperatorSessionToken } from "./shared/api.js";
+import { installGlobalModalEscape } from "./ui/modal.js";
 
 const app = document.querySelector("#app");
 
 if (!app) throw new Error("Elemento raiz da aplicação não encontrado.");
+installGlobalModalEscape();
 
 const normalizeScreenChrome = () => {
   const operatorName = window.__PDV_OPERATOR__?.displayNameOperator || "Operador";
@@ -240,8 +242,7 @@ const showRecipeRevisions = () =>
     onRecipeRevisions: showRecipeRevisions,
     ...common()
   }));
-const showCulinaryUnits = () =>
-  mount(createCulinaryReferenceScreen({ kind: "culinaryUnits", onBack: showBackoffice, onRecipes: showRecipes, ...common() }));
+const showCulinaryUnits = () => showUnits();
 const showPhysicalStates = () =>
   mount(createCulinaryReferenceScreen({ kind: "physicalStates", onBack: showBackoffice, onRecipes: showRecipes, ...common() }));
 const showCulinaryConversions = () =>
