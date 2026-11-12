@@ -5,14 +5,6 @@
 Para que o sistema atenda com excelência a operação diária de um bar e
 restaurante, trabalharemos sobre os pilares fundamentais do setor.
 
-### 1. Arquitetura e comunicação de rede local
-
-- **Sincronização PDV-servidor:** padrão de rotas da API em `/api/...`,
-  suporte a variáveis de ambiente dinâmicas/em tempo de build e tratamento de
-  resiliência de rede.
-- **Execução como serviço:** empacotamento do backend Node.js via WinSW com
-  dependência direta do MariaDB e leitura automática de arquivos `.env`.
-
 ### 2. Operação de frente de caixa e atendimento
 
 - **Modalidades de venda:** venda direta no balcão, controle por comandas
@@ -39,13 +31,9 @@ restaurante, trabalharemos sobre os pilares fundamentais do setor.
 - **Ficha técnica e baixa de estoque:** venda de produtos compostos, como um
   drink que baixa doses de bebida e insumos ou uma porção que baixa
   matéria-prima por peso/unidade.
-- **Catálogos fiscais:** manutenção de tabelas NCM, CEST, CFOP e operações
-  fiscais padrão de saída/entrada.
-
-- **A3:** não é suportado; a interface e a API aceitam somente certificado A1 em arquivo PKCS#12.
 
 - **Numeração NFC-e:** a emissão integrada opcional usa `nfceNextNumberCompany` para reservar número na venda e grava o documento em `sale_fiscal_documents`; o teste isolado continua usando número temporário.
 
 - **Contingência:** `nfceContingencyCompany` continua preparatória; não há emissão offline, envio posterior ou reconciliação.
 
-- **Recomendação:** não habilitar A3 nem contingência como recursos funcionais antes de implementar os fluxos correspondentes.
+- **Recomendação:** não habilitar A3 nem contingência como recursos funcionais antes de implementar os fluxos correspondentes

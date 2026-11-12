@@ -10,7 +10,6 @@ import {
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { apiFetch, getApiUrl } from "../shared/api.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
-import { parseBrazilianDecimal } from "../shared/decimal.js";
 import { buildDuplicatedProductDraft } from "../shared/product.js";
 import { normalizePrintPlace } from "../shared/print-place.js";
 
@@ -35,6 +34,12 @@ const formatStockForInput = (value, isFractionalProduct) =>
     : formatIntegerStock(value ?? "0") || "0";
 
 const normalizeSku = (value) => String(value ?? "").trim().toUpperCase();
+const normalizePackageQuantity = (value) => {
+  const normalizedValue = String(value ?? "").trim();
+  return !normalizedValue || normalizedValue.toLowerCase() === "undefined" || normalizedValue.toLowerCase() === "null"
+    ? "1"
+    : normalizedValue;
+};
 
 export function createCatalogScreen({
   title = "Produtos",
@@ -73,9 +78,6 @@ export function createCatalogScreen({
   const root = document.createElement("main");
   let groups = [];
   let products = [];
-  let recipes = [];
-  let productRecipeLinks = [];
-  let productRecipesLoading = false;
   let fiscalOperations = [];
   let productTypes = [];
   let units = [];
@@ -106,6 +108,7 @@ export function createCatalogScreen({
     priceProduct: "0,00",
     costPriceProduct: "0,00",
     stockQuantityProduct: "0",
+    packageQuantityProduct: "1",
     controlsStockProduct: defaultControlsStock,
     isBuffetProduct: false,
     isFractionalProduct: defaultIsFractionalProduct,
@@ -118,7 +121,6 @@ export function createCatalogScreen({
   let ncmLookupField = "code";
   let sortState = { key: "nameProduct", direction: "asc" };
   let searchTerm = "";
-  let recipeLinkDraft = { idRecipe: "", quantity: "1", lossPercent: "0" };
 
   const getVisibleProducts = () =>
     [...products]
@@ -138,49 +140,6 @@ export function createCatalogScreen({
           );
       return sortState.direction === "asc" ? comparison : -comparison;
       });
-      root.querySelector("[data-product-recipe-target]")?.addEventListener("change", (event) => {
-        recipeLinkDraft.idRecipe = event.currentTarget.value;
-      });
-      root.querySelector("[data-product-recipe-quantity]")?.addEventListener("input", (event) => {
-        recipeLinkDraft.quantity = event.currentTarget.value;
-      });
-      root.querySelector("[data-product-recipe-loss]")?.addEventListener("input", (event) => {
-        recipeLinkDraft.lossPercent = event.currentTarget.value;
-      });
-      root.querySelector("[data-add-product-recipe]")?.addEventListener("click", () => {
-        const recipeId = Number(recipeLinkDraft.idRecipe);
-        const quantity = parseBrazilianDecimal(recipeLinkDraft.quantity);
-        const lossPercent = parseBrazilianDecimal(recipeLinkDraft.lossPercent);
-        const recipe = recipes.find(({ idRecipe }) => Number(idRecipe) === recipeId);
-        if (!recipeId || !recipe || recipe.statusRecipe !== "active"
-          || !Number.isFinite(quantity) || quantity <= 0
-          || !Number.isFinite(lossPercent) || lossPercent < 0 || lossPercent >= 100) {
-          error = "Informe uma Receita ou Composição ativa, quantidade maior que zero e perda entre 0 e 99,99%.";
-          render();
-          return;
-        }
-        if (productRecipeLinks.some((link) => Number(link.idRecipe) === recipeId)) {
-          error = "Esta Receita ou Composição já está vinculada ao produto.";
-          render();
-          return;
-        }
-        productRecipeLinks.push({
-          idRecipe: recipeId,
-          nameRecipe: recipe.nameRecipe,
-          quantityProductRecipeLink: quantity,
-          lossPercentProductRecipeLink: lossPercent
-        });
-        recipeLinkDraft = { idRecipe: "", quantity: "1", lossPercent: "0" };
-        error = "";
-        render();
-      });
-      root.querySelectorAll("[data-remove-product-recipe]").forEach((button) => {
-        button.addEventListener("click", () => {
-          productRecipeLinks.splice(Number(button.dataset.removeProductRecipe), 1);
-          render();
-        });
-      });
-
   const sortIndicator = (key) =>
     sortState.key === key ? (sortState.direction === "asc" ? "↑" : "↓") : "↕";
 
@@ -201,40 +160,6 @@ export function createCatalogScreen({
     `;
   };
 
-  const renderProductRecipeLinks = () => {
-    if (isNonSaleCatalog) return "";
-    return `
-      <div class="classic-panel-header nested-panel-header">Receitas e Composições do produto</div>
-      <p class="form-help">Vincule as estruturas que fazem parte deste produto comercial.</p>
-      <div class="recipe-component-list">
-        ${productRecipesLoading
-          ? '<p class="classic-empty">Carregando vínculos...</p>'
-          : productRecipeLinks.length
-            ? productRecipeLinks.map((link, index) => `
-              <div class="recipe-component-row">
-                <span>${escapeHtml(link.nameRecipe || "Receita não encontrada")}</span>
-                <span>${escapeHtml(link.quantityProductRecipeLink)} un.</span>
-                <span>Perda: ${escapeHtml(link.lossPercentProductRecipeLink)}%</span>
-                <button class="icon-button delete" type="button" data-remove-product-recipe="${index}" aria-label="Remover vínculo"><i data-lucide="trash-2"></i></button>
-              </div>
-            `).join("")
-            : '<p class="classic-empty">Nenhuma Receita ou Composição vinculada.</p>'}
-      </div>
-      <div class="classic-form-grid">
-        <label class="form-field"><span>Receita ou Composição</span><select data-product-recipe-target>
-          <option value="">Selecione</option>
-          ${recipes
-            .filter(({ statusRecipe }) => statusRecipe === "active")
-            .map((recipe) => `<option value="${recipe.idRecipe}" ${String(recipeLinkDraft.idRecipe) === String(recipe.idRecipe) ? "selected" : ""}>${escapeHtml(recipe.nameRecipe)}</option>`)
-            .join("")}
-        </select></label>
-        <label class="form-field"><span>Quantidade</span><input data-product-recipe-quantity inputmode="decimal" value="${escapeHtml(recipeLinkDraft.quantity)}" /></label>
-        <label class="form-field"><span>Perda (%)</span><input data-product-recipe-loss inputmode="decimal" value="${escapeHtml(recipeLinkDraft.lossPercent)}" /></label>
-        <button class="classic-button" data-add-product-recipe type="button">Adicionar vínculo</button>
-      </div>
-    `;
-  };
-
   const renderCestOptions = (selectedValue) =>
     `<option value="">${cestOptions.length ? "Não informado" : "Nenhum CEST relacionado"}</option>${cestOptions.map((cest) => `<option value="${cest.codeCest}" ${String(selectedValue ?? "") === String(cest.codeCest) ? "selected" : ""}>${escapeHtml(cest.codeCest)} - ${escapeHtml(cest.descriptionCest)}</option>`).join("")}`;
 
@@ -251,6 +176,7 @@ export function createCatalogScreen({
       idProductTypeProduct: String(formData.get("idProductTypeProduct") ?? ""),
       idPhysicalStateProduct: String(formData.get("idPhysicalStateProduct") ?? ""),
       idUnitProduct: String(formData.get("idUnitProduct") ?? ""),
+      packageQuantityProduct: String(formData.get("packageQuantityProduct") ?? "1"),
       priceProduct: String(formData.get("priceProduct") ?? ""),
       costPriceProduct: String(formData.get("costPriceProduct") ?? ""),
       stockQuantityProduct: String(
@@ -344,6 +270,7 @@ export function createCatalogScreen({
         : "",
       idPhysicalStateProduct: "",
       idUnitProduct: "",
+      packageQuantityProduct: "1",
       priceProduct: "0,00",
       costPriceProduct: "0,00",
       stockQuantityProduct: "0",
@@ -362,8 +289,6 @@ export function createCatalogScreen({
   const duplicateProduct = (product) => {
     if (!product) return;
     editingProduct = null;
-    productRecipeLinks = [];
-    recipeLinkDraft = { idRecipe: "", quantity: "1", lossPercent: "0" };
     newProductDraft = {
       ...buildDuplicatedProductDraft(product, {
         existingNames: products.map(({ nameProduct }) => nameProduct)
@@ -435,6 +360,10 @@ export function createCatalogScreen({
           <label class="form-field"><span>Nome</span><input name="nameProduct" required maxlength="180" value="${escapeHtml(newProductDraft.nameProduct)}" /></label>
           <div class="classic-form-grid">
             <label class="form-field"><span>SKU</span><input name="skuProduct" data-uppercase-mask required maxlength="64" value="${escapeHtml(normalizeSku(newProductDraft.skuProduct))}" /></label>
+            <label class="form-field"><span>Tipo de produto</span>
+              <input type="hidden" name="idProductTypeProduct" value="${escapeHtml(newProductDraft.idProductTypeProduct)}" />
+              <select data-product-type-display disabled>${renderProductTypeOptions(newProductDraft.idProductTypeProduct)}</select>
+            </label>
           </div>
           <div class="classic-form-grid">
             <label class="form-field"><span>Grupo</span>
@@ -446,10 +375,7 @@ export function createCatalogScreen({
             <label class="form-field"><span>Operação fiscal de venda</span><select name="idFiscalOperationSaleProduct">${renderFiscalOperationOptions(newProductDraft.idFiscalOperationSaleProduct)}</select></label>
           </div>
           <div class="classic-form-grid">
-            <label class="form-field"><span>Tipo de produto</span>
-              <input type="hidden" name="idProductTypeProduct" value="${escapeHtml(newProductDraft.idProductTypeProduct)}" />
-              <select data-product-type-display disabled>${renderProductTypeOptions(newProductDraft.idProductTypeProduct)}</select>
-            </label>
+            <label class="form-field"><span class="field-label-with-help">Conteúdo por unidade <button class="field-help-trigger" type="button" aria-label="Ajuda sobre conteúdo por unidade" aria-describedby="new-package-quantity-help">?<span class="field-help-tooltip" id="new-package-quantity-help" role="tooltip">Quantidade da unidade tributável contida em uma embalagem deste produto. Ex.: uma garrafa com 750 ml informa 750.</span></button></span><input name="packageQuantityProduct" data-number-mask inputmode="decimal" min="0.001" required value="${escapeHtml(normalizePackageQuantity(newProductDraft.packageQuantityProduct))}" /></label>
             <label class="form-field"><span>Unidade tributável</span><select name="idUnitProduct" required>${renderUnitOptions(newProductDraft.idUnitProduct)}</select></label>
           </div>
           ${isRawMaterialsCatalog ? `<label class="form-field"><span>Estado físico</span><select name="idPhysicalStateProduct" required>${renderPhysicalStateOptions(newProductDraft.idPhysicalStateProduct)}</select></label>` : ""}
@@ -492,7 +418,7 @@ export function createCatalogScreen({
                           ...(!isNonSaleCatalog
                             ? [["priceProduct", "Preço de venda", "product-sale-price-column"]]
                             : []),
-                          ["stockQuantityProduct", "Estoque", "product-stock-column"]
+                          ["costPriceProduct", "Custo", "product-cost-column"]
                         ].map(([key, label, columnClass]) => `
                           <th class="${columnClass}" aria-sort="${sortState.key === key ? (sortState.direction === "asc" ? "ascending" : "descending") : "none"}">
                             <button class="table-sort-button" type="button" data-sort="${key}">${label} <span aria-hidden="true">${sortIndicator(key)}</span></button>
@@ -508,7 +434,7 @@ export function createCatalogScreen({
                           ${!isNonSaleCatalog
                             ? `<td class="product-sale-price-column">R$ ${Number(product.priceProduct).toFixed(2).replace(".", ",")}</td>`
                             : ""}
-                          <td class="product-stock-column">${escapeHtml(product.stockQuantityProduct)}</td>
+                          <td class="product-cost-column">R$ ${Number(product.costPriceProduct ?? 0).toFixed(2).replace(".", ",")}</td>
                           <td class="product-visibility-column">
                             <button class="status-toggle ${Number(product.showsInPdvProduct) ? "is-active" : "is-inactive"}" type="button" role="switch" aria-checked="${Number(product.showsInPdvProduct) ? "true" : "false"}" data-pdv-status-id="${product.idProduct}" aria-label="Alternar exibição de ${escapeHtml(product.nameProduct)} no PDV">
                               <span class="status-toggle-track"><span class="status-toggle-thumb"></span></span>
@@ -543,6 +469,10 @@ export function createCatalogScreen({
                 <label class="form-field"><span>Nome</span><input name="nameProduct" required maxlength="180" value="${escapeHtml(editingProduct.nameProduct)}" /></label>
                 <div class="classic-form-grid">
                   <label class="form-field"><span>SKU</span><input name="skuProduct" data-uppercase-mask required maxlength="64" value="${escapeHtml(normalizeSku(editingProduct.skuProduct))}" /></label>
+                  <label class="form-field"><span>Tipo de produto</span>
+                    <input type="hidden" name="idProductTypeProduct" value="${escapeHtml(editingProduct.idProductTypeProduct)}" />
+                    <select data-product-type-display disabled>${renderProductTypeOptions(editingProduct.idProductTypeProduct)}</select>
+                  </label>
                 </div>
                 <div class="classic-form-grid">
                   <label class="form-field"><span>Grupo</span>
@@ -553,10 +483,7 @@ export function createCatalogScreen({
                   <label class="form-field"><span>Operação fiscal de venda</span><select name="idFiscalOperationSaleProduct">${renderFiscalOperationOptions(editingProduct.idFiscalOperationSaleProduct)}</select></label>
                 </div>
                 <div class="classic-form-grid">
-                  <label class="form-field"><span>Tipo de produto</span>
-                    <input type="hidden" name="idProductTypeProduct" value="${escapeHtml(editingProduct.idProductTypeProduct)}" />
-                    <select data-product-type-display disabled>${renderProductTypeOptions(editingProduct.idProductTypeProduct)}</select>
-                  </label>
+                  <label class="form-field"><span class="field-label-with-help">Conteúdo por unidade <button class="field-help-trigger" type="button" aria-label="Ajuda sobre conteúdo por unidade" aria-describedby="edit-package-quantity-help">?<span class="field-help-tooltip" id="edit-package-quantity-help" role="tooltip">Quantidade da unidade tributável contida em uma embalagem deste produto. Ex.: uma garrafa com 750 ml informa 750.</span></button></span><input name="packageQuantityProduct" data-number-mask inputmode="decimal" min="0.001" required value="${escapeHtml(normalizePackageQuantity(editingProduct.packageQuantityProduct))}" /></label>
                   <label class="form-field"><span>Unidade tributável</span><select name="idUnitProduct" required>${renderUnitOptions(editingProduct.idUnitProduct)}</select></label>
                 </div>
                 ${isRawMaterialsCatalog ? `<label class="form-field"><span>Estado físico</span><select name="idPhysicalStateProduct" required>${renderPhysicalStateOptions(editingProduct.idPhysicalStateProduct)}</select></label>` : ""}
@@ -571,7 +498,6 @@ export function createCatalogScreen({
                 </div>
                 <div class="classic-form-grid">${renderPrintPlaceField(editingProduct)}</div>
                 ${renderProductFlags(editingProduct)}
-                ${renderProductRecipeLinks()}
                 ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}
               </div>
               <div class="classic-form-actions">
@@ -626,6 +552,12 @@ export function createCatalogScreen({
     `;
     renderLucideIcons(root);
     bindNumberMasks(root);
+    root.querySelectorAll(".field-help-trigger").forEach((trigger) => {
+      trigger.addEventListener("pointerenter", () => trigger.classList.add("is-help-visible"));
+      trigger.addEventListener("pointerleave", () => trigger.classList.remove("is-help-visible"));
+      trigger.addEventListener("focus", () => trigger.classList.add("is-help-visible"));
+      trigger.addEventListener("blur", () => trigger.classList.remove("is-help-visible"));
+    });
     bindMainMenu(root, {
       products: onProducts,
       "raw-materials": onRawMaterials,
@@ -730,12 +662,9 @@ export function createCatalogScreen({
     root.querySelectorAll("[data-edit]").forEach((button) => {
       button.addEventListener("click", () => {
         editingProduct = products.find(({ idProduct }) => String(idProduct) === button.dataset.edit) || null;
-        productRecipeLinks = [];
-        recipeLinkDraft = { idRecipe: "", quantity: "1", lossPercent: "0" };
         cestOptions = [];
         render();
         void loadCestOptions(editingProduct?.ncmProduct);
-        void loadProductRecipeLinks(editingProduct?.idProduct);
         root.querySelector("[data-edit-product-form] [name='nameProduct']")?.focus();
       });
     });
@@ -872,7 +801,7 @@ export function createCatalogScreen({
     loading = true;
     render();
     try {
-      const [groupResponse, productResponse, operationResponse, typeResponse, unitResponse, physicalStateResponse, generalSettingsResponse, recipeResponse] = await Promise.all([
+      const [groupResponse, productResponse, operationResponse, typeResponse, unitResponse, physicalStateResponse, generalSettingsResponse] = await Promise.all([
         apiFetch(`${getApiUrl()}/api/groups?includeInactive=1`),
         apiFetch(`${getApiUrl()}/api/products?includeInactive=1&productType=${encodeURIComponent(productTypeDescription)}`),
         apiFetch(`${getApiUrl()}/api/fiscal-operations`),
@@ -881,10 +810,7 @@ export function createCatalogScreen({
         isRawMaterialsCatalog
           ? apiFetch(`${getApiUrl()}/api/physical-states`)
           : Promise.resolve({ ok: true, json: async () => ({ physicalStates: [] }) }),
-        apiFetch(`${getApiUrl()}/api/general-settings`),
-        isNonSaleCatalog
-          ? Promise.resolve({ ok: true, json: async () => ({ recipes: [] }) })
-          : apiFetch(`${getApiUrl()}/api/recipes`)
+        apiFetch(`${getApiUrl()}/api/general-settings`)
       ]);
       const groupPayload = await groupResponse.json();
       const productPayload = await productResponse.json();
@@ -893,7 +819,6 @@ export function createCatalogScreen({
       const unitPayload = await unitResponse.json();
       const physicalStatePayload = await physicalStateResponse.json();
       const generalSettingsPayload = await generalSettingsResponse.json();
-      const recipePayload = await recipeResponse.json();
       if (!groupResponse.ok || !Array.isArray(groupPayload.groups)) {
         throw new Error(groupPayload.error || "Não foi possível carregar os grupos.");
       }
@@ -915,15 +840,10 @@ export function createCatalogScreen({
       if (!generalSettingsResponse.ok || !Array.isArray(generalSettingsPayload.settings)) {
         throw new Error(generalSettingsPayload.error || "Não foi possível carregar as configurações gerais.");
       }
-      if (!recipeResponse.ok || !Array.isArray(recipePayload.recipes)) {
-        throw new Error(recipePayload.error || "Não foi possível carregar as receitas.");
-      }
       groups = groupPayload.groups;
       products = productPayload.products;
-      recipes = recipePayload.recipes;
       if (initialProductId && !editingProduct) {
         editingProduct = products.find(({ idProduct }) => String(idProduct) === String(initialProductId)) || null;
-        if (editingProduct) void loadProductRecipeLinks(editingProduct.idProduct);
       }
       fiscalOperations = operationPayload.fiscalOperations.filter(({ typeFiscalOperation }) => typeFiscalOperation === "exit");
       productTypes = typePayload.productTypes;
@@ -971,46 +891,6 @@ export function createCatalogScreen({
     render();
   };
 
-  const loadProductRecipeLinks = async (productId) => {
-    if (!productId || isNonSaleCatalog) return;
-    productRecipesLoading = true;
-    render();
-    try {
-      const response = await apiFetch(`${getApiUrl()}/api/product-recipes?productId=${encodeURIComponent(productId)}`);
-      const payload = await response.json();
-      if (!response.ok || !Array.isArray(payload.links)) {
-        throw new Error(payload.error || "Não foi possível consultar as receitas do produto.");
-      }
-      if (editingProduct && String(editingProduct.idProduct) === String(productId)) {
-        productRecipeLinks = payload.links;
-      }
-    } catch (loadError) {
-      error = loadError instanceof Error ? loadError.message : "Falha ao carregar as receitas do produto.";
-    } finally {
-      productRecipesLoading = false;
-      render();
-    }
-  };
-
-  const saveProductRecipeLinks = async (productId) => {
-    const response = await apiFetch(`${getApiUrl()}/api/product-recipes`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        idProduct: productId,
-        links: productRecipeLinks.map((link) => ({
-          idRecipe: link.idRecipe,
-          quantity: link.quantityProductRecipeLink,
-          lossPercent: link.lossPercentProductRecipeLink
-        }))
-      })
-    });
-    const payload = await response.json();
-    if (!response.ok) {
-      throw new Error(payload.error || "Não foi possível salvar as receitas do produto.");
-    }
-  };
-
   const createProduct = async (formData, productId = null) => {
     if (!productId) captureNewProductDraft(formData);
     submitting = true;
@@ -1035,6 +915,7 @@ export function createCatalogScreen({
             ? Number(formData.get("idPhysicalStateProduct"))
             : null,
           idUnitProduct: formData.get("idUnitProduct") ? Number(formData.get("idUnitProduct")) : null,
+          packageQuantityProduct: normalizeMaskedNumber(formData.get("packageQuantityProduct") || "1"),
           ncmProduct: formData.get("ncmProduct") || null,
           cestProduct: formData.get("cestProduct") || null,
           priceProduct: isNonSaleCatalog
@@ -1059,13 +940,11 @@ export function createCatalogScreen({
         throw new Error(payload.error || "Não foi possível cadastrar o produto.");
       }
       const wasEditing = Boolean(productId);
-      if (wasEditing && !isNonSaleCatalog) {
-        await saveProductRecipeLinks(productId);
-      }
       message = wasEditing ? "Produto alterado com sucesso." : "Produto cadastrado com sucesso.";
       if (!wasEditing) resetNewProductDraft();
       editingProduct = null;
       await load();
+      if (wasEditing) root.__PDV_FORM_PREVIEW_PENDING__ = products.find((product) => String(product.idProduct) === String(productId));
       scheduleMessageClear(() => {
         message = "";
         clearRenderedFeedback(root);

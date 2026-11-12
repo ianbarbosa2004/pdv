@@ -270,6 +270,7 @@ export function createClassScreen({ onBack, onClasses, onGroups, onProducts, onP
       message = idClass ? "Classe alterada com sucesso." : "Classe cadastrada com sucesso.";
       editingClass = null;
       await load();
+      if (idClass) root.__PDV_FORM_PREVIEW_PENDING__ = classes.find((item) => String(item.idClass) === String(idClass));
       scheduleMessageClear(() => {
         message = "";
         clearRenderedFeedback(root);

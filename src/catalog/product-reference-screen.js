@@ -68,6 +68,9 @@ const unitCategoryOptions = [
   ["general", "Geral"]
 ];
 
+const unitBaseLabels = Object.fromEntries(unitBaseOptions);
+const unitCategoryLabels = Object.fromEntries(unitCategoryOptions);
+
 export function createProductReferenceScreen({
   kind,
   onBack,
@@ -170,10 +173,12 @@ export function createProductReferenceScreen({
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || `Não foi possível salvar ${definition.singular}.`);
-      message = id ? `${definition.singular[0].toUpperCase()}${definition.singular.slice(1)} alterada com sucesso.` : `${definition.singular[0].toUpperCase()}${definition.singular.slice(1)} cadastrada com sucesso.`;
+      message = id ? `A ${definition.singular} foi alterada com sucesso.` : `A ${definition.singular} foi cadastrada com sucesso.`;
       editingItem = null;
       submitting = false;
       await load({ showLoading: false });
+      if (id !== null && id !== undefined) root.__PDV_FORM_PREVIEW_PENDING__ = items.find((item) => String(item[definition.id]) === String(id));
+      if (id !== null && id !== undefined) render();
       scheduleMessageClear(() => {
         message = "";
         clearRenderedFeedback(root);
@@ -235,7 +240,7 @@ export function createProductReferenceScreen({
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || `Não foi possível excluir ${definition.singular}.`);
-      message = `${definition.singular[0].toUpperCase()}${definition.singular.slice(1)} excluída com sucesso.`;
+      message = `A ${definition.singular} foi excluída com sucesso.`;
       items = items.filter((item) => String(item[definition.id]) !== String(id));
       render();
       await load();
@@ -280,10 +285,10 @@ export function createProductReferenceScreen({
           <div class="classic-grid-wrapper">
             ${loading ? `<p class="classic-empty">Carregando ${definition.plural}...</p>` : visibleItems.length ? `
               <table class="classic-table">
-                <thead><tr>${isUnits ? "<th>Código</th><th>Descrição</th><th>Base</th><th>Categoria</th><th>Ativa</th><th>Tributável</th><th>Culinária</th>" : definition.fields.map(([, label]) => `<th>${label}</th>`).join("")}<th class="actions-column">Ações</th></tr></thead>
+                <thead><tr>${isUnits ? "<th>Descrição</th><th>Base</th><th>Categoria</th><th>Tributável</th><th>Culinária</th><th>Status</th>" : `${definition.fields.map(([, label]) => `<th>${label}</th>`).join("")}<th>Status</th>`}<th class="actions-column">Ações</th></tr></thead>
                 <tbody>${visibleItems.map((item) => `
                   <tr class="${item.isActiveProductType === 0 || item.isActiveUnit === 0 ? "is-inactive" : ""}" data-view-record="${escapeHtml(JSON.stringify(item))}">
-                    ${isUnits ? `<td>${escapeHtml(item.codeUnit)}</td><td>${escapeHtml(item.descriptionUnit)}</td><td>${escapeHtml(item.baseUnitUnit)}</td><td>${escapeHtml(item.categoryUnit)}</td>${definition.booleanFields.map(([field, label]) => `<td>${renderUnitFlagSwitch(item, field, label)}</td>`).join("")}` : `${definition.fields.map(([field]) => `<td>${escapeHtml(item[field])}</td>`).join("")}<td><button class="status-toggle ${(item.isActiveProductType ?? item.isActiveUnit) ? "is-active" : "is-inactive"}" type="button" aria-checked="${(item.isActiveProductType ?? item.isActiveUnit) ? "true" : "false"}" data-status-id="${item[definition.id]}"><span class="status-toggle-track"><span class="status-toggle-thumb"></span></span><span class="status-toggle-label">${(item.isActiveProductType ?? item.isActiveUnit) ? "Ativo" : "Inativo"}</span></button></td>`}
+                    ${isUnits ? `<td>${escapeHtml(item.descriptionUnit)}</td><td>${escapeHtml(unitBaseLabels[item.baseUnitUnit] || item.baseUnitUnit)}</td><td>${escapeHtml(unitCategoryLabels[item.categoryUnit] || item.categoryUnit)}</td><td>${renderUnitFlagSwitch(item, "isTaxableUnit", "Tributável")}</td><td>${renderUnitFlagSwitch(item, "isCulinaryUnit", "Culinária")}</td><td>${renderUnitFlagSwitch(item, "isActiveUnit", "Status")}` : `${definition.fields.map(([field]) => `<td>${escapeHtml(item[field])}</td>`).join("")}<td><button class="status-toggle ${(item.isActiveProductType ?? false) ? "is-active" : "is-inactive"}" type="button" aria-checked="${(item.isActiveProductType ?? false) ? "true" : "false"}" data-status-id="${item[definition.id]}"><span class="status-toggle-track"><span class="status-toggle-thumb"></span></span><span class="status-toggle-label">${(item.isActiveProductType ?? false) ? "Ativo" : "Inativo"}</span></button></td>`}
                     <td class="actions-column"><button class="icon-button edit" type="button" data-edit="${item[definition.id]}" aria-label="Editar"><i data-lucide="pencil"></i></button><button class="icon-button delete" type="button" data-delete="${item[definition.id]}" aria-label="Excluir"><i data-lucide="trash-2"></i></button></td>
                   </tr>`).join("")}</tbody>
               </table>` : `<p class="classic-empty">${items.length ? `Nenhuma ${definition.singular} encontrada.` : `Nenhuma ${definition.singular} cadastrada.`}</p>`}

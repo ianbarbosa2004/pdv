@@ -66,6 +66,33 @@ test("does not restore disabled or read-only fields over loaded values", () => {
   assert.equal(root.forms[0].elements[1].value, "ABC123");
 });
 
+test("does not read or restore file inputs across a render", () => {
+  let currentValueRead = false;
+  const currentFile = {
+    name: "xmlFile",
+    type: "file",
+    get value() {
+      currentValueRead = true;
+      return "C:\\fake\\entrada.xml";
+    },
+    set value(_value) {
+      throw new Error("file input cannot be assigned");
+    }
+  };
+  const root = {
+    forms: [form(currentFile)],
+    querySelectorAll(selector) {
+      assert.equal(selector, "form");
+      return this.forms;
+    }
+  };
+
+  assert.doesNotThrow(() => renderPreservingFormDraft(root, () => {
+    root.forms = [form(field("xmlFile", "file", ""))];
+  }));
+  assert.equal(currentValueRead, false);
+});
+
 test("clears feedback without rebuilding the form", () => {
   let removed = false;
   const root = {

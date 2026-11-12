@@ -32,6 +32,81 @@ Operação autorizada que marca uma venda como cancelada, registra operador,
 horário e motivo, e reverte estoque e efeitos financeiros na mesma transação.
 _Evitar_: exclusão física da venda.
 
+**Documento fiscal eletrônico**:
+Documento fiscal digital autorizado pela administração tributária, identificado
+por uma chave de acesso e associado a um emitente, emissão e valor total.
+_Evitar_: venda do PDV, entrada de estoque concluída.
+
+**NF-e**:
+Documento fiscal eletrônico de modelo 55, normalmente usado para documentar
+operações de circulação de mercadorias ou prestação entre empresas.
+_Evitar_: NFC-e, entrada de estoque.
+
+**NFC-e**:
+Documento fiscal eletrônico de modelo 65, usado principalmente para operações
+de venda ao consumidor final.
+_Evitar_: NF-e, cupom não fiscal.
+
+**Chave de acesso**:
+Identificador numérico de 44 dígitos que identifica um Documento fiscal
+eletrônico e permite sua consulta na administração tributária.
+_Evitar_: número da nota, código interno.
+
+**Fila de documentos fiscais**:
+Cadastro temporário de Documentos fiscais eletrônicos confirmados na consulta
+fiscal e ainda não convertidos em uma entrada de estoque.
+_Evitar_: estoque, compra concluída, movimento de estoque.
+
+**Pré-entrada**:
+Revisão de uma Fila de documentos fiscais na qual o operador escolhe os itens
+que serão aproveitados, vincula cada descrição ao Produto comercial correspondente
+e confirma quantidades, unidades e conversões antes de movimentar o estoque.
+_Evitar_: entrada de estoque concluída, importação automática.
+
+**Vínculo de descrição fiscal**:
+Relação reutilizável entre uma descrição e unidade originadas no documento fiscal
+e um Produto comercial escolhido pelo operador. Um mesmo Produto comercial pode
+ter vários vínculos, pois fornecedores diferentes podem usar descrições ou
+unidades fiscais diferentes para o mesmo produto. Na mesma loja, cada vínculo
+pode ser sugerido automaticamente em documentos futuros com a mesma descrição e
+unidade, mas pode ser revisto antes da confirmação.
+_Evitar_: código compartilhado, vínculo por fornecedor.
+
+**Vínculo ambíguo**:
+Situação em que uma descrição, unidade e embalagem de origem podem corresponder
+a mais de um Produto comercial local sem identificador compartilhado confiável,
+exigindo escolha explícita do operador.
+_Evitar_: vínculo automático, correspondência presumida.
+
+**Estado da pré-entrada**:
+Situação operacional que indica se uma Pré-entrada ainda pode ser editada,
+aguarda vínculos, está pronta para confirmação, já foi convertida em Entrada de
+estoque ou foi cancelada sem movimentar estoque.
+_Evitar_: status da nota fiscal, situação do produto.
+
+**Em Digitação**:
+Estado inicial persistido de uma Pré-entrada, usado enquanto itens, vínculos,
+seleções, conversões ou pagamento ainda estão sendo preenchidos. Permite salvar
+o rascunho sem movimentar estoque e sem considerá-lo validado para conclusão.
+_Evitar_: entrada incompleta descartada, Em Aberto.
+
+**Em Aberto**:
+Estado de uma entrada fiscal já gravada, mas ainda não concluída para
+movimentação de estoque. A entrada permanece disponível para continuidade,
+revisão ou confirmação posterior e não movimenta nem reserva estoque.
+_Evitar_: entrada confirmada, estoque lançado, nota autorizada.
+
+**Consulta fiscal**:
+Verificação server-side de uma Chave de acesso junto à administração tributária,
+com resposta suficiente para confirmar a existência e os dados básicos do
+Documento fiscal eletrônico.
+_Evitar_: abertura manual do portal, consulta demonstrativa.
+
+**Entrada de estoque**:
+Operação futura que transforma um Documento fiscal eletrônico confirmado em
+itens, quantidades e valores movimentados no estoque.
+_Evitar_: inclusão na Fila de documentos fiscais.
+
 ## Catálogo culinário e composição
 
 **Unidade de medida**:
@@ -54,6 +129,12 @@ Item cadastrado no catálogo com identidade, unidade, preço e regras de venda,
 podendo ser matéria-prima, produto produzido, mercadoria para revenda ou
 embalagem conforme sua classificação e uso.
 _Evitar_: produto final de venda como entidade separada.
+
+**Conteúdo por unidade**:
+Quantidade da Unidade tributável contida em uma unidade comercial do Produto
+comercial. Permite calcular o custo proporcional de receitas quando uma
+embalagem, como uma garrafa, contém mais de uma unidade-base de consumo.
+_Evitar_: estoque inicial, fator da conversão culinária.
 
 **Duplicação de produto**:
 Criação de um novo Produto comercial a partir de campos cadastrais reaproveitados

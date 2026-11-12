@@ -203,6 +203,7 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
     message = "";
     render();
     let renderAfterSubmit = true;
+    const editedRecipeId = editingRecipe?.idRecipe;
     try {
       const response = await apiFetch(`${getApiUrl()}/api/recipes${editingRecipe ? `/${editingRecipe.idRecipe}` : ""}`, {
         method: editingRecipe ? "PUT" : "POST",
@@ -228,6 +229,11 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
       resetFormState({ keepMessage: true });
       submitting = false;
       await load();
+      if (editedRecipeId) {
+        viewingRecipe = recipes.find((recipe) => recipe.idRecipe === editedRecipeId) || null;
+        if (viewingRecipe) populateForm(viewingRecipe);
+        render();
+      }
       scheduleMessageClear(() => {
         message = "";
         clearRenderedFeedback(root);

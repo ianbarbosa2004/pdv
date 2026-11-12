@@ -65,6 +65,7 @@ const fields = {
 export function createCustomerConsumerScreen({
   kind,
   onBack,
+  onSuppliers,
   onCustomers,
   onConsumers,
   onProducts,
@@ -168,7 +169,7 @@ export function createCustomerConsumerScreen({
       ${editing ? `<div class="classic-modal-backdrop" data-modal-backdrop><section class="classic-modal" role="dialog" aria-modal="true"><div class="classic-panel-header modal-panel-header"><span>Editar ${singular}</span><button class="modal-close-button" data-cancel type="button" aria-label="Fechar"><i data-lucide="x"></i></button></div><form data-edit-form><div class="classic-form-body"><div class="classic-form-grid">${renderFields(editing)}</div>${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}</div><div class="classic-form-actions"><button class="classic-button primary" type="submit">Salvar alterações</button><button class="classic-button" data-cancel type="button">Cancelar</button></div></form></section></div>` : ""}
     `;
     renderLucideIcons(root);
-    bindMainMenu(root, { products: onProducts, suppliers: onCustomers, customers: onCustomers, consumers: onConsumers, "fiscal-operations": onFiscalOperations, "thermal-print": onThermalPrint, "ncm-cest-update": onNcmCestUpdate, settings: onSettings, company: onCompany, nfce: onNfce, financial: onFinancial, "payment-methods": onPaymentMethods });
+    bindMainMenu(root, { products: onProducts, suppliers: onSuppliers, customers: onCustomers, consumers: onConsumers, "fiscal-operations": onFiscalOperations, "thermal-print": onThermalPrint, "ncm-cest-update": onNcmCestUpdate, settings: onSettings, company: onCompany, nfce: onNfce, financial: onFinancial, "payment-methods": onPaymentMethods });
     bindFormRowPreview(root, {
       formSelector,
       formatValue: (value, fieldName) => {
@@ -210,9 +211,11 @@ export function createCustomerConsumerScreen({
       const response = await apiFetch(`${getApiUrl()}/api/${endpoint}`, { method: id ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(id ? { ...body, [isCustomer ? "idCustomer" : "idConsumer"]: id } : body) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || `Não foi possível salvar ${singular}.`);
-      message = id ? `${singular[0].toUpperCase()}${singular.slice(1)} alterado com sucesso.` : `${singular[0].toUpperCase()}${singular.slice(1)} cadastrado com sucesso.`;
+      message = id ? `O ${singular} foi alterado com sucesso.` : `O ${singular} foi cadastrado com sucesso.`;
       if (!id) newDraft = {};
-      await load({ captureDraft: false }); editing = null; scheduleMessageClear(clearFeedback);
+      await load({ captureDraft: false });
+      if (id) root.__PDV_FORM_PREVIEW_PENDING__ = items.find((item) => String(getEntityId(item)) === String(id));
+      editing = null; scheduleMessageClear(clearFeedback);
     } catch (submitError) { error = submitError instanceof Error ? submitError.message : "Falha ao salvar."; }
     finally { submitting = false; render(); }
   };
@@ -245,7 +248,7 @@ export function createCustomerConsumerScreen({
     try {
       const response = await apiFetch(`${getApiUrl()}/api/${endpoint}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ [isCustomer ? "idCustomer" : "idConsumer"]: id }) });
       const payload = await response.json(); if (!response.ok) throw new Error(payload.error || "Não foi possível excluir.");
-      message = `${singular[0].toUpperCase()}${singular.slice(1)} excluído com sucesso.`; await load();
+      message = `O ${singular} foi excluído com sucesso.`; await load();
     } catch (removeError) { error = removeError instanceof Error ? removeError.message : "Falha ao excluir."; render(); }
   };
 

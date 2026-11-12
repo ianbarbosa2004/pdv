@@ -5,6 +5,34 @@ O número da versão deve ser incrementado antes da compilação quando a altera
 for distribuível. O hook `prebuild` e o fluxo `prerelease:client` podem acionar
 o versionamento automático quando o build é executado.
 
+## 0.15.0 - 2026-11-12
+
+- Pré-entradas novas começam em **Em Digitação** e podem ser salvas sem
+  vínculos ou pagamento completos; quando os itens e o pagamento são válidos,
+  o salvamento promove a entrada para **Em Aberto**.
+- A migração idempotente do schema atualiza `fiscal_entries.statusFiscalEntry`
+  para aceitar `draft`, mantendo instalações existentes compatíveis.
+- A revisão de itens passou a exibir a coluna **Valor** com
+  `totalFiscalDocumentItem` antes de **Status**.
+- Vínculos de Produto comercial são reutilizados automaticamente nas linhas
+  pendentes com a mesma descrição e unidade fiscal, evitando retrabalho sem
+  substituir vínculos já definidos.
+- Ajustado o layout da tabela para preservar a altura natural das linhas,
+  exibir todas as colunas e quebrar texto somente entre palavras.
+- Validação concluída com a suíte `npm.cmd test`, `node --check` nos arquivos
+  JavaScript alterados e `git diff --check`; não foi executado build Tauri.
+
+## 0.14.1 - 2026-11-11
+
+- Após editar e salvar um cadastro, o registro recém-salvo agora é reaberto
+  automaticamente em modo **Visualização** no formulário principal.
+- Padronizada a largura máxima de `100px` para as colunas **Ações** das
+  listagens, preservando os botões de edição, exclusão e status.
+- Documentado o fluxo de visualização pós-edição e a convenção de largura das
+  colunas de ações.
+- Validação concluída com 166 testes, verificação de sintaxe JavaScript e
+  `git diff --check`; não foi executado build completo.
+
 ## 0.12.0 - 2026-11-10
 
 - Corrigida a preparação do caixa para instalações existentes cujo

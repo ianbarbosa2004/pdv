@@ -73,6 +73,25 @@ export const bindFormRowPreview = (root, {
     }
   };
 
+  const showRecord = (record) => {
+    const row = [...root.querySelectorAll(rowSelector)].find((candidate) => {
+      try {
+        const candidateRecord = JSON.parse(candidate.dataset.viewRecord || "{}");
+        const identity = Object.keys(record || {}).find((key) => /^id[A-Z]/.test(key) && record[key] != null);
+        return identity
+          ? String(candidateRecord[identity]) === String(record[identity])
+          : JSON.stringify(candidateRecord) === JSON.stringify(record);
+      } catch {
+        return false;
+      }
+    });
+    if (!row) return false;
+    root.querySelectorAll(".is-previewing").forEach((item) => item.classList.remove("is-previewing"));
+    showPreview(row);
+    row.classList.add("is-previewing");
+    return true;
+  };
+
   root.querySelectorAll(rowSelector).forEach((row) => {
     row.addEventListener("click", (event) => {
       if (hasOpenModal()) return;
@@ -86,4 +105,10 @@ export const bindFormRowPreview = (root, {
       row.classList.add("is-previewing");
     });
   });
+
+  root.__PDV_FORM_PREVIEW__ = { showRecord };
+  const pendingRecord = root.__PDV_FORM_PREVIEW_PENDING__;
+  delete root.__PDV_FORM_PREVIEW_PENDING__;
+  if (pendingRecord) queueMicrotask(() => showRecord(pendingRecord));
+  return { showRecord };
 };

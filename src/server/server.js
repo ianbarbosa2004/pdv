@@ -10,7 +10,12 @@ import { parseImportBoolean, parseImportStatus } from "../shared/import-values.j
 import {
   authorizeSaleNfce,
   buildNfceDiagnostic,
-  runNfceHomologationTest
+  FiscalQueryError,
+  parseFiscalAccessKey,
+  parseFiscalDocumentHtml,
+  parseFiscalDocumentXml,
+  runNfceHomologationTest,
+  queryNfeByAccessKey
 } from "./nfce-test-service.js";
 import {
   isNavigationKey,
@@ -67,6 +72,26 @@ const culinaryBaseForUnit = (unit = {}) => {
 const packageJson = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
 const applicationVersion = String(packageJson.version);
 const config = await loadRuntimeConfig();
+
+const validateFiscalQueryUrl = (value, label, { service = true, pathSuffix = "" } = {}) => {
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`Informe uma URL HTTPS válida para ${label}.`);
+  }
+  if (url.protocol !== "https:" || !url.hostname.endsWith(".fazenda.mg.gov.br")) {
+    throw new Error(`${label} deve usar HTTPS e pertencer ao domínio oficial da SEFAZ/MG.`);
+  }
+  if (pathSuffix && !url.pathname.endsWith(pathSuffix)) {
+    throw new Error(`${label} deve apontar para o serviço oficial esperado.`);
+  }
+  if (service && !pathSuffix && !url.pathname.endsWith("/NFeConsultaProtocolo4")) {
+    throw new Error(`${label} deve apontar para o serviço NFeConsultaProtocolo4.`);
+  }
+  return url.toString();
+};
+
 if (!config.apiToken) {
   throw new Error("PDV_API_TOKEN não configurado. A API não pode iniciar sem autenticação.");
 }
@@ -85,6 +110,8 @@ const {
   getGeneralSettingBoolean,
   ensureCompanySchema,
   ensureSaleFiscalSchema,
+  ensureFiscalDocumentQueueSchema,
+  ensureFiscalEntrySchema,
   ensureFiscalOperationSchema,
   ensureNcmCestSchema,
   ensureProductFiscalSchema,
@@ -352,18 +379,9 @@ const parseMoney = (value, fieldName) => {
 };
 
 const normalizeHumanText = (value) => {
-  const minorWords = new Set(["a", "as", "à", "às", "ao", "aos", "da", "das", "de", "do", "dos", "e", "em", "no", "na", "nos", "nas", "por", "para"]);
   return String(value ?? "")
     .trim()
-    .replace(/\s+/g, " ")
-    .toLocaleLowerCase("pt-BR")
-    .split(/(\s+|\/|-)/u)
-    .map((part, index) => {
-      if (!part || /^\s+$/u.test(part) || part === "/" || part === "-") return part;
-      if (index > 0 && minorWords.has(part)) return part;
-      return `${part.charAt(0).toLocaleUpperCase("pt-BR")}${part.slice(1)}`;
-    })
-    .join("");
+    .replace(/\s+/g, " ");
 };
 
 const normalizeTextForComparison = (value) =>
@@ -385,6 +403,14 @@ const parseBrazilianDecimal = (value) => {
   const text = String(value ?? "").trim().replace(/\s/g, "");
   if (!text) return NaN;
   return Number(text.includes(",") ? text.replace(/\./g, "").replace(",", ".") : text);
+};
+
+const parsePackageQuantity = (value) => {
+  const parsed = parseBrazilianDecimal(value ?? "1");
+  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 999999999) {
+    throw new SaleValidationError("Conteúdo por unidade deve ser maior que zero.");
+  }
+  return parsed.toFixed(3).replace(/\.?0+$/, "");
 };
 
 const normalizeReferenceCode = (value) => String(value ?? "")
@@ -2118,13 +2144,22 @@ const server = createServer(async (request, response) => {
         throw new SaleValidationError("Configurações gerais inválidas.");
       }
       const key = payload.keyGeneralSetting;
-      const allowedKeys = new Set(["allowNegativeStock", "ncmSourceUrl", "cestSourceUrl"]);
+      const allowedKeys = new Set([
+        "allowNegativeStock",
+        "ncmSourceUrl",
+        "cestSourceUrl",
+        "nfeQueryHomologationUrl",
+        "nfeQueryProductionUrl",
+        "nfceQueryHomologationUrl",
+        "nfceQueryProductionUrl",
+        "nfceManualQueryUrl"
+      ]);
       if (!allowedKeys.has(key)) {
         throw new SaleValidationError("Configuração geral não reconhecida.");
       }
       await ensureGeneralSettingsSchema();
       const [settingRows] = await pool.query(
-        `SELECT typeGeneralSetting
+        `SELECT typeGeneralSetting, labelGeneralSetting
          FROM general_settings
          WHERE keyGeneralSetting = ?
          LIMIT 1`,
@@ -2161,6 +2196,22 @@ const server = createServer(async (request, response) => {
             throw new SaleValidationError(error.message);
           }
         }
+        if (key.endsWith("Url") && key !== "ncmSourceUrl" && key !== "cestSourceUrl") {
+          try {
+            validateFiscalQueryUrl(value, settingRows[0]?.labelGeneralSetting || "a URL fiscal", {
+              service: key === "nfeDistributionHomologationUrl"
+                || key === "nfeDistributionProductionUrl"
+                ? false
+                : key !== "nfceManualQueryUrl",
+              pathSuffix: key === "nfeDistributionHomologationUrl"
+                || key === "nfeDistributionProductionUrl"
+                ? "/NFeDistribuicaoDFe.asmx"
+                : ""
+            });
+          } catch (error) {
+            throw new SaleValidationError(error.message);
+          }
+        }
         await pool.query(
           `UPDATE general_settings
            SET valueGeneralSetting = ?
@@ -2173,6 +2224,11 @@ const server = createServer(async (request, response) => {
         if (key === "cestSourceUrl") {
           config.cestSourceUrl = value;
         }
+        if (key === "nfeQueryHomologationUrl") config.nfeQueryHomologationUrl = value;
+        if (key === "nfeQueryProductionUrl") config.nfeQueryProductionUrl = value;
+        if (key === "nfceQueryHomologationUrl") config.nfceQueryHomologationUrl = value;
+        if (key === "nfceQueryProductionUrl") config.nfceQueryProductionUrl = value;
+        if (key === "nfceManualQueryUrl") config.nfceManualQueryUrl = value;
       }
       const [rows] = await pool.query(
         `SELECT keyGeneralSetting, labelGeneralSetting, typeGeneralSetting,
@@ -2303,7 +2359,7 @@ const server = createServer(async (request, response) => {
         `SELECT products.idProduct, products.idGroup, products.skuProduct,
                 products.pdvCodeProduct, products.nameProduct,
                 products.idFiscalOperationSaleProduct, products.idProductTypeProduct,
-                products.idPhysicalStateProduct, products.idUnitProduct, products.ncmProduct,
+                products.idPhysicalStateProduct, products.idUnitProduct, products.packageQuantityProduct, products.ncmProduct,
                 products.cestProduct, products.priceProduct, products.costPriceProduct,
                 products.stockQuantityProduct, products.controlsStockProduct,
                 products.isBuffetProduct,
@@ -3203,6 +3259,725 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "GET" && request.url.startsWith("/api/stock/fiscal-document-queue")) {
+    try {
+      requireOperatorSession(request);
+      await ensureFiscalDocumentQueueSchema();
+      const requestUrl = new URL(request.url, "http://localhost");
+      const search = String(requestUrl.searchParams.get("search") || "").trim();
+      const digitsSearch = search.replace(/\D/g, "");
+      const normalizedTotalSearch = search.replace(",", ".");
+      const searchConditions = [];
+      const searchParameters = [];
+      if (search) {
+        searchConditions.push(
+          "accessKeyFiscalDocumentQueue LIKE ?",
+          "issuerDocumentFiscalDocumentQueue LIKE ?",
+          "CAST(modelFiscalDocumentQueue AS CHAR) LIKE ?",
+          "CAST(totalFiscalDocumentQueue AS CHAR) LIKE ?"
+        );
+        searchParameters.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${normalizedTotalSearch}%`);
+        if (digitsSearch && digitsSearch !== search) {
+          searchConditions.push(
+            "accessKeyFiscalDocumentQueue LIKE ?",
+            "issuerDocumentFiscalDocumentQueue LIKE ?"
+          );
+          searchParameters.push(`%${digitsSearch}%`, `%${digitsSearch}%`);
+        }
+        const loweredSearch = search.toLocaleLowerCase("pt-BR");
+        if (loweredSearch.includes("nfce")) {
+          searchConditions.push("modelFiscalDocumentQueue = 65");
+        } else if (loweredSearch.includes("nfe")) {
+          searchConditions.push("modelFiscalDocumentQueue = 55");
+        }
+      }
+      const [rows] = await pool.query(
+        `SELECT idFiscalDocumentQueue, accessKeyFiscalDocumentQueue,
+                modelFiscalDocumentQueue, issuerDocumentFiscalDocumentQueue,
+                issuedAtFiscalDocumentQueue, totalFiscalDocumentQueue,
+                createdAtFiscalDocumentQueue
+         FROM fiscal_document_queue
+         ${searchConditions.length ? `WHERE ${searchConditions.join(" OR ")}` : ""}
+         ORDER BY issuedAtFiscalDocumentQueue DESC, idFiscalDocumentQueue DESC`,
+        searchParameters
+      );
+      json(response, 200, { fiscalDocuments: rows });
+    } catch (error) {
+      handleError(response, error, {
+        log: "Falha ao consultar a fila de documentos fiscais:",
+        message: "Não foi possível carregar a fila de documentos fiscais.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/api/stock/fiscal-document-queue") {
+    try {
+      requireOperatorSession(request);
+      await ensureCompanySchema();
+      await ensureFiscalDocumentQueueSchema();
+      const payload = await readJsonBody(request);
+      const accessKey = String(payload?.accessKeyFiscalDocumentQueue ?? "").replace(/\D/g, "");
+      const queryMode = String(payload?.queryMode || "automatic");
+      const manualModel = String(payload?.manualModel || "");
+      if (!/^\d{44}$/.test(accessKey)) {
+        throw new SaleValidationError("Informe uma chave de acesso com 44 dígitos.");
+      }
+      const [existingRows] = await pool.query(
+        "SELECT idFiscalDocumentQueue FROM fiscal_document_queue WHERE accessKeyFiscalDocumentQueue = ? LIMIT 1",
+        [accessKey]
+      );
+      if (existingRows.length) throw new SaleValidationError("Esta chave de acesso já está na fila.", 409);
+      const [companyRows] = await pool.query(
+        `SELECT documentCompany, nfceEnvironmentCompany, nfceCertificateTypeCompany,
+                nfceCertificateDataCompany, nfceCertificatePasswordCompany
+         FROM company_settings
+         ORDER BY idCompanySetting ASC
+         LIMIT 1`
+      );
+      const company = companyRows[0];
+      if (!company?.nfceCertificateDataCompany || !company?.nfceCertificatePasswordCompany) {
+        throw new SaleValidationError("Configure o certificado A1 e a senha antes de consultar a SEFAZ.", 409);
+      }
+      if (company.nfceCertificateTypeCompany !== "A1") {
+        throw new SaleValidationError("A consulta inicial exige certificado A1.", 409);
+      }
+      const result = await queryNfeByAccessKey({
+        accessKey,
+        environment: queryMode === "automatic" ? "automatic" : company.nfceEnvironmentCompany,
+        preferredEnvironment: company.nfceEnvironmentCompany,
+        certificateData: decryptSecret(company.nfceCertificateDataCompany),
+        certificatePassword: decryptSecret(company.nfceCertificatePasswordCompany),
+        certificateCnpj: company.documentCompany,
+        queryMode,
+        manualModel,
+        queryUrls: {
+          nfeHomologation: config.nfeQueryHomologationUrl,
+          nfeProduction: config.nfeQueryProductionUrl,
+          nfceHomologation: config.nfceQueryHomologationUrl,
+          nfceProduction: config.nfceQueryProductionUrl
+        },
+        distributionUrls: {
+          homologation: config.nfeDistributionHomologationUrl,
+          production: config.nfeDistributionProductionUrl
+        }
+      });
+      const [insertResult] = await pool.query(
+        `INSERT INTO fiscal_document_queue
+          (accessKeyFiscalDocumentQueue, modelFiscalDocumentQueue,
+           issuerDocumentFiscalDocumentQueue, issuedAtFiscalDocumentQueue,
+           totalFiscalDocumentQueue)
+         VALUES (?, ?, ?, ?, ?)`,
+        [
+          result.accessKey,
+          result.model,
+          result.issuerDocument,
+          result.issuedAt,
+          result.total.toFixed(2)
+        ]
+      );
+      const [rows] = await pool.query(
+        `SELECT idFiscalDocumentQueue, accessKeyFiscalDocumentQueue,
+                modelFiscalDocumentQueue, issuerDocumentFiscalDocumentQueue,
+                issuedAtFiscalDocumentQueue, totalFiscalDocumentQueue,
+                createdAtFiscalDocumentQueue
+         FROM fiscal_document_queue
+         WHERE idFiscalDocumentQueue = ?`,
+        [insertResult.insertId]
+      );
+      json(response, 201, { fiscalDocument: rows[0] });
+    } catch (error) {
+      if (error instanceof FiscalQueryError) {
+        json(response, error.status, { error: error.message });
+        return;
+      }
+      handleError(response, error, {
+        log: "Falha ao incluir documento fiscal na fila:",
+        message: "Não foi possível consultar ou incluir o documento fiscal.",
+        duplicate: "Esta chave de acesso já está na fila."
+      });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/api/stock/fiscal-document-queue/import") {
+    let connection = null;
+    try {
+      requireOperatorSession(request);
+      await ensureCompanySchema();
+      await ensureFiscalDocumentQueueSchema();
+      await ensureProductCatalogSchema();
+      await ensureFiscalEntrySchema();
+      const payload = await readJsonBody(request, 15 * 1024 * 1024);
+      const sourceFormat = payload?.sourceFormat === "html" ? "html" : "xml";
+      const requestedAccessKey = String(payload?.accessKeyFiscalDocumentQueue ?? "").replace(/\D/g, "");
+      const source = String(sourceFormat === "html" ? payload?.html : payload?.xml || "").trim();
+      if (!source) throw new SaleValidationError(`Selecione um arquivo ${sourceFormat === "html" ? "HTML" : "XML"}.`);
+      if (sourceFormat === "xml" && !/^\d{44}$/.test(requestedAccessKey)) {
+        throw new SaleValidationError("Informe a chave de acesso correspondente ao XML.");
+      }
+      const result = sourceFormat === "html"
+        ? parseFiscalDocumentHtml(source, requestedAccessKey)
+        : parseFiscalDocumentXml(source, requestedAccessKey);
+      const accessKey = result.accessKey;
+      if (!["55", "65"].includes(String(result.model))) {
+        throw new SaleValidationError(`O arquivo ${sourceFormat.toUpperCase()} não corresponde a NF-e modelo 55 ou NFC-e modelo 65.`);
+      }
+      if (result.status && !["100", "150"].includes(result.status)) {
+        throw new SaleValidationError(`O arquivo não está autorizado pela SEFAZ (cStat ${result.status}).`);
+      }
+      if (!result.status) {
+        throw new SaleValidationError("O arquivo não contém o protocolo de autorização da SEFAZ.");
+      }
+      const issuedAt = new Date(result.issuedAt);
+      const total = Number(result.total);
+      if (!/^\d{14}$/.test(result.issuerDocument)
+        || Number.isNaN(issuedAt.getTime())
+        || !Number.isFinite(total)
+        || total < 0) {
+        throw new SaleValidationError("O arquivo não contém CNPJ, emissão ou valor total válidos.");
+      }
+      const decimal = (value, scale) => {
+        const parsed = Number(String(value ?? "").replace(",", "."));
+        return Number.isFinite(parsed) ? parsed.toFixed(scale) : "0";
+      };
+      const dateOrNull = (value) => {
+        if (!value) return null;
+        const parsed = new Date(value);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+      };
+      connection = await pool.getConnection();
+      await connection.beginTransaction();
+      const [existingRows] = await connection.query(
+        `SELECT idFiscalDocumentQueue
+         FROM fiscal_document_queue
+         WHERE accessKeyFiscalDocumentQueue = ?
+         LIMIT 1`,
+        [accessKey]
+      );
+      const [existingDocuments] = await connection.query(
+        `SELECT idFiscalDocument
+         FROM fiscal_documents
+         WHERE accessKeyFiscalDocument = ?
+         LIMIT 1`,
+        [accessKey]
+      );
+      if (existingRows.length || existingDocuments.length) {
+        throw new SaleValidationError("Esta chave de acesso já foi importada.", 409);
+      }
+      const [queueResult] = await connection.query(
+        `INSERT INTO fiscal_document_queue
+          (accessKeyFiscalDocumentQueue, modelFiscalDocumentQueue,
+           issuerDocumentFiscalDocumentQueue, issuedAtFiscalDocumentQueue,
+           totalFiscalDocumentQueue)
+         VALUES (?, ?, ?, ?, ?)`,
+        [accessKey, result.model, result.issuerDocument, issuedAt, total.toFixed(2)]
+      );
+      const [documentResult] = await connection.query(
+        `INSERT INTO fiscal_documents
+          (idFiscalDocumentQueue, accessKeyFiscalDocument, modelFiscalDocument,
+           issuerDocumentFiscalDocument, issuerLegalNameFiscalDocument,
+           issuerTradeNameFiscalDocument, issuerStateRegistrationFiscalDocument,
+           issuedAtFiscalDocument, seriesFiscalDocument, numberFiscalDocument,
+           operationNatureFiscalDocument, totalFiscalDocument,
+           icmsBaseFiscalDocument, icmsAmountFiscalDocument,
+           recipientDocumentFiscalDocument, recipientLegalNameFiscalDocument,
+           recipientStateFiscalDocument, operationTypeFiscalDocument,
+           operationDestinationFiscalDocument, finalConsumerFiscalDocument,
+           buyerPresenceFiscalDocument, emissionProcessFiscalDocument,
+           emissionProcessVersionFiscalDocument, emissionTypeFiscalDocument,
+           purposeFiscalDocument, digestValueFiscalDocument,
+           authorizationStatusFiscalDocument, protocolFiscalDocument,
+           authorizedAtFiscalDocument, includedAtFiscalDocument,
+           originalXmlFiscalDocument)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+        [
+          queueResult.insertId,
+          accessKey,
+          result.model,
+          result.issuerDocument,
+          result.issuer.legalName,
+          result.issuer.tradeName,
+          result.issuer.stateRegistration,
+          issuedAt,
+          result.series,
+          result.number,
+          result.operationNature,
+          total.toFixed(2),
+          decimal(result.taxTotals?.icmsBase, 2),
+          decimal(result.taxTotals?.icmsAmount, 2),
+          result.recipient?.document || "",
+          result.recipient?.legalName || "",
+          result.recipient?.state || "",
+          result.operationDetails?.type || "",
+          result.operationDetails?.destination || "",
+          result.operationDetails?.finalConsumer || "",
+          result.operationDetails?.buyerPresence || "",
+          result.emission?.process || "",
+          result.emission?.processVersion || "",
+          result.emission?.type || "",
+          result.emission?.purpose || "",
+          result.digestValue || "",
+          result.status,
+          result.protocol,
+          dateOrNull(result.authorizedAt),
+          dateOrNull(result.includedAt),
+          source
+        ]
+      );
+      const documentId = documentResult.insertId;
+      const itemIds = [];
+      for (const [index, item] of result.items.entries()) {
+        const [itemResult] = await connection.query(
+          `INSERT INTO fiscal_document_items
+            (idFiscalDocument, lineNumberFiscalDocumentItem,
+             supplierCodeFiscalDocumentItem, barcodeFiscalDocumentItem,
+             descriptionFiscalDocumentItem, ncmFiscalDocumentItem,
+             cestFiscalDocumentItem, cfopFiscalDocumentItem, fiscalUnitFiscalDocumentItem,
+             quantityFiscalDocumentItem, unitPriceFiscalDocumentItem,
+             totalFiscalDocumentItem, taxableUnitFiscalDocumentItem,
+             taxableQuantityFiscalDocumentItem, taxableUnitPriceFiscalDocumentItem,
+             freightFiscalDocumentItem, insuranceFiscalDocumentItem,
+             otherExpensesFiscalDocumentItem, discountFiscalDocumentItem,
+             taxOriginFiscalDocumentItem, taxSituationFiscalDocumentItem,
+             isTotalizedFiscalDocumentItem)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+          [
+            documentId,
+            item.lineNumber || index + 1,
+            item.supplierCode,
+            item.barcode,
+            item.description,
+            item.ncm,
+            item.cest,
+            item.cfop,
+            item.fiscalUnit,
+            decimal(item.quantity, 4),
+            decimal(item.unitPrice, 6),
+            decimal(item.total, 2),
+            item.taxableUnit,
+            item.taxableQuantity ? decimal(item.taxableQuantity, 4) : null,
+            item.taxableUnitPrice ? decimal(item.taxableUnitPrice, 6) : null,
+            decimal(item.freight, 2),
+            decimal(item.insurance, 2),
+            decimal(item.otherExpenses, 2),
+            decimal(item.discount, 2),
+            item.taxOrigin,
+            item.taxSituation,
+            item.isTotalized ? 1 : 0
+          ]
+        );
+        itemIds.push(itemResult.insertId);
+      }
+      for (const payment of result.payments) {
+        await connection.query(
+          `INSERT INTO fiscal_document_payments
+            (idFiscalDocument, amountFiscalDocumentPayment,
+             paymentTypeFiscalDocumentPayment, paymentDescriptionFiscalDocumentPayment,
+             cardBrandFiscalDocumentPayment)
+           VALUES (?, ?, ?, ?, ?)`,
+          [
+            documentId,
+            decimal(payment.amount, 2),
+            payment.type,
+            payment.description,
+            payment.cardBrand
+          ]
+        );
+      }
+      for (const installment of result.installments) {
+        await connection.query(
+          `INSERT INTO fiscal_document_payments
+            (idFiscalDocument, installmentNumberFiscalDocumentPayment,
+             dueDateFiscalDocumentPayment, amountFiscalDocumentPayment)
+           VALUES (?, ?, ?, ?)`,
+          [documentId, installment.number, installment.dueDate || null, decimal(installment.amount, 2)]
+        );
+      }
+      const [entryResult] = await connection.query(
+        "INSERT INTO fiscal_entries (idFiscalDocument, statusFiscalEntry) VALUES (?, 'draft')",
+        [documentId]
+      );
+      for (const itemId of itemIds) {
+        await connection.query(
+          `INSERT INTO fiscal_entry_items
+            (idFiscalEntry, idFiscalDocumentItem, status)
+           VALUES (?, ?, 'pending')`,
+          [entryResult.insertId, itemId]
+        );
+      }
+      await connection.commit();
+      connection.release();
+      connection = null;
+      json(response, 201, {
+        fiscalEntry: {
+          idFiscalEntry: entryResult.insertId,
+          idFiscalDocument: documentId,
+          idFiscalDocumentQueue: queueResult.insertId,
+          accessKeyFiscalDocument: accessKey,
+          statusFiscalEntry: "draft",
+          itemCount: itemIds.length
+        }
+      });
+    } catch (error) {
+      if (connection) {
+        await connection.rollback().catch(() => {});
+        connection.release();
+      }
+      if (error instanceof FiscalQueryError) {
+        json(response, error.status, { error: error.message });
+        return;
+      }
+      handleError(response, error, {
+        log: "Falha ao importar documento para a fila fiscal:",
+        message: "Não foi possível validar ou importar o documento fiscal.",
+        duplicate: "Esta chave de acesso já está na fila."
+      });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/api/stock/fiscal-entries") {
+    try {
+      requireOperatorSession(request);
+      await ensureFiscalEntrySchema();
+      const [fiscalEntries] = await pool.query(
+        `SELECT e.idFiscalEntry, e.statusFiscalEntry, e.createdAtFiscalEntry,
+                e.updatedAtFiscalEntry, d.accessKeyFiscalDocument,
+                d.modelFiscalDocument, d.issuerLegalNameFiscalDocument,
+                d.issuerDocumentFiscalDocument, d.issuedAtFiscalDocument,
+                d.numberFiscalDocument, d.seriesFiscalDocument,
+                d.totalFiscalDocument
+         FROM fiscal_entries e
+         JOIN fiscal_documents d ON d.idFiscalDocument = e.idFiscalDocument
+         WHERE e.statusFiscalEntry IN ('draft', 'open')
+         ORDER BY e.updatedAtFiscalEntry DESC, e.idFiscalEntry DESC`
+      );
+      json(response, 200, { fiscalEntries });
+    } catch (error) {
+      handleError(response, error, {
+        log: "Falha ao listar pré-entradas fiscais:",
+        message: "Não foi possível carregar as pré-entradas fiscais.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
+  const fiscalEntryMatch = request.method === "GET"
+    ? request.url.match(/^\/api\/stock\/fiscal-entries\/(\d+)$/)
+    : null;
+  if (fiscalEntryMatch) {
+    try {
+      requireOperatorSession(request);
+      await ensureProductCatalogSchema();
+      await ensureFiscalEntrySchema();
+      const idFiscalEntry = Number(fiscalEntryMatch[1]);
+      const [entries] = await pool.query(
+        `SELECT e.idFiscalEntry, e.statusFiscalEntry,
+                d.idFiscalDocument, d.accessKeyFiscalDocument,
+                d.modelFiscalDocument, d.issuerDocumentFiscalDocument,
+                d.issuerLegalNameFiscalDocument, d.issuerTradeNameFiscalDocument,
+                d.issuedAtFiscalDocument, d.totalFiscalDocument,
+                d.seriesFiscalDocument, d.numberFiscalDocument,
+                d.operationNatureFiscalDocument, d.authorizationStatusFiscalDocument,
+                d.icmsBaseFiscalDocument, d.icmsAmountFiscalDocument,
+                d.recipientDocumentFiscalDocument, d.recipientLegalNameFiscalDocument,
+                d.recipientStateFiscalDocument, d.operationTypeFiscalDocument,
+                d.operationDestinationFiscalDocument, d.finalConsumerFiscalDocument,
+                d.buyerPresenceFiscalDocument, d.emissionProcessFiscalDocument,
+                d.emissionProcessVersionFiscalDocument, d.emissionTypeFiscalDocument,
+                d.purposeFiscalDocument, d.digestValueFiscalDocument,
+                d.protocolFiscalDocument, d.authorizedAtFiscalDocument,
+                d.includedAtFiscalDocument
+         FROM fiscal_entries e
+         JOIN fiscal_documents d ON d.idFiscalDocument = e.idFiscalDocument
+         WHERE e.idFiscalEntry = ?`,
+        [idFiscalEntry]
+      );
+      if (!entries.length) throw new SaleValidationError("Pré-entrada fiscal não encontrada.", 404);
+      const [items] = await pool.query(
+        `SELECT i.*, ei.idFiscalEntryItem, ei.idProduct, ei.idStockUnit,
+                ei.conversionFactor, ei.selected, ei.status
+         FROM fiscal_entry_items ei
+         JOIN fiscal_document_items i ON i.idFiscalDocumentItem = ei.idFiscalDocumentItem
+         WHERE ei.idFiscalEntry = ?
+         ORDER BY i.lineNumberFiscalDocumentItem`,
+        [idFiscalEntry]
+      );
+      const [payments] = await pool.query(
+        `SELECT *
+         FROM fiscal_document_payments
+         WHERE idFiscalDocument = ?
+         ORDER BY idFiscalDocumentPayment`,
+        [entries[0].idFiscalDocument]
+      );
+      const [entryPayments] = await pool.query(
+        `SELECT idFiscalEntryPayment, paymentDescriptionFiscalEntryPayment,
+                amountFiscalEntryPayment
+         FROM fiscal_entry_payments
+         WHERE idFiscalEntry = ?
+         ORDER BY idFiscalEntryPayment`,
+        [idFiscalEntry]
+      );
+      json(response, 200, { fiscalEntry: entries[0], items, payments, entryPayments });
+    } catch (error) {
+      handleError(response, error, {
+        log: "Falha ao consultar pré-entrada fiscal:",
+        message: "Não foi possível carregar a pré-entrada fiscal.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
+  const fiscalEntryDeleteMatch = request.method === "DELETE"
+    ? request.url.match(/^\/api\/stock\/fiscal-entries\/(\d+)$/)
+    : null;
+  if (fiscalEntryDeleteMatch) {
+    let connection = null;
+    try {
+      requireOperatorSession(request);
+      await ensureFiscalEntrySchema();
+      const idFiscalEntry = parsePositiveId(fiscalEntryDeleteMatch[1]);
+      if (!idFiscalEntry) throw new SaleValidationError("Pré-entrada inválida.");
+      connection = await pool.getConnection();
+      await connection.beginTransaction();
+      const [entries] = await connection.query(
+        `SELECT e.idFiscalEntry, e.statusFiscalEntry, e.idFiscalDocument,
+                d.idFiscalDocumentQueue
+         FROM fiscal_entries e
+         JOIN fiscal_documents d ON d.idFiscalDocument = e.idFiscalDocument
+         WHERE e.idFiscalEntry = ?
+         FOR UPDATE`,
+        [idFiscalEntry]
+      );
+      if (!entries.length) throw new SaleValidationError("Pré-entrada fiscal não encontrada.", 404);
+      if (!["draft", "open"].includes(entries[0].statusFiscalEntry)) {
+        throw new SaleValidationError("Somente pré-entradas em aberto podem ser excluídas.", 409);
+      }
+      await connection.query("DELETE FROM fiscal_entry_payments WHERE idFiscalEntry = ?", [idFiscalEntry]);
+      await connection.query("DELETE FROM fiscal_entry_items WHERE idFiscalEntry = ?", [idFiscalEntry]);
+      await connection.query("DELETE FROM fiscal_entries WHERE idFiscalEntry = ?", [idFiscalEntry]);
+      await connection.query("DELETE FROM fiscal_documents WHERE idFiscalDocument = ?", [entries[0].idFiscalDocument]);
+      if (entries[0].idFiscalDocumentQueue) {
+        await connection.query(
+          "DELETE FROM fiscal_document_queue WHERE idFiscalDocumentQueue = ?",
+          [entries[0].idFiscalDocumentQueue]
+        );
+      }
+      await connection.commit();
+      connection.release();
+      connection = null;
+      json(response, 200, { idFiscalEntry, deleted: true });
+    } catch (error) {
+      if (connection) {
+        await connection.rollback().catch(() => {});
+        connection.release();
+      }
+      handleError(response, error, {
+        log: "Falha ao excluir pré-entrada fiscal:",
+        message: "Não foi possível excluir a pré-entrada fiscal.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
+  const fiscalEntryUpdateMatch = request.method === "PUT"
+    ? request.url.match(/^\/api\/stock\/fiscal-entries\/(\d+)$/)
+    : null;
+  if (fiscalEntryUpdateMatch) {
+    let connection = null;
+    try {
+      requireOperatorSession(request);
+      await ensureProductCatalogSchema();
+      await ensureFiscalEntrySchema();
+      const idFiscalEntry = parsePositiveId(fiscalEntryUpdateMatch[1]);
+      const payload = await readJsonBody(request);
+      if (!idFiscalEntry) throw new SaleValidationError("Pré-entrada inválida.");
+      if (!Array.isArray(payload?.items)) throw new SaleValidationError("Informe os itens da pré-entrada.");
+      const payments = Array.isArray(payload.payments) ? payload.payments : [];
+      const items = payload.items.map((item) => {
+        const idFiscalEntryItem = parsePositiveId(item?.idFiscalEntryItem);
+        const selected = item?.selected === true;
+        const idProduct = selected ? parsePositiveId(item?.idProduct) : null;
+        const idStockUnit = selected ? parsePositiveId(item?.idStockUnit) : null;
+        const conversionFactor = Number(String(item?.conversionFactor ?? "1").replace(",", "."));
+        if (!idFiscalEntryItem) {
+          throw new SaleValidationError("Item de pré-entrada inválido.");
+        }
+        return {
+          idFiscalEntryItem,
+          selected,
+          idProduct,
+          idStockUnit,
+          conversionFactor: Number.isFinite(conversionFactor) && conversionFactor > 0
+            ? conversionFactor
+            : 1,
+          complete: selected && Boolean(idProduct && idStockUnit)
+            && Number.isFinite(conversionFactor) && conversionFactor > 0
+        };
+      });
+      let invalidPayment = false;
+      const normalizedPayments = payments.flatMap((payment) => {
+        const description = String(payment?.description ?? "").trim();
+        const amount = Number(String(payment?.amount ?? "").replace(",", "."));
+        if (!description && !String(payment?.amount ?? "").trim()) {
+          return [];
+        }
+        if (!description || !Number.isFinite(amount) || amount <= 0) {
+          invalidPayment = true;
+          return [];
+        }
+        return [{ description, amount: amount.toFixed(2) }];
+      });
+      const hasSelectedItem = items.some(({ selected }) => selected);
+      const hasCompleteItems = hasSelectedItem && items
+        .filter(({ selected }) => selected)
+        .every(({ complete }) => complete);
+      const readyForOpen = hasCompleteItems && !invalidPayment && normalizedPayments.length > 0;
+      const nextStatus = readyForOpen ? "open" : "draft";
+      connection = await pool.getConnection();
+      await connection.beginTransaction();
+      const [entries] = await connection.query(
+        `SELECT idFiscalEntry, statusFiscalEntry
+         FROM fiscal_entries
+         WHERE idFiscalEntry = ?
+         FOR UPDATE`,
+        [idFiscalEntry]
+      );
+      if (!entries.length) throw new SaleValidationError("Pré-entrada fiscal não encontrada.", 404);
+      if (!["draft", "open"].includes(entries[0].statusFiscalEntry)) {
+        throw new SaleValidationError("Somente pré-entradas em aberto podem ser alteradas.", 409);
+      }
+      for (const item of items) {
+        await connection.query(
+          `UPDATE fiscal_entry_items
+           SET idProduct = ?, idStockUnit = ?, conversionFactor = ?,
+               selected = ?, status = ?
+           WHERE idFiscalEntryItem = ? AND idFiscalEntry = ?`,
+          [
+            item.idProduct,
+            item.idStockUnit,
+            item.conversionFactor,
+            item.selected ? 1 : 0,
+            item.complete ? "linked" : item.selected ? "pending" : "omitted",
+            item.idFiscalEntryItem,
+            idFiscalEntry
+          ]
+        );
+      }
+      await connection.query("DELETE FROM fiscal_entry_payments WHERE idFiscalEntry = ?", [idFiscalEntry]);
+      for (const payment of normalizedPayments) {
+        await connection.query(
+          `INSERT INTO fiscal_entry_payments
+            (idFiscalEntry, paymentDescriptionFiscalEntryPayment, amountFiscalEntryPayment)
+           VALUES (?, ?, ?)`,
+          [idFiscalEntry, payment.description, payment.amount]
+        );
+      }
+      await connection.query(
+        "UPDATE fiscal_entries SET statusFiscalEntry = ? WHERE idFiscalEntry = ?",
+        [nextStatus, idFiscalEntry]
+      );
+      await connection.commit();
+      connection.release();
+      connection = null;
+      json(response, 200, { idFiscalEntry, statusFiscalEntry: nextStatus });
+    } catch (error) {
+      if (connection) {
+        await connection.rollback().catch(() => {});
+        connection.release();
+      }
+      handleError(response, error, {
+        log: "Falha ao salvar pré-entrada fiscal:",
+        message: "Não foi possível salvar a pré-entrada fiscal.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/api/stock/fiscal-document-queue/manual") {
+    try {
+      requireOperatorSession(request);
+      await ensureFiscalDocumentQueueSchema();
+      const payload = await readJsonBody(request);
+      const { accessKey, model } = parseFiscalAccessKey(payload?.accessKeyFiscalDocumentQueue);
+      const issuerDocument = String(payload?.issuerDocumentFiscalDocumentQueue || "").replace(/\D/g, "");
+      const issuedAt = new Date(String(payload?.issuedAtFiscalDocumentQueue || ""));
+      const total = Number(String(payload?.totalFiscalDocumentQueue || "").replace(",", "."));
+      if (!/^\d{14}$/.test(issuerDocument)) {
+        throw new SaleValidationError("Informe o CNPJ do emitente exibido no portal.");
+      }
+      if (Number.isNaN(issuedAt.getTime())) {
+        throw new SaleValidationError("Informe uma data e hora de emissão válidas.");
+      }
+      if (!Number.isFinite(total) || total < 0) {
+        throw new SaleValidationError("Informe um valor total válido.");
+      }
+      const [existingRows] = await pool.query(
+        "SELECT idFiscalDocumentQueue FROM fiscal_document_queue WHERE accessKeyFiscalDocumentQueue = ? LIMIT 1",
+        [accessKey]
+      );
+      if (existingRows.length) throw new SaleValidationError("Esta chave de acesso já está na fila.", 409);
+      const [insertResult] = await pool.query(
+        `INSERT INTO fiscal_document_queue
+          (accessKeyFiscalDocumentQueue, modelFiscalDocumentQueue,
+           issuerDocumentFiscalDocumentQueue, issuedAtFiscalDocumentQueue,
+           totalFiscalDocumentQueue)
+         VALUES (?, ?, ?, ?, ?)`,
+        [accessKey, model, issuerDocument, issuedAt, total.toFixed(2)]
+      );
+      const [rows] = await pool.query(
+        `SELECT idFiscalDocumentQueue, accessKeyFiscalDocumentQueue,
+                modelFiscalDocumentQueue, issuerDocumentFiscalDocumentQueue,
+                issuedAtFiscalDocumentQueue, totalFiscalDocumentQueue,
+                createdAtFiscalDocumentQueue
+         FROM fiscal_document_queue
+         WHERE idFiscalDocumentQueue = ?`,
+        [insertResult.insertId]
+      );
+      json(response, 201, { fiscalDocument: rows[0] });
+    } catch (error) {
+      if (error instanceof FiscalQueryError) {
+        json(response, error.status, { error: error.message });
+        return;
+      }
+      handleError(response, error, {
+        log: "Falha ao confirmar dados manuais na fila fiscal:",
+        message: "Não foi possível validar ou incluir os dados fiscais.",
+        duplicate: "Esta chave de acesso já está na fila."
+      });
+    }
+    return;
+  }
+
+  const fiscalDocumentDeleteMatch = request.method === "DELETE"
+    ? request.url.match(/^\/api\/stock\/fiscal-document-queue\/(\d+)$/)
+    : null;
+  if (fiscalDocumentDeleteMatch) {
+    try {
+      requireOperatorSession(request);
+      await ensureFiscalDocumentQueueSchema();
+      const [result] = await pool.query(
+        "DELETE FROM fiscal_document_queue WHERE idFiscalDocumentQueue = ?",
+        [Number(fiscalDocumentDeleteMatch[1])]
+      );
+      if (!result.affectedRows) throw new SaleValidationError("Documento fiscal não encontrado.", 404);
+      json(response, 200, { ok: true });
+    } catch (error) {
+      handleError(response, error, {
+        log: "Falha ao excluir documento fiscal da fila:",
+        message: "Não foi possível excluir o documento fiscal.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
   if ((request.method === "POST" || request.method === "PUT") && request.url === "/api/suppliers") {
     try {
       const payload = await readJsonBody(request);
@@ -3747,6 +4522,7 @@ const server = createServer(async (request, response) => {
       const idProductTypeProduct = parsePositiveId(payload.idProductTypeProduct);
       const idPhysicalStateProduct = parsePositiveId(payload.idPhysicalStateProduct);
       const idUnitProduct = parsePositiveId(payload.idUnitProduct);
+      const packageQuantityProduct = parsePackageQuantity(payload.packageQuantityProduct);
       if (!nameProduct || nameProduct.length > 180 || !skuProduct || skuProduct.length > 64 || !idGroup || (ncmProduct && !/^\d{8}$/.test(ncmProduct)) || (cestProduct && !/^\d{7}$/.test(cestProduct))) throw new SaleValidationError("Nome, SKU, grupo, NCM ou CEST inválidos.");
       await ensureProductCatalogSchema();
       await ensureCulinarySchema();
@@ -3813,18 +4589,18 @@ const server = createServer(async (request, response) => {
       const [result] = await pool.query(
         `INSERT INTO products
          (idGroup, skuProduct, nameProduct, idFiscalOperationSaleProduct,
-           idProductTypeProduct, idPhysicalStateProduct, idUnitProduct, ncmProduct, cestProduct, priceProduct, costPriceProduct,
+           idProductTypeProduct, idPhysicalStateProduct, idUnitProduct, packageQuantityProduct, ncmProduct, cestProduct, priceProduct, costPriceProduct,
            stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct, printsPlace,
            showsInPdvProduct, isActiveProduct)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
         [idGroup, skuProduct, nameProduct, idFiscalOperationSaleProduct,
-          idProductTypeProduct, normalizedPhysicalStateProduct, idUnitProduct, ncmProduct || null, cestProduct || null,
+          idProductTypeProduct, normalizedPhysicalStateProduct, idUnitProduct, packageQuantityProduct, ncmProduct || null, cestProduct || null,
           priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct,
           printsPlace, showsInPdvProduct, isActiveProduct]
       );
       const pdvCodeProduct = String(result.insertId);
       await pool.query("UPDATE products SET pdvCodeProduct = ? WHERE idProduct = ?", [pdvCodeProduct, result.insertId]);
-      json(response, 201, { product: { idProduct: result.insertId, idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct, idProductTypeProduct, idPhysicalStateProduct: normalizedPhysicalStateProduct, idUnitProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct, printsPlace, showsInPdvProduct, isActiveProduct } });
+      json(response, 201, { product: { idProduct: result.insertId, idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct, idProductTypeProduct, idPhysicalStateProduct: normalizedPhysicalStateProduct, idUnitProduct, packageQuantityProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct, printsPlace, showsInPdvProduct, isActiveProduct } });
     } catch (error) {
       handleError(response, error, { log: "Falha ao criar produto:", message: "Não foi possível criar o produto.", duplicate: "SKU já cadastrado." });
     }
@@ -3862,6 +4638,7 @@ const server = createServer(async (request, response) => {
         const priceValue = String(row.priceProduct ?? "").trim().replace(",", ".");
         const costPriceValue = String(row.costPriceProduct ?? "0").trim().replace(",", ".");
         const stockValue = String(row.stockQuantityProduct ?? "0").trim().replace(",", ".");
+        const packageQuantityProduct = parsePackageQuantity(row.packageQuantityProduct ?? "1");
         if (!skuProduct || skuProduct.length > 64 || !nameProduct || nameProduct.length > 180 || !descriptionGroup
           || (!priceValue && !costPriceValue)) {
           throw new SaleValidationError(`Linha ${line}: SKU, nome, grupo e preço são obrigatórios ou inválidos.`);
@@ -3996,15 +4773,15 @@ const server = createServer(async (request, response) => {
         const [result] = await connection.query(
           `INSERT INTO products
            (idGroup, skuProduct, nameProduct, idFiscalOperationSaleProduct,
-             idProductTypeProduct, idPhysicalStateProduct, idUnitProduct, ncmProduct, cestProduct, priceProduct, costPriceProduct,
+             idProductTypeProduct, idPhysicalStateProduct, idUnitProduct, packageQuantityProduct, ncmProduct, cestProduct, priceProduct, costPriceProduct,
              stockQuantityProduct, controlsStockProduct, isFractionalProduct, printsPlace,
              showsInPdvProduct, isActiveProduct)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
           [
            groupRows[0].idGroup, skuProduct, nameProduct,
             fiscalRows[0]?.idFiscalOperation || null, typeRows[0]?.idProductType || null,
             isRawMaterial ? physicalStateRows[0].idPhysicalState : null,
-            unitRows[0]?.idUnit || null, ncmProduct || null, cestProduct || null,
+            unitRows[0]?.idUnit || null, packageQuantityProduct, ncmProduct || null, cestProduct || null,
             priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isFractionalProduct,
             printsPlace, showsInPdvProduct, isActiveProduct
           ]
@@ -4048,6 +4825,7 @@ const server = createServer(async (request, response) => {
       const idProductTypeProduct = parsePositiveId(payload.idProductTypeProduct);
       const idPhysicalStateProduct = parsePositiveId(payload.idPhysicalStateProduct);
       const idUnitProduct = parsePositiveId(payload.idUnitProduct);
+      const packageQuantityProduct = parsePackageQuantity(payload.packageQuantityProduct);
       if (!idProduct || !nameProduct || nameProduct.length > 180 || !skuProduct || skuProduct.length > 64 || !idGroup || (ncmProduct && !/^\d{8}$/.test(ncmProduct)) || (cestProduct && !/^\d{7}$/.test(cestProduct))) throw new SaleValidationError("Produto, nome, SKU, grupo, NCM ou CEST inválidos.");
       await ensureProductCatalogSchema();
       await ensureCulinarySchema();
@@ -4117,18 +4895,18 @@ const server = createServer(async (request, response) => {
       const pdvCodeProduct = existingProductRows[0].pdvCodeProduct;
       const [result] = await pool.query(
         `UPDATE products SET idGroup = ?, skuProduct = ?, nameProduct = ?,
-          idFiscalOperationSaleProduct = ?, idProductTypeProduct = ?, idPhysicalStateProduct = ?, idUnitProduct = ?,
+          idFiscalOperationSaleProduct = ?, idProductTypeProduct = ?, idPhysicalStateProduct = ?, idUnitProduct = ?, packageQuantityProduct = ?,
           ncmProduct = ?, cestProduct = ?, priceProduct = ?, costPriceProduct = ?, stockQuantityProduct = ?,
           controlsStockProduct = ?, isBuffetProduct = ?, isFractionalProduct = ?, printsPlace = ?,
           showsInPdvProduct = ?
          WHERE idProduct = ?`,
         [idGroup, skuProduct, nameProduct, idFiscalOperationSaleProduct,
-          idProductTypeProduct, normalizedPhysicalStateProduct, idUnitProduct, ncmProduct || null, cestProduct || null,
+          idProductTypeProduct, normalizedPhysicalStateProduct, idUnitProduct, packageQuantityProduct, ncmProduct || null, cestProduct || null,
           priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct,
           printsPlace, showsInPdvProduct, idProduct]
       );
       if (!result.affectedRows) throw new SaleValidationError("Produto não encontrado.", 404);
-      json(response, 200, { product: { idProduct, idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct, idProductTypeProduct, idPhysicalStateProduct: normalizedPhysicalStateProduct, idUnitProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct, printsPlace, showsInPdvProduct } });
+      json(response, 200, { product: { idProduct, idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct, idProductTypeProduct, idPhysicalStateProduct: normalizedPhysicalStateProduct, idUnitProduct, packageQuantityProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct, printsPlace, showsInPdvProduct } });
     } catch (error) {
       handleError(response, error, { log: "Falha ao editar produto:", message: "Não foi possível editar o produto.", duplicate: "SKU já cadastrado." });
     }
@@ -4690,6 +5468,7 @@ server.listen(config.apiPort, config.apiHost, () => {
     ensureGeneralSettingsSchema().then(loadGeneralSourceSettings),
     ensureCompanySchema(),
     ensureSaleFiscalSchema(),
+    ensureFiscalDocumentQueueSchema(),
     ensureSupplierSchema(),
     ensureCustomerConsumerSchema().then(migrateCustomerConsumerSchema),
     ensureRecipeSchema(),

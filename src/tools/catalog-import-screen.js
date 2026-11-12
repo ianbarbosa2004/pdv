@@ -11,7 +11,7 @@ const escapeHtml = (value) => String(value ?? "")
 const csvHeaders = [
   "skuProduct", "pdvCodeProduct", "nameProduct", "descriptionGroup",
   "descriptionFiscalOperation", "descriptionProductType", "descriptionPhysicalState", "codeUnit",
-  "ncmProduct", "cestProduct", "priceProduct", "costPriceProduct", "stockQuantityProduct",
+  "ncmProduct", "cestProduct", "priceProduct", "costPriceProduct", "stockQuantityProduct", "packageQuantityProduct",
   "controlsStockProduct", "isFractionalProduct", "printsPlace",
   "showsInPdvProduct", "isActiveProduct"
 ];
@@ -19,14 +19,14 @@ const csvHeaders = [
 const csvHeaderLabels = [
   "SKU", "Código PDV", "Nome", "Grupo",
   "Operação fiscal de venda", "Tipo de produto", "Estado Físico", "Unidade",
-  "NCM", "CEST", "Preço de venda", "Preço de custo", "Estoque",
+  "NCM", "CEST", "Preço de venda", "Preço de custo", "Estoque", "Conteúdo por unidade",
   "Controla estoque", "Produto fracionado", "Local de impressão", "Exibe no PDV",
   "Status"
 ];
 
 export const csvExample = [
   csvHeaderLabels.join(";"),
-  "PROD-001;789000000001;Café torrado;Mercearia;;;;;0201.30.00;0603.10.00;19,90;12,50;10;sim;não;Não Imprimir;sim;ATIVO"
+  "PROD-001;789000000001;Café torrado;Mercearia;;;;;0201.30.00;0603.10.00;19,90;12,50;10;1;sim;não;Não Imprimir;sim;ATIVO"
 ].join("\r\n");
 
 export const canImportCatalogRows = ({ rows, validationPassed, loading }) =>
@@ -43,6 +43,7 @@ export const csvValueReference = [
   ["Unidade", "Opcional; aceite o código ou a descrição de uma unidade tributável ativa, conforme a referência."],
   ["NCM", "Opcional; 8 dígitos. Pontuação pode ser usada, pois será removida na validação."],
   ["CEST", "Opcional; 7 dígitos. Pontuação pode ser usada, pois será removida na validação."],
+  ["Conteúdo por unidade", "Opcional; quantidade da unidade tributável contida em uma embalagem. Use 750 para uma garrafa de 750 ml; o padrão é 1."],
   ["Preço de venda", "Obrigatório para produtos de venda; número não negativo com até 2 casas decimais. Aceita vírgula ou ponto."],
   ["Preço de custo", "Opcional; número não negativo com até 2 casas decimais. Aceita vírgula ou ponto. Padrão: 0."],
   ["Estoque", "Opcional; inteiro ou número com até 3 casas decimais quando o produto for fracionado. Aceita vírgula ou ponto. Padrão: 0."],

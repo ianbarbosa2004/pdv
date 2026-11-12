@@ -46,6 +46,12 @@ usada no cálculo e na edição do componente. Quando a unidade do Produto é qu
 exemplo, `800 g` com fator `0,001` é calculado como `0,800 kg` antes da
 aplicação do custo e da perda. A ordem é persistida em
 `recipe_components.orderRecipeComponent`.
+Quando o custo informado é o da embalagem comercial, o cadastro do Produto
+deve informar também o **Conteúdo por unidade** (`packageQuantityProduct`).
+Assim, uma garrafa com custo de R$ 30 e 750 ml usa fator efetivo `10 / 750`
+para uma conversão de 1 colher de sopa para 10 ml, resultando em R$ 0,40 por
+colher. Produtos vendidos diretamente na própria unidade-base mantêm o valor
+`1`.
 Na leitura das receitas, a API também deve retornar
 `factorCulinaryUnitConversion` junto da conversão; sem esse campo, a interface
 assume fator `1` e calcula incorretamente componentes informados em gramas,
@@ -53,9 +59,8 @@ mililitros ou outras unidades convertidas.
 Quando o Produto usa `KG`, por exemplo, a conversão precisa terminar em `kg`.
 Conversões culinárias para a unidade-base são complementadas pela carga do
 catálogo com registros explícitos para a unidade comercial: `colher_sopa → kg`
-com fator `0,01` quando a conversão original representa `10 g`. O cálculo
-continua sendo sempre `quantidade × fator × custo unitário`; não há inversão ou
-ajuste automático do fator.
+com fator `0,01` quando a conversão original representa `10 g`. O cálculo continua sendo
+`quantidade × (fator da conversão / conteúdo por unidade) × custo da embalagem`.
 O cadastro usa unidades tributáveis para o rendimento final; receitas existentes
 podem ser visualizadas e editadas no formulário principal e arquivadas pela
 ação de exclusão.
@@ -927,7 +932,7 @@ com backup verificável quando alterarem dados existentes:
 | Comando | Arquivo | Finalidade |
 | --- | --- | --- |
 | `npm.cmd run migrate:culinary-units` | `migrate-culinary-units.mjs` | Cria ou atualiza unidades, estados físicos e conversões culinárias de referência |
-| `npm.cmd run migrate:uppercase` | `migrate-uppercase-data.mjs` | Normaliza textos humanos para capitalização de título e SKUs para maiúsculas |
+| `npm.cmd run migrate:uppercase` | `migrate-uppercase-data.mjs` | Migração histórica de textos humanos e SKUs; não é aplicada pelo salvamento normal |
 | `node --env-file=.env scripts/migrations/migrate-embalagens-to-uso-consumo.mjs` | `migrate-embalagens-to-uso-consumo.mjs` | Migra dados legados de embalagens para a classificação de uso e consumo |
 
 As duas primeiras migrações possuem scripts npm. A migração de embalagens é
@@ -1135,7 +1140,25 @@ O comportamento compartilhado fica em
 do registro deve usar os mesmos nomes dos campos do formulário, para que o
 preenchimento seja automático. Ações interativas dentro da linha devem ficar
 em botões ou controles próprios; o helper ignora esses elementos ao detectar o
-clique de visualização.
+clique de visualização. As colunas **Ações** das listagens devem usar
+`actions-column` e respeitar largura máxima de 100px.
+
+### Diretriz de nomes e descrições em listagens
+
+Colunas de nomes, fornecedores e descrições devem seguir o padrão visual da
+coluna **Produto** nas listagens de cadastros:
+
+- ocupar somente a largura reservada à própria coluna;
+- permitir quebra de linha dentro dessa largura;
+- exibir o conteúdo completo, sem `ellipsis`, `text-overflow` ou
+  `overflow: hidden`;
+- usar `min-width: 0` para permitir a distribuição correta das demais colunas;
+- manter colunas numéricas, datas, status e ações compactas, sem quebra
+  desnecessária.
+
+Esse padrão deve ser aplicado tanto ao cabeçalho quanto às células e deve
+prevalecer sobre regras genéricas de tabelas que possam cortar ou forçar
+`white-space: nowrap`.
 
 ### Diretriz de edição em modal
 
@@ -1175,9 +1198,10 @@ impressão, consultas e qualquer outra tela que exiba o feedback compartilhado.
 
 Depois de cadastrar um novo registro, o formulário de inclusão deve retornar
 ao estado vazio e pronto para o próximo cadastro. Após editar um registro, o
-modal deve ser encerrado sem deixar a mensagem de sucesso no formulário de
-inclusão. Novas telas e alterações em formulários devem preservar esse
-comportamento, sem criar um fluxo visual diferente.
+modal deve ser encerrado e o registro recém-salvo deve ser aberto em
+**Visualização** no formulário principal, sem deixar a mensagem de sucesso no
+formulário de inclusão. Novas telas e alterações em formulários devem
+preservar esse comportamento, sem criar um fluxo visual diferente.
 
 ### Preservação de rascunhos durante renderizações
 
@@ -1267,6 +1291,10 @@ operação fiscal de saída (`idFiscalOperationSaleProduct`), um tipo em
 `product_types` e uma unidade tributável em `units`. As tabelas auxiliares são
 criadas de forma idempotente e permanecem sem registros até o usuário
 cadastrá-los.
+O campo **Conteúdo por unidade** informa quantas unidades da unidade tributável
+existem em uma embalagem comercial; o padrão é `1`, e ele é usado no custo das
+Receitas e Composições. Por exemplo, uma garrafa cadastrada em `ML` com 750 ml
+deve receber `750`.
 
 Os campos `controlsStockProduct`, `isFractionalProduct` e
 `showsInPdvProduct` são booleanos validados pela API. O campo `printsPlace`
@@ -1316,7 +1344,7 @@ disponíveis.
 
 O cadastro de **Tipos de Produtos** possui o campo opcional **Código SPED**,
 exibido como primeiro campo do formulário e primeira coluna da listagem. A API
-aplica capitalização de título aos textos humanos, limita o código a 30
+preserva a capitalização informada nos textos humanos, limita o código a 30
 caracteres e preserva `NULL`
 quando o tipo ainda não possui código informado. A coluna é criada em bases
 novas pelo `database/schema.sql` e adicionada de forma idempotente em bases existentes.
@@ -1334,9 +1362,9 @@ O país não é solicitado na tela e a API mantém `Brasil` como padrão. CNPJ/C
 telefone e CEP recebem máscara durante a digitação; e-mails são normalizados
 sem espaços e em minúsculas. O documento é armazenado sem máscara e possui
 unicidade por tipo de pessoa; a interface apresenta o valor formatado.
-Os campos textuais humanos usam capitalização de título, mantendo preposições e
-conjunções curtas em minúscula, como em **Colher de Sopa**. No salvamento, a API
-também aplica trim, normalização de espaços e validações de
+Os campos textuais humanos preservam a capitalização informada, como em
+**Colher de Sopa** ou **COLHER DE SOPA**. No salvamento, a API aplica somente
+trim, normalização de espaços e validações de
 tamanho/obrigatoriedade; e-mails continuam em minúsculas por regra técnica.
 
 No formulário de novo fornecedor, o botão ao lado do CNPJ consulta a BrasilAPI
@@ -1349,6 +1377,76 @@ falha de consulta não impede o preenchimento manual.
 A tabela `suppliers` é criada de forma idempotente pela API e já está definida
 no `database/schema.sql`. A tela segue o padrão de listagem com pesquisa, edição em
 modal, exclusão, ativação/inativação e feedback após cada operação.
+
+### Fila de Documentos
+
+Em **Estoque > Fila de Documentos**, o operador importa XML autorizado de
+NF-e/NFC-e ou usa a consulta fiscal interativa para NFC-e modelo 65. Os dois
+fluxos passam pela mesma rota transacional de importação e criam uma
+pré-entrada em estado **Em Digitação**, sem movimentar ou reservar estoque.
+O salvamento pode permanecer nesse estado enquanto faltarem vínculos, seleções,
+conversões ou pagamento; quando os itens selecionados e o pagamento estiverem
+válidos, o salvamento promove a pré-entrada para **Em Aberto**.
+
+A tela apresenta os dois painéis de importação à esquerda e a listagem
+**Documentos na Fila** à direita. Cada linha identifica o tipo, documento,
+fornecedor, emissão, valor e status; o ícone de seta abre a mesma revisão
+detalhada anteriormente acessada pelo botão **Continuar**.
+
+O XML continua exigindo uma chave identificável no conteúdo e validação
+server-side. A consulta interativa preserva o DOM renderizado e mapeia as
+colunas disponíveis por nome, incluindo código, EAN, NCM, CFOP, unidades,
+quantidades, valores, despesas, desconto e situação tributária. No DOM completo,
+os painéis expansíveis de cada item são agrupados antes da leitura, para
+combinar tabelas detalhadas sequenciais ao item resumido correto. Campos que
+não existem no DOM permanecem vazios; o parser não inventa pagamentos ou
+impostos ausentes.
+Descrições fiscais no formato `código - descrição` são normalizadas para
+persistir somente o código em `taxOriginFiscalDocumentItem` e
+`taxSituationFiscalDocumentItem`, conforme o tamanho e o contrato dessas
+colunas. Quando o HTML da NFC-e não fornece unidade ou valores tributáveis,
+esses campos permanecem vazios/`NULL`; não devem ser preenchidos com zero ou
+inferidos a partir da unidade comercial.
+Falhas de leitura, validação ou persistência são retornadas como erros
+explícitos.
+
+Além dos itens, a consulta HTML resumida da SEF/MG fornece metadados de
+destinatário, destino da operação, consumidor final, presença do comprador,
+processo de emissão, finalidade, digest, base/valor do ICMS e datas de
+autorização/inclusão. Esses campos são persistidos em `fiscal_documents`.
+Como esse HTML não possui uma tabela de pagamentos, a importação mantém
+`payments` vazio.
+
+A consulta assistida com hCaptcha permanece disponível somente na tela
+**Ferramentas > Consulta de NFC-e**, fora do fluxo da fila de documentos.
+
+Na revisão da pré-entrada, a tabela de itens exibe **Usar**, linha, descrição,
+quantidade, unidade, **Valor** e **Status**. O valor vem de
+`totalFiscalDocumentItem`, e o layout usa larguras estáveis, altura natural e
+quebra somente entre palavras; não se deve usar `break-all` ou
+`overflow-wrap: anywhere` nessa tabela. Ao vincular um Produto comercial, as
+linhas ainda pendentes com a mesma descrição e unidade fiscal reutilizam o
+produto, a unidade de estoque e a conversão escolhidos. Linhas que já possuem
+outro vínculo não são sobrescritas.
+
+Na **Fila de Documentos**, a ação **Abrir consulta fiscal** cria uma janela
+WebView Tauri restrita a `portalsped.fazenda.mg.gov.br`. O operador informa a
+chave, resolve o hCaptcha manualmente e abre a consulta completa. A própria
+janela do navegador exibe **Ler consulta completa** e **Fechar consulta**;
+os botões solicitam as ações por uma navegação interna `pdv://`, interceptada
+pelo Rust, sem expor comandos Tauri ao conteúdo remoto. Ler captura o DOM
+renderizado e o envia à rota transacional de importação HTML.
+A captura valida a origem oficial, exige conteúdo HTML e mantém o limite de
+15 MB da API. O DOM completo pode fornecer campos que não existem no HTML
+resumido, como código do produto, EAN, NCM, CEST e CFOP. Após a API concluir
+a importação, a barra da janela fiscal exibe o sucesso; falhas de leitura ou
+importação também são apresentadas nela.
+
+Alterações em `src-tauri/src/lib.rs`, `src-tauri/capabilities/default.json`
+ou no fluxo de captura exigem recompilar o cliente com
+`npm.cmd run tauri -- build --no-bundle`; não exigem reinício da API. Alterações
+em `src/server/`, `database/schema.sql` ou `src/server/schema-manager.js`
+exigem reinício da API publicada para aplicar o schema idempotente.
 
 ### Consulta de NFC-e para testes
 
@@ -1379,11 +1477,10 @@ A tela disponibiliza downloads em Markdown com as listas atuais de **Grupos**,
 coluna do CSV e os valores aceitos. Para operação fiscal, a importação aceita a
 descrição ou o CFOP; para tipo de produto, a descrição ou o Código SPED; e
 para unidade, o código ou a descrição. Grupo continua sendo informado pela
-descrição, pois não possui código próprio no cadastro. O campo de nome/descrição do produto usa capitalização de título durante a
-importação. Os campos textuais de cadastros existentes também usam essa forma
-na inicialização da API. O SKU e o código técnico `units.codeUnit` são
-convertidos obrigatoriamente para maiúsculas; a descrição da unidade usa
-capitalização de título. NCM e CEST podem
+descrição, pois não possui código próprio no cadastro. O campo de nome/descrição do produto preserva a capitalização informada durante a
+importação. O SKU e o código técnico `units.codeUnit` são convertidos
+obrigatoriamente para maiúsculas; a descrição da unidade preserva a capitalização
+informada. NCM e CEST podem
 ser informados com pontuação, como `0201.30.00` e `0603.10.00`; a API remove a
 formatação antes de validar e persistir os códigos.
 
@@ -1525,8 +1622,8 @@ campos e regras específicas por tipo em uma etapa posterior sem duplicar a
 camada de API. **Outros Insumos** não faz parte da navegação.
 
 Matérias-primas, embalagens e materiais de uso e consumo não são produtos para
-venda. Nessas três telas, o formulário exibe somente **Preço de custo**; as
-listagens não exibem a coluna de custos. A API grava `priceProduct` com o
+venda. Nessas três telas, o formulário exibe somente **Preço de custo** e a
+listagem exibe a coluna **Custo**. A API grava `priceProduct` com o
 mesmo valor de `costPriceProduct` para manter o contrato de preço e impedir
 divergência entre os campos.
 
@@ -1732,8 +1829,8 @@ armazenados no servidor e retornados junto ao cadastro; o logotipo é destinado
 a relatórios e cupons, enquanto o ícone atualiza o favicon e a identidade
 visual das telas.
 
-Os campos textuais desse cadastro usam capitalização de título. A API aplica
-também `trim` e validação de tamanho/obrigatoriedade; documentos, UF, códigos,
+Os campos textuais desse cadastro preservam a capitalização informada. A API aplica
+`trim` e validação de tamanho/obrigatoriedade; documentos, UF, códigos,
 telefones, credenciais e parâmetros fiscais mantêm suas validações próprias.
 
 A tela **Configurações > NFC-e** administra os parâmetros da NFC-e modelo 65

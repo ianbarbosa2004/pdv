@@ -1,4 +1,5 @@
 const DEFAULT_PAGE_SIZE = 25;
+const paginationState = new WeakMap();
 
 const renderPagination = (page, pageCount, total, pageSize) => {
   const start = (page - 1) * pageSize + 1;
@@ -20,15 +21,13 @@ const renderPagination = (page, pageCount, total, pageSize) => {
     </label>`;
 };
 
-const bindWrapper = (wrapper) => {
+const bindWrapper = (wrapper, state) => {
   if (wrapper.dataset.paginationBound) return;
   const existingPagination = wrapper.nextElementSibling?.matches(".catalog-pagination")
     ? wrapper.nextElementSibling
     : null;
   if (existingPagination && !existingPagination.dataset.autoPagination) return;
   wrapper.dataset.paginationBound = "true";
-  let page = 1;
-  let pageSize = DEFAULT_PAGE_SIZE;
 
   const update = () => {
     const table = wrapper.querySelector("table");
@@ -46,43 +45,42 @@ const bindWrapper = (wrapper) => {
       return;
     }
 
-    const pageCount = Math.max(1, Math.ceil(total / pageSize));
-    page = Math.min(page, pageCount);
+    const pageCount = Math.max(1, Math.ceil(total / state.pageSize));
+    state.page = Math.min(state.page, pageCount);
     rows.forEach((row, index) => {
-      row.hidden = index < (page - 1) * pageSize || index >= page * pageSize;
+      row.hidden = index < (state.page - 1) * state.pageSize || index >= state.page * state.pageSize;
     });
 
     const element = pagination || document.createElement("div");
     element.className = "catalog-pagination";
     element.dataset.autoPagination = "true";
-    element.innerHTML = renderPagination(page, pageCount, total, pageSize);
+    element.innerHTML = renderPagination(state.page, pageCount, total, state.pageSize);
     if (!pagination) wrapper.after(element);
 
     element.querySelector("[data-auto-page='first']").onclick = () => {
-      page = 1;
+      state.page = 1;
       update();
     };
     element.querySelector("[data-auto-page='previous']").onclick = () => {
-      page -= 1;
+      state.page -= 1;
       update();
     };
     element.querySelector("[data-auto-page='next']").onclick = () => {
-      page += 1;
+      state.page += 1;
       update();
     };
     element.querySelector("[data-auto-page='last']").onclick = () => {
-      page = pageCount;
+      state.page = pageCount;
       update();
     };
     element.querySelector("[data-auto-page-size]").onchange = (event) => {
-      pageSize = Number(event.currentTarget.value) || DEFAULT_PAGE_SIZE;
-      page = 1;
+      state.pageSize = Number(event.currentTarget.value) || DEFAULT_PAGE_SIZE;
+      state.page = 1;
       update();
     };
   };
 
   const observer = new MutationObserver(() => {
-    page = 1;
     update();
   });
   observer.observe(wrapper, { childList: true, subtree: true });
@@ -90,8 +88,15 @@ const bindWrapper = (wrapper) => {
 };
 
 export const installTablePagination = (root) => {
+  const state = paginationState.get(root) || new Map();
+  paginationState.set(root, state);
   const bindTables = () => {
-    root.querySelectorAll(".classic-grid-wrapper, .ncm-lookup-table-wrapper").forEach(bindWrapper);
+    root.querySelectorAll(".classic-grid-wrapper, .ncm-lookup-table-wrapper").forEach((wrapper, index) => {
+      const key = `${wrapper.className}:${index}`;
+      const tableState = state.get(key) || { page: 1, pageSize: DEFAULT_PAGE_SIZE };
+      state.set(key, tableState);
+      bindWrapper(wrapper, tableState);
+    });
   };
   const observer = new MutationObserver(bindTables);
   observer.observe(root, { childList: true, subtree: true });

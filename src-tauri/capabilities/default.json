@@ -3,12 +3,19 @@
   "identifier": "default",
   "description": "enables the default permissions",
   "windows": [
-    "main"
+    "main",
+    "fiscal-consultation"
   ],
   "permissions": [
     "core:default",
+    "core:webview:allow-create-webview-window",
     "core:window:allow-close",
     "core:window:allow-destroy",
     "core:event:allow-listen"
-  ]
+  ],
+  "remote": {
+    "urls": [
+      "https://portalsped.fazenda.mg.gov.br/*"
+    ]
+  }
 }

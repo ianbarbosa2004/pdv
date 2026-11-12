@@ -1,6 +1,6 @@
 [package]
 name = "pdv"
-version = "0.13.0"
+version = "0.15.0"
 description = "Sistema de ponto de venda offline"
 authors = ["ianbarbosa2004"]
 license = ""

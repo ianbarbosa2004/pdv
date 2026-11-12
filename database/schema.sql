@@ -39,6 +39,130 @@ CREATE TABLE IF NOT EXISTS physical_states (
   isActivePhysicalState TINYINT(1) NOT NULL DEFAULT 1
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS fiscal_document_queue (
+  idFiscalDocumentQueue BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  accessKeyFiscalDocumentQueue CHAR(44) NOT NULL,
+  modelFiscalDocumentQueue SMALLINT UNSIGNED NOT NULL,
+  issuerDocumentFiscalDocumentQueue CHAR(14) NOT NULL,
+  issuedAtFiscalDocumentQueue DATETIME NOT NULL,
+  totalFiscalDocumentQueue DECIMAL(12,2) NOT NULL,
+  createdAtFiscalDocumentQueue TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (idFiscalDocumentQueue),
+  UNIQUE KEY uqFiscalDocumentQueueAccessKey (accessKeyFiscalDocumentQueue),
+  KEY idxFiscalDocumentQueueIssuedAt (issuedAtFiscalDocumentQueue),
+  KEY idxFiscalDocumentQueueIssuer (issuerDocumentFiscalDocumentQueue)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS fiscal_documents (
+  idFiscalDocument BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  idFiscalDocumentQueue BIGINT UNSIGNED NULL,
+  accessKeyFiscalDocument CHAR(44) NOT NULL,
+  modelFiscalDocument SMALLINT UNSIGNED NOT NULL,
+  issuerDocumentFiscalDocument CHAR(14) NOT NULL,
+  issuerLegalNameFiscalDocument VARCHAR(180) NOT NULL DEFAULT '',
+  issuerTradeNameFiscalDocument VARCHAR(180) NOT NULL DEFAULT '',
+  issuerStateRegistrationFiscalDocument VARCHAR(30) NOT NULL DEFAULT '',
+  issuedAtFiscalDocument DATETIME NOT NULL,
+  seriesFiscalDocument VARCHAR(20) NOT NULL DEFAULT '',
+  numberFiscalDocument VARCHAR(30) NOT NULL DEFAULT '',
+  operationNatureFiscalDocument VARCHAR(180) NOT NULL DEFAULT '',
+  totalFiscalDocument DECIMAL(12,2) NOT NULL,
+  icmsBaseFiscalDocument DECIMAL(12,2) NOT NULL DEFAULT 0,
+  icmsAmountFiscalDocument DECIMAL(12,2) NOT NULL DEFAULT 0,
+  recipientDocumentFiscalDocument VARCHAR(20) NOT NULL DEFAULT '',
+  recipientLegalNameFiscalDocument VARCHAR(180) NOT NULL DEFAULT '',
+  recipientStateFiscalDocument CHAR(2) NOT NULL DEFAULT '',
+  operationTypeFiscalDocument VARCHAR(80) NOT NULL DEFAULT '',
+  operationDestinationFiscalDocument VARCHAR(120) NOT NULL DEFAULT '',
+  finalConsumerFiscalDocument VARCHAR(40) NOT NULL DEFAULT '',
+  buyerPresenceFiscalDocument VARCHAR(120) NOT NULL DEFAULT '',
+  emissionProcessFiscalDocument VARCHAR(120) NOT NULL DEFAULT '',
+  emissionProcessVersionFiscalDocument VARCHAR(40) NOT NULL DEFAULT '',
+  emissionTypeFiscalDocument VARCHAR(80) NOT NULL DEFAULT '',
+  purposeFiscalDocument VARCHAR(80) NOT NULL DEFAULT '',
+  digestValueFiscalDocument VARCHAR(120) NOT NULL DEFAULT '',
+  authorizationStatusFiscalDocument VARCHAR(10) NOT NULL,
+  protocolFiscalDocument VARCHAR(80) NOT NULL DEFAULT '',
+  authorizedAtFiscalDocument DATETIME NULL,
+  includedAtFiscalDocument DATETIME NULL,
+  originalXmlFiscalDocument MEDIUMTEXT NOT NULL,
+  createdAtFiscalDocument TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAtFiscalDocument TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (idFiscalDocument),
+  UNIQUE KEY uqFiscalDocumentsAccessKey (accessKeyFiscalDocument),
+  UNIQUE KEY uqFiscalDocumentsQueue (idFiscalDocumentQueue),
+  KEY idxFiscalDocumentsStatus (authorizationStatusFiscalDocument, issuedAtFiscalDocument),
+  CONSTRAINT fkFiscalDocumentsQueue
+    FOREIGN KEY (idFiscalDocumentQueue) REFERENCES fiscal_document_queue (idFiscalDocumentQueue)
+    ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS fiscal_document_items (
+  idFiscalDocumentItem BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  idFiscalDocument BIGINT UNSIGNED NOT NULL,
+  lineNumberFiscalDocumentItem INT UNSIGNED NOT NULL,
+  supplierCodeFiscalDocumentItem VARCHAR(80) NOT NULL DEFAULT '',
+  barcodeFiscalDocumentItem VARCHAR(50) NOT NULL DEFAULT '',
+  descriptionFiscalDocumentItem VARCHAR(255) NOT NULL,
+  ncmFiscalDocumentItem VARCHAR(20) NOT NULL DEFAULT '',
+  cestFiscalDocumentItem VARCHAR(20) NOT NULL DEFAULT '',
+  cfopFiscalDocumentItem VARCHAR(10) NOT NULL DEFAULT '',
+  fiscalUnitFiscalDocumentItem VARCHAR(20) NOT NULL DEFAULT '',
+  quantityFiscalDocumentItem DECIMAL(14,4) NOT NULL,
+  unitPriceFiscalDocumentItem DECIMAL(14,6) NOT NULL DEFAULT 0,
+  totalFiscalDocumentItem DECIMAL(14,2) NOT NULL DEFAULT 0,
+  taxableUnitFiscalDocumentItem VARCHAR(20) NOT NULL DEFAULT '',
+  taxableQuantityFiscalDocumentItem DECIMAL(14,4) NULL,
+  taxableUnitPriceFiscalDocumentItem DECIMAL(14,6) NULL,
+  freightFiscalDocumentItem DECIMAL(14,2) NOT NULL DEFAULT 0,
+  insuranceFiscalDocumentItem DECIMAL(14,2) NOT NULL DEFAULT 0,
+  otherExpensesFiscalDocumentItem DECIMAL(14,2) NOT NULL DEFAULT 0,
+  discountFiscalDocumentItem DECIMAL(14,2) NOT NULL DEFAULT 0,
+  taxOriginFiscalDocumentItem VARCHAR(10) NOT NULL DEFAULT '',
+  taxSituationFiscalDocumentItem VARCHAR(10) NOT NULL DEFAULT '',
+  isTotalizedFiscalDocumentItem TINYINT(1) NOT NULL DEFAULT 0,
+  createdAtFiscalDocumentItem TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (idFiscalDocumentItem),
+  UNIQUE KEY uqFiscalDocumentItemsLine (idFiscalDocument, lineNumberFiscalDocumentItem),
+  KEY idxFiscalDocumentItemsDescription (descriptionFiscalDocumentItem),
+  CONSTRAINT fkFiscalDocumentItemsDocument
+    FOREIGN KEY (idFiscalDocument) REFERENCES fiscal_documents (idFiscalDocument)
+    ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS fiscal_document_payments (
+  idFiscalDocumentPayment BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  idFiscalDocument BIGINT UNSIGNED NOT NULL,
+  installmentNumberFiscalDocumentPayment VARCHAR(30) NOT NULL DEFAULT '',
+  dueDateFiscalDocumentPayment DATE NULL,
+  amountFiscalDocumentPayment DECIMAL(14,2) NOT NULL DEFAULT 0,
+  paymentTypeFiscalDocumentPayment VARCHAR(10) NOT NULL DEFAULT '',
+  paymentDescriptionFiscalDocumentPayment VARCHAR(120) NOT NULL DEFAULT '',
+  cardBrandFiscalDocumentPayment VARCHAR(20) NOT NULL DEFAULT '',
+  createdAtFiscalDocumentPayment TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (idFiscalDocumentPayment),
+  KEY idxFiscalDocumentPaymentsDocument (idFiscalDocument, installmentNumberFiscalDocumentPayment),
+  CONSTRAINT fkFiscalDocumentPaymentsDocument
+    FOREIGN KEY (idFiscalDocument) REFERENCES fiscal_documents (idFiscalDocument)
+    ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS fiscal_entries (
+  idFiscalEntry BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  idFiscalDocument BIGINT UNSIGNED NOT NULL,
+  statusFiscalEntry ENUM('draft', 'open', 'confirmed', 'cancelled') NOT NULL DEFAULT 'draft',
+  createdAtFiscalEntry TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAtFiscalEntry TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  confirmedAtFiscalEntry TIMESTAMP NULL,
+  cancelledAtFiscalEntry TIMESTAMP NULL,
+  PRIMARY KEY (idFiscalEntry),
+  UNIQUE KEY uqFiscalEntriesDocument (idFiscalDocument),
+  KEY idxFiscalEntriesStatus (statusFiscalEntry, updatedAtFiscalEntry),
+  CONSTRAINT fkFiscalEntriesDocument
+    FOREIGN KEY (idFiscalDocument) REFERENCES fiscal_documents (idFiscalDocument)
+    ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS products (
   idProduct BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   idGroup BIGINT UNSIGNED NOT NULL,
@@ -49,6 +173,7 @@ CREATE TABLE IF NOT EXISTS products (
   idProductTypeProduct BIGINT UNSIGNED NULL,
   idPhysicalStateProduct INT NULL DEFAULT NULL,
   idUnitProduct BIGINT UNSIGNED NULL,
+  packageQuantityProduct DECIMAL(12,3) NOT NULL DEFAULT 1,
   ncmProduct CHAR(8) NULL,
   cestProduct CHAR(7) NULL,
   priceProduct DECIMAL(12,2) NOT NULL,
@@ -200,6 +325,47 @@ CREATE TABLE IF NOT EXISTS unit_conversions (
   CONSTRAINT fkUnitConversionsTo FOREIGN KEY (idToUnitConversion) REFERENCES units (idUnit) ON DELETE CASCADE,
   CONSTRAINT fkUnitConversionsPhysicalState FOREIGN KEY (idPhysicalStateUnitConversion) REFERENCES physical_states (idPhysicalState) ON DELETE RESTRICT
 ) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS fiscal_entry_items (
+  idFiscalEntryItem BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  idFiscalEntry BIGINT UNSIGNED NOT NULL,
+  idFiscalDocumentItem BIGINT UNSIGNED NOT NULL,
+  idProduct BIGINT UNSIGNED NULL,
+  idStockUnit BIGINT UNSIGNED NULL,
+  conversionFactor DECIMAL(14,6) NOT NULL DEFAULT 1,
+  selected TINYINT(1) NOT NULL DEFAULT 1,
+  status ENUM('pending', 'linked', 'omitted') NOT NULL DEFAULT 'pending',
+  createdAtFiscalEntryItem TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAtFiscalEntryItem TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (idFiscalEntryItem),
+  UNIQUE KEY uqFiscalEntryItemsSource (idFiscalEntry, idFiscalDocumentItem),
+  KEY idxFiscalEntryItemsProduct (idProduct),
+  CONSTRAINT fkFiscalEntryItemsEntry
+    FOREIGN KEY (idFiscalEntry) REFERENCES fiscal_entries (idFiscalEntry)
+    ON DELETE CASCADE,
+  CONSTRAINT fkFiscalEntryItemsDocumentItem
+    FOREIGN KEY (idFiscalDocumentItem) REFERENCES fiscal_document_items (idFiscalDocumentItem)
+    ON DELETE RESTRICT,
+  CONSTRAINT fkFiscalEntryItemsProduct
+    FOREIGN KEY (idProduct) REFERENCES products (idProduct)
+    ON DELETE RESTRICT,
+  CONSTRAINT fkFiscalEntryItemsStockUnit
+    FOREIGN KEY (idStockUnit) REFERENCES units (idUnit)
+    ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS fiscal_entry_payments (
+  idFiscalEntryPayment BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  idFiscalEntry BIGINT UNSIGNED NOT NULL,
+  paymentDescriptionFiscalEntryPayment VARCHAR(120) NOT NULL,
+  amountFiscalEntryPayment DECIMAL(14,2) NOT NULL DEFAULT 0,
+  createdAtFiscalEntryPayment TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (idFiscalEntryPayment),
+  KEY idxFiscalEntryPaymentsEntry (idFiscalEntry),
+  CONSTRAINT fkFiscalEntryPaymentsEntry
+    FOREIGN KEY (idFiscalEntry) REFERENCES fiscal_entries (idFiscalEntry)
+    ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS ncm_catalog (
   idNcm BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

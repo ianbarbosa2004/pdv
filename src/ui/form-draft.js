@@ -1,7 +1,12 @@
 const getFormSnapshot = (root) => [...root.querySelectorAll("form")].map((form) => {
   const fieldIndexes = new Map();
   const values = [...form.elements]
-    .filter((field) => field.name && !field.disabled && !field.readOnly)
+    .filter((field) =>
+      field.name
+      && field.type !== "file"
+      && !field.disabled
+      && !field.readOnly
+    )
     .map((field) => {
       const key = `${field.name}:${field.type}`;
       const fieldIndex = fieldIndexes.get(key) || 0;
@@ -27,6 +32,7 @@ const restoreFormSnapshot = (root, snapshots) => {
           candidate.name === fieldSnapshot.name && candidate.type === fieldSnapshot.type
         )[fieldSnapshot.fieldIndex];
       if (!field) continue;
+      if (field.type === "file") continue;
       if (field.type === "checkbox" || field.type === "radio") {
         field.checked = fieldSnapshot.checked;
       } else {

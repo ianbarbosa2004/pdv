@@ -51,7 +51,7 @@ test("interpreta CEST, segmento e relação NCM em CSV", () => {
       "Animais;1.0;01.001.00;0101.21.00;Mercadoria de teste\n"
   );
   assert.deepEqual(result.items, [
-    { codeCest: "0100100", descriptionCest: "Mercadoria de Teste", segmentCest: "Animais" }
+    { codeCest: "0100100", descriptionCest: "Mercadoria de teste", segmentCest: "Animais" }
   ]);
   assert.deepEqual(result.relations, [{ codeNcm: "01012100", codeCest: "0100100" }]);
 });

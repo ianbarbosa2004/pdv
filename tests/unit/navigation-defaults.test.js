@@ -24,6 +24,49 @@ test("mantém o contrato sem criar navegação artificial", () => {
   assert.equal(isNavigationKey("registrations", "cadastros"), false);
 });
 
+test("define a fila fiscal como item direto do menu Estoque", () => {
+  const stockMenu = DEFAULT_NAVIGATION.menus.find((menu) => menu.keyNavigationMenu === "stock");
+  const queueItem = DEFAULT_NAVIGATION.items.find((item) => item.keyNavigationItem === "fiscal-document-queue");
+
+  assert.equal(stockMenu?.labelNavigationMenu, "Estoque");
+  assert.equal(queueItem?.labelNavigationItem, "Fila de Documentos");
+  assert.deepEqual(
+    {
+      menuKey: queueItem?.menuKey,
+      route: queueItem?.routeNavigationItem,
+      type: queueItem?.typeNavigationItem,
+      parentKey: queueItem?.parentKey
+    },
+    {
+      menuKey: "stock",
+      route: "fiscal-document-queue",
+      type: "bar",
+      parentKey: null
+    }
+  );
+});
+
+test("define Entrada XML como item direto do menu Estoque", () => {
+  const entryItem = DEFAULT_NAVIGATION.items.find((item) => item.keyNavigationItem === "fiscal-entry-xml");
+
+  assert.deepEqual(
+    {
+      menuKey: entryItem?.menuKey,
+      label: entryItem?.labelNavigationItem,
+      route: entryItem?.routeNavigationItem,
+      type: entryItem?.typeNavigationItem,
+      parentKey: entryItem?.parentKey
+    },
+    {
+      menuKey: "stock",
+      label: "Entrada de NF-e / NFC-e",
+      route: "fiscal-entry-xml",
+      type: "bar",
+      parentKey: null
+    }
+  );
+});
+
 test("define barras contextuais singleton para telas operacionais", () => {
   const singletonKeys = [
     "suppliers",
