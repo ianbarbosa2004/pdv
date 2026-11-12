@@ -311,6 +311,7 @@ export function createPaymentMethodScreen({
     submitting = true;
     error = "";
     message = "";
+    const editedId = idPaymentMethod;
     render();
     try {
       const payload = {
@@ -330,6 +331,7 @@ export function createPaymentMethodScreen({
       editing = null;
       message = idPaymentMethod ? "Forma de pagamento alterada com sucesso." : "Forma de pagamento cadastrada com sucesso.";
       await load();
+      if (editedId) root.__PDV_FORM_PREVIEW_PENDING__ = paymentMethods.find((item) => String(item.idPaymentMethod) === String(editedId));
       scheduleMessageClear(() => {
         message = "";
         clearRenderedFeedback(root);

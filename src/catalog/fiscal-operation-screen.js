@@ -131,7 +131,7 @@ export function createFiscalOperationScreen({
         </form>
         <section class="classic-grid-panel">
           <div class="classic-panel-header classic-list-header"><span>Operações fiscais</span><input class="classic-list-search" name="fiscalOperationSearch" data-search type="search" placeholder="Pesquisar código ou descrição..." aria-label="Pesquisar operações fiscais" value="${escapeHtml(searchTerm)}" /></div>
-          <div class="classic-grid-wrapper">${loading ? '<p class="classic-empty">Carregando operações fiscais...</p>' : visible.length           ? `<table class="classic-table"><thead><tr><th>CFOP</th><th>Tipo</th><th>Descrição</th><th>Ações</th></tr></thead><tbody>${visible.map((operation) => `<tr class="${operation.isActiveFiscalOperation ? "" : "is-inactive"}" data-view-record="${escapeHtml(JSON.stringify(operation))}"><td>${escapeHtml(operation.cfopFiscalOperation || "-")}</td><td>${escapeHtml(toOptions(catalogs[catalogKeys.operationTypes]).find(([value]) => value === operation.typeFiscalOperation)?.[1] || operation.typeFiscalOperation)}</td><td>${escapeHtml(operation.descriptionFiscalOperation)}</td><td class="actions-column"><button class="icon-button edit" type="button" title="Editar operação fiscal" aria-label="Editar operação fiscal" data-edit="${operation.idFiscalOperation}"><i data-lucide="pencil"></i></button><button class="icon-button delete" type="button" title="Excluir operação fiscal definitivamente" aria-label="Excluir operação fiscal definitivamente" data-delete="${operation.idFiscalOperation}"><i data-lucide="trash-2"></i></button></td></tr>`).join("")}</tbody></table>` : '<p class="classic-empty">Nenhuma operação fiscal cadastrada.</p>'}</div>
+          <div class="classic-grid-wrapper">${loading ? '<p class="classic-empty">Carregando operações fiscais...</p>' : visible.length           ? `<table class="classic-table"><thead><tr><th>CFOP</th><th>Tipo</th><th>Descrição</th><th class="actions-column">Ações</th></tr></thead><tbody>${visible.map((operation) => `<tr class="${operation.isActiveFiscalOperation ? "" : "is-inactive"}" data-view-record="${escapeHtml(JSON.stringify(operation))}"><td>${escapeHtml(operation.cfopFiscalOperation || "-")}</td><td>${escapeHtml(toOptions(catalogs[catalogKeys.operationTypes]).find(([value]) => value === operation.typeFiscalOperation)?.[1] || operation.typeFiscalOperation)}</td><td>${escapeHtml(operation.descriptionFiscalOperation)}</td><td class="actions-column"><button class="icon-button edit" type="button" title="Editar operação fiscal" aria-label="Editar operação fiscal" data-edit="${operation.idFiscalOperation}"><i data-lucide="pencil"></i></button><button class="icon-button delete" type="button" title="Excluir operação fiscal definitivamente" aria-label="Excluir operação fiscal definitivamente" data-delete="${operation.idFiscalOperation}"><i data-lucide="trash-2"></i></button></td></tr>`).join("")}</tbody></table>` : '<p class="classic-empty">Nenhuma operação fiscal cadastrada.</p>'}</div>
         </section>
       </section>
       ${editing ? `
@@ -254,6 +254,7 @@ export function createFiscalOperationScreen({
 
   const submit = async (form) => {
     submitting = true; error = ""; message = ""; render();
+    const editedId = editing?.idFiscalOperation;
     const payload = {
       ...form,
       ...(editing ? { idFiscalOperation: editing.idFiscalOperation } : {}),
@@ -269,6 +270,7 @@ export function createFiscalOperationScreen({
       editing = null;
       message = "Operação fiscal salva com sucesso.";
       await load();
+      if (editedId) root.__PDV_FORM_PREVIEW_PENDING__ = operations.find((item) => String(item.idFiscalOperation) === String(editedId));
       scheduleMessageClear(() => {
         message = "";
         clearRenderedFeedback(root);

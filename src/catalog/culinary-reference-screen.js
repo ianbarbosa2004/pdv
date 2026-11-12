@@ -67,8 +67,6 @@ const categoryLabels = new Map([
   ["general", "Geral"]
 ]);
 
-const titleCase = (value) => `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
-
 export const preserveCulinarySearchSelection = (input, render, getNextInput) => {
   const selectionStart = input.selectionStart;
   const selectionEnd = input.selectionEnd;
@@ -184,9 +182,11 @@ export function createCulinaryReferenceScreen({ kind, onBack, ...menuHandlers })
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || `Não foi possível salvar ${definition.singular}.`);
-      message = `${titleCase(definition.singular)} ${id ? "alterada" : "cadastrada"} com sucesso.`;
+      const article = kind === "physicalStates" ? "O" : "A";
+      message = `${article} ${definition.singular} foi ${id ? "alterada" : "cadastrada"} com sucesso.`;
       editingItem = null;
       await load();
+      if (id !== null && id !== undefined) root.__PDV_FORM_PREVIEW_PENDING__ = items.find((item) => String(item[definition.id]) === String(id));
       scheduleMessageClear(() => {
         message = "";
         clearRenderedFeedback(root);
@@ -242,7 +242,7 @@ export function createCulinaryReferenceScreen({ kind, onBack, ...menuHandlers })
     );
     const active = kind === "physicalStates" ? "physical-states" : "culinary-conversions";
     const navigationItems = getContextualNavigationItems("technical-sheet", fallbackNavigation);
-    root.className = "catalog-screen";
+    root.className = "catalog-screen culinary-reference-screen";
     root.innerHTML = `
       <header class="classic-titlebar"><strong>PDV - Ficha Técnica</strong><span>Operador: Operador</span></header>
       ${renderMainMenu()}
@@ -258,7 +258,7 @@ export function createCulinaryReferenceScreen({ kind, onBack, ...menuHandlers })
         </form>
         <section class="classic-grid-panel">
           <div class="classic-panel-header classic-list-header"><span>${definition.title}</span><input class="classic-list-search" name="culinaryReferenceSearch" data-search type="search" placeholder="Pesquisar..." aria-label="Pesquisar ${definition.title}" value="${escapeHtml(searchTerm)}" /></div>
-          <div class="classic-grid-wrapper">${loading ? `<p class="classic-empty">Carregando...</p>` : visibleItems.length ? `<table class="classic-table"><thead><tr>${definition.listFields.map((field) => `<th>${definition.fields.find(([currentField]) => currentField === field)?.[1] || field}</th>`).join("")}<th class="actions-column">Ações</th></tr></thead><tbody>${visibleItems.map((item) => `<tr class="${definition.statusField && Number(item[definition.statusField]) === 0 ? "is-inactive" : ""}">${definition.listFields.map((field) => `<td>${escapeHtml(fieldLabel(field, item))}</td>`).join("")}<td class="actions-column">${definition.statusField ? `<button class="status-toggle ${Number(item[definition.statusField]) ? "is-active" : "is-inactive"}" type="button" aria-checked="${Number(item[definition.statusField]) ? "true" : "false"}" data-status-id="${item[definition.id]}" title="${Number(item[definition.statusField]) ? "Inativar" : "Ativar"}"><span class="status-toggle-track"><span class="status-toggle-thumb"></span></span><span class="status-toggle-label">${Number(item[definition.statusField]) ? "Ativo" : "Inativo"}</span></button>` : ""}<button class="icon-button edit" type="button" data-edit="${item[definition.id]}" aria-label="Editar"><i data-lucide="pencil"></i></button><button class="icon-button delete" type="button" data-delete="${item[definition.id]}" aria-label="Excluir"><i data-lucide="trash-2"></i></button></td></tr>`).join("")}</tbody></table>` : `<p class="classic-empty">Nenhum ${definition.singular} cadastrado.</p>`}</div>
+          <div class="classic-grid-wrapper">${loading ? `<p class="classic-empty">Carregando...</p>` : visibleItems.length ? `<table class="classic-table culinary-reference-table"><thead><tr>${definition.listFields.map((field) => `<th>${definition.fields.find(([currentField]) => currentField === field)?.[1] || field}</th>`).join("")}<th class="actions-column">Ações</th></tr></thead><tbody>${visibleItems.map((item) => `<tr class="${definition.statusField && Number(item[definition.statusField]) === 0 ? "is-inactive" : ""}">${definition.listFields.map((field) => `<td>${escapeHtml(fieldLabel(field, item))}</td>`).join("")}<td class="actions-column">${definition.statusField ? `<button class="status-toggle ${Number(item[definition.statusField]) ? "is-active" : "is-inactive"}" type="button" aria-checked="${Number(item[definition.statusField]) ? "true" : "false"}" data-status-id="${item[definition.id]}" title="${Number(item[definition.statusField]) ? "Inativar" : "Ativar"}"><span class="status-toggle-track"><span class="status-toggle-thumb"></span></span><span class="status-toggle-label">${Number(item[definition.statusField]) ? "Ativo" : "Inativo"}</span></button>` : ""}<button class="icon-button edit" type="button" data-edit="${item[definition.id]}" aria-label="Editar"><i data-lucide="pencil"></i></button><button class="icon-button delete" type="button" data-delete="${item[definition.id]}" aria-label="Excluir"><i data-lucide="trash-2"></i></button></td></tr>`).join("")}</tbody></table>` : `<p class="classic-empty">Nenhum ${definition.singular} cadastrado.</p>`}</div>
         </section>
       </section>
       ${editingItem ? `<div class="classic-modal-backdrop" data-modal-backdrop><section class="classic-modal" role="dialog" aria-modal="true"><div class="classic-panel-header modal-panel-header"><span>Editar ${definition.singular}</span><button class="modal-close-button" data-cancel type="button" aria-label="Fechar"><i data-lucide="x"></i></button></div><form data-edit-form><div class="classic-form-body">${definition.fields.map((field) => renderField(field, editingItem)).join("")}${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}</div><div class="classic-form-actions"><button class="classic-button primary" type="submit">Salvar alterações</button><button class="classic-button" data-cancel type="button">Cancelar</button></div></form></section></div>` : ""}

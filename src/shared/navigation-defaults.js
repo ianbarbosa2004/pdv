@@ -27,8 +27,9 @@ export const DEFAULT_NAVIGATION = Object.freeze({
   menus: [
     menu("sales", "Frente de Caixa", 0),
     menu("cadastros", "Cadastros", 1),
-    menu("settings", "Configurações", 2),
-    menu("tools", "Ferramentas", 3),
+    menu("stock", "Estoque", 2),
+    menu("settings", "Configurações", 3),
+    menu("tools", "Ferramentas", 4),
     menu("exit", "Sair", 65535)
   ],
   items: [
@@ -73,6 +74,8 @@ export const DEFAULT_NAVIGATION = Object.freeze({
     item("cadastros", "suppliers", "Fornecedores", "suppliers", 4, null, "bar", "Cadastre e consulte fornecedores, contatos e dados fiscais usados nas compras e no estoque."),
     item("cadastros", "customers", "Clientes", "customers", 5, null, "bar", "Cadastre e consulte clientes para identificar vendas, contatos e condições comerciais."),
     item("cadastros", "consumers", "Consumidores", "consumers", 6, null, "bar", "Cadastre e consulte consumidores para identificar atendimentos e vínculos com clientes."),
+    item("stock", "fiscal-document-queue", "Fila de Documentos", "fiscal-document-queue", 1, null, "bar", "Importe documentos fiscais e acompanhe as pré-entradas em estado Em Aberto."),
+    item("stock", "fiscal-entry-xml", "Entrada de NF-e / NFC-e", "fiscal-entry-xml", 2, null, "bar", "Revise pré-entradas de NF-e e NFC-e, itens, vínculos, conversões e pagamentos."),
     item("settings", "settings", "Impressoras", "settings", 1, null, "bar", "Defina as impressoras padrão usadas pelo PDV em cupons, comprovantes e relatórios."),
     item("settings", "general-settings", "Configurações Gerais", "general-settings", 2, null, "bar", "Defina regras gerais de funcionamento compartilhadas por todos os terminais do PDV."),
     item("settings", "theme", "Aparência", "theme", 3, null, "bar", "Escolha a aparência visual deste terminal do PDV."),

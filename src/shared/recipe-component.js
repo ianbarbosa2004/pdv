@@ -12,6 +12,16 @@ const culinaryBaseForProductUnit = (unit = {}) => {
   return null;
 };
 
+const getProductPackageQuantity = (product) => {
+  const quantity = Number(product?.packageQuantityProduct ?? 1);
+  return Number.isFinite(quantity) && quantity > 0 ? quantity : null;
+};
+
+const normalizeConversionFactorForProductPackage = (factor, product) => {
+  const packageQuantity = getProductPackageQuantity(product);
+  return packageQuantity ? factor / packageQuantity : null;
+};
+
 export const filterRecipeComponentOptions = (items, searchTerm) => {
   const normalizedSearch = normalizeText(searchTerm);
   if (!normalizedSearch) return items;
@@ -54,7 +64,9 @@ export const resolveRecipeComponentConversionFactor = ({
     const factor = Number(selectedConversion.factorCulinaryUnitConversion);
     const targetMatchesProductUnit =
       String(selectedConversion.idToCulinaryUnitConversion) === String(productUnitId);
-    return targetMatchesProductUnit ? factor : null;
+    return targetMatchesProductUnit
+      ? normalizeConversionFactorForProductPackage(factor, product)
+      : null;
   }
   if (String(productUnitId) === String(culinaryUnitId)) return 1;
   const matchingConversions = conversions.filter((conversion) =>
@@ -64,7 +76,10 @@ export const resolveRecipeComponentConversionFactor = ({
       || String(conversion.idPhysicalStateCulinaryUnitConversion) === String(product.idPhysicalStateProduct))
   );
   return matchingConversions.length === 1
-    ? Number(matchingConversions[0].factorCulinaryUnitConversion)
+    ? normalizeConversionFactorForProductPackage(
+      Number(matchingConversions[0].factorCulinaryUnitConversion),
+      product
+    )
     : null;
 };
 

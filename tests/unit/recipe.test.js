@@ -175,6 +175,31 @@ test("usa o fator da conversão explícita para quilograma no cálculo do custo"
   );
 });
 
+test("calcula o custo proporcional ao conteúdo da embalagem do produto", () => {
+  const product = {
+    idUnitProduct: 20,
+    idPhysicalStateProduct: 5,
+    packageQuantityProduct: 750
+  };
+  const conversions = [{
+    idCulinaryUnitConversion: 30,
+    idFromCulinaryUnitConversion: 10,
+    idToCulinaryUnitConversion: 20,
+    idPhysicalStateCulinaryUnitConversion: 5,
+    factorCulinaryUnitConversion: 10
+  }];
+  const conversionFactor = resolveRecipeComponentConversionFactor({
+    component: { culinaryUnitId: 10, conversionId: 30 },
+    product,
+    conversions
+  });
+  assert.equal(conversionFactor, 10 / 750);
+  assert.equal(
+    calculateComponentCost({ quantity: 1, unitCost: 30, conversionFactor }),
+    0.4
+  );
+});
+
 test("rejects invalid recipe definitions", () => {
   assert.deepEqual(
     validateRecipeDefinition({

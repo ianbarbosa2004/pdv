@@ -63,16 +63,16 @@ test("carrega as listas auxiliares do preenchimento do CSV", async () => {
   assert.match(root.innerHTML, />Selecionar arquivo</);
 });
 
-test("mantém o exemplo CSV alinhado ao cabeçalho com 18 colunas", async () => {
+test("mantém o exemplo CSV alinhado ao cabeçalho com 19 colunas", async () => {
   const { csvExample, canImportCatalogRows } = await import("../../src/tools/catalog-import-screen.js");
   const [, exampleRow] = csvExample.split(/\r?\n/);
   const values = exampleRow.split(";");
 
-  assert.equal(values.length, 18);
+  assert.equal(values.length, 19);
   assert.equal(values[8], "0201.30.00");
   assert.equal(values[9], "0603.10.00");
-  assert.equal(values[16], "sim");
-  assert.equal(values[17], "ATIVO");
+  assert.equal(values[17], "sim");
+  assert.equal(values[18], "ATIVO");
   assert.equal(canImportCatalogRows({ rows: values, validationPassed: false, loading: false }), false);
   assert.equal(canImportCatalogRows({ rows: values, validationPassed: true, loading: false }), true);
   assert.equal(canImportCatalogRows({ rows: values, validationPassed: true, loading: true }), false);

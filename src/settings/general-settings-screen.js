@@ -88,7 +88,7 @@ export function createGeneralSettingsScreen({
                                 class="classic-input"
                                 type="${setting.typeGeneralSetting === "number"
                                   ? "number"
-                                  : (setting.keyGeneralSetting === "ncmSourceUrl" || setting.keyGeneralSetting === "cestSourceUrl"
+                                  : (setting.keyGeneralSetting.endsWith("Url")
                                     ? "url"
                                     : "text")}"
                                 name="${escapeHtml(setting.keyGeneralSetting)}"

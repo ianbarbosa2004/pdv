@@ -34,6 +34,7 @@ export const buildDuplicatedProductDraft = (product, {
   idProductTypeProduct: String(product?.idProductTypeProduct ?? ""),
   idPhysicalStateProduct: String(product?.idPhysicalStateProduct ?? ""),
   idUnitProduct: String(product?.idUnitProduct ?? ""),
+  packageQuantityProduct: String(product?.packageQuantityProduct ?? "1"),
   priceProduct: String(product?.priceProduct ?? "0,00"),
   costPriceProduct: String(product?.costPriceProduct ?? "0,00"),
   stockQuantityProduct: "0",

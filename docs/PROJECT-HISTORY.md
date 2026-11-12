@@ -7,6 +7,81 @@ inicial do produto até o estado atual do workspace. Ele complementa o
 
 ## 0. Estado mais recente
 
+### Pré-entrada em digitação e revisão de itens — 2026-11-12
+
+As importações fiscais passaram a criar a pré-entrada em **Em Digitação**.
+Esse estado permite salvar a revisão incompleta sem movimentar ou reservar
+estoque. Quando os itens selecionados possuem Produto comercial, unidade e
+conversão válidos e existe pagamento válido, o salvamento promove a entrada
+para **Em Aberto**. A migração do enum é idempotente e também atualiza bases
+existentes.
+
+A revisão detalhada passou a exibir o valor de cada item a partir de
+`totalFiscalDocumentItem`, antes do status. Ao vincular um produto, linhas
+pendentes com a mesma descrição e unidade fiscal reaproveitam o vínculo e a
+conversão, sem sobrescrever linhas já vinculadas. A tabela foi ajustada para
+manter altura natural, exibir todas as colunas e quebrar texto apenas entre
+palavras.
+
+Esta etapa foi versionada como **0.15.0**. A suíte completa foi executada com
+173 testes aprovados, além de `node --check` e `git diff --check`. Como houve
+alterações em `src/server/` e no schema, a API publicada deve ser reiniciada;
+como houve alterações no frontend, os terminais precisam receber novo bundle.
+
+### Fluxo de entrada por XML documentado — 2026-11-11
+
+O vídeo do sistema atual registrou a entrada por seleção de arquivo XML, a
+listagem dos produtos da nota, a identificação visual de dois produtos já
+vinculados e a abertura, por duplo clique, da tela de vínculo para um produto
+pendente. Nessa tela são selecionados o Produto comercial, a operação fiscal e
+os dados de conversão das unidades. A análise também confirmou a validação de
+forma de pagamento inválida, a seleção de PIX, a persistência da importação e
+a ação **Apagar Importação**.
+
+O resultado da gravação é o status **Em Aberto**. Esse estado foi documentado
+como uma entrada salva, porém ainda não concluída para movimentação de estoque.
+O vídeo da entrada manual de nota fiscal permanece pendente para análise
+posterior.
+
+### Primeira implementação da pré-entrada fiscal — 2026-11-11
+
+Foi iniciada a implementação do fluxo de entrada XML sem remover a fila de
+documentos fiscais existente. O parser agora extrai fornecedor, itens,
+unidades, CFOP, situação tributária, pagamentos, parcelas e protocolo de
+autorização. A importação persiste o XML original, o documento, seus itens,
+pagamentos e uma pré-entrada em estado **Em Aberto** dentro de uma transação.
+Esse estado continua sem movimentação ou reserva de estoque.
+
+### Proteção contra importação XML pendente — 2026-11-11
+
+A tela de importação XML passou a interromper requisições que não recebem
+resposta em até 15 segundos, incluindo a leitura da fila e da pré-entrada após
+o salvamento. A falha agora libera o botão e exibe erro, evitando que a tela
+permaneça indefinidamente em **Importando...** quando a API estiver parada,
+indisponível ou travada.
+
+O travamento reproduzido no navegador tinha outra causa imediata: a
+renderização de preservação de rascunho tentava atribuir novamente o valor de
+um campo `input type="file"`, operação proibida pelo navegador. O helper agora
+ignora campos de arquivo durante captura e restauração, e o fluxo XML foi
+validado com Playwright até a exibição da pré-entrada.
+
+### Entrevista de entrada fiscal encerrada — 2026-11-11
+
+Foi concluída a entrevista de domínio para a entrada fiscal por XML/HTML e a
+pré-entrada de estoque. As decisões registradas incluem aceitação de HTML para
+NFC-e modelo 65, exigência de XML real para NF-e modelo 55, revisão antes da
+movimentação de estoque, seleção parcial de itens, ajustes de quantidade e
+unidade, conversões, retenção da evidência original, prevenção de chave
+duplicada, imutabilidade da entrada concluída e auditoria de cancelamentos.
+
+Também foi definido que uma correspondência sem identificador compartilhado
+confiável e com múltiplos produtos locais possíveis nunca deve ser resolvida
+automaticamente: o vínculo fica ambíguo e exige escolha explícita do operador.
+O próximo passo é analisar o vídeo da entrada de XML do sistema atual. O vídeo
+da entrada manual será analisado em etapa posterior. O andamento detalhado está
+em [`ENTREVISTA-ENTRADA-FISCAL.md`](ENTREVISTA-ENTRADA-FISCAL.md).
+
 ### Correção da inicialização do caixa e documentação consolidada — 2026-11-10
 
 A falha de autenticação do operador foi rastreada até a preparação do schema:

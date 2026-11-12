@@ -98,7 +98,25 @@ export const getApiUrl = () => {
     : window.location.hostname || "127.0.0.1";
 
   return `http://${host}:3000`;
+};
 
+export const openExternalUrl = async (url) => {
+  const target = String(url ?? "").trim();
+  if (!/^https:\/\//i.test(target)) {
+    throw new Error("A URL externa deve usar HTTPS.");
+  }
+  if (isTauriWindow()) {
+    await invoke("open_external_url", { url: target });
+    return;
+  }
+  const link = document.createElement("a");
+  link.href = target;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.hidden = true;
+  document.body.append(link);
+  link.click();
+  link.remove();
 };
 
 export const getApiToken = () =>

@@ -189,6 +189,7 @@ export function createFiscalCatalogScreen({
   const submit = async (form) => {
     submitting = true;
     error = "";
+    const editedId = editing?.idFiscalCatalogItem;
     render();
     try {
       const payload = {
@@ -206,6 +207,7 @@ export function createFiscalCatalogScreen({
       if (!response.ok) throw new Error(result.error || "Não foi possível salvar o cadastro fiscal.");
       editing = null;
       await load();
+      if (editedId) root.__PDV_FORM_PREVIEW_PENDING__ = items.find((item) => String(item.idFiscalCatalogItem) === String(editedId));
     } catch (submitError) {
       error = submitError instanceof Error ? submitError.message : "Falha ao salvar o cadastro fiscal.";
       render();

@@ -27,19 +27,10 @@ const validateOfficialSourceUrl = (value, label = "fonte") => {
 };
 
 const normalizeText = (value) => {
-  const minorWords = new Set(["a", "as", "à", "às", "ao", "aos", "da", "das", "de", "do", "dos", "e", "em", "no", "na", "nos", "nas", "por", "para"]);
   return String(value ?? "")
     .replace(/\u00a0/g, " ")
     .replace(/\s+/g, " ")
-    .trim()
-    .toLocaleLowerCase("pt-BR")
-    .split(/(\s+|\/|-)/u)
-    .map((part, index) => {
-      if (!part || /^\s+$/u.test(part) || part === "/" || part === "-") return part;
-      if (index > 0 && minorWords.has(part)) return part;
-      return `${part.charAt(0).toLocaleUpperCase("pt-BR")}${part.slice(1)}`;
-    })
-    .join("");
+    .trim();
 };
 
 const normalizeCode = (value, length) => {

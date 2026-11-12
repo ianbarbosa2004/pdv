@@ -301,6 +301,7 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onP
       message = idGroup ? "Grupo alterado com sucesso." : "Grupo cadastrado com sucesso.";
       editingGroup = null;
       await load();
+      if (idGroup) root.__PDV_FORM_PREVIEW_PENDING__ = groups.find((item) => String(item.idGroup) === String(idGroup));
       scheduleMessageClear(() => {
         message = "";
         clearRenderedFeedback(root);

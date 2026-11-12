@@ -29,6 +29,7 @@ import { createNoPhysicalStateScreen } from "./tools/no-physical-state-screen.js
 import { createRecipeReviewScreen } from "./tools/recipe-review-screen.js";
 import { createCulinaryReferenceScreen } from "./catalog/culinary-reference-screen.js";
 import { createRecipeScreen } from "./catalog/recipe-screen.js";
+import { createFiscalDocumentQueueScreen } from "./stock/fiscal-document-queue-screen.js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { loadProjectIcon } from "./ui/project-icon.js";
 import { installTablePagination } from "./ui/table-pagination.js";
@@ -152,6 +153,10 @@ const common = () => ({
   customers: showCustomers,
   onConsumers: showConsumers,
   consumers: showConsumers,
+  onFiscalDocumentQueue: showFiscalDocumentQueue,
+  "fiscal-document-queue": showFiscalDocumentQueue,
+  onFiscalEntryXml: showFiscalEntryXml,
+  "fiscal-entry-xml": showFiscalEntryXml,
   exit: requestExit,
   sair: requestExit
 });
@@ -187,6 +192,7 @@ let startupReady = Promise.resolve();
 const showLogin = () => mount(createOperatorLoginScreen({
   onAuthenticated: async () => {
     await startupReady;
+    await loadNavigation().catch(() => {});
     showEnvironmentSelection();
   }
 }));
@@ -270,6 +276,15 @@ const showCustomers = () =>
   mount(createCustomerConsumerScreen({ kind: "customer", onBack: showBackoffice, ...common() }));
 const showConsumers = () =>
   mount(createCustomerConsumerScreen({ kind: "consumer", onBack: showBackoffice, ...common() }));
+const showFiscalDocumentQueue = () =>
+  mount(createFiscalDocumentQueueScreen({ onBack: showBackoffice, ...common() }));
+const showFiscalEntryXml = (initialEntryId = null) =>
+  mount(createFiscalDocumentQueueScreen({
+    onBack: showBackoffice,
+    entryOnly: true,
+    initialEntryId,
+    ...common()
+  }));
 const showFiscalOperations = () =>
   mount(createFiscalOperationScreen({
     onBack: showBackoffice,
@@ -561,7 +576,9 @@ const installCloseBackupPrompt = () => {
 const loadNavigation = async () => {
   await runWithRetry(async () => {
     const apiUrl = getApiUrl();
-    const response = await apiFetch(`${apiUrl}/api/navigation?includeInactive=1`);
+    const response = await apiFetch(`${apiUrl}/api/navigation?includeInactive=1&_=${Date.now()}`, {
+      cache: "no-store"
+    });
     const payload = await response.json();
     if (!response.ok || !Array.isArray(payload.menus) || !Array.isArray(payload.items)) {
       throw new Error("A API retornou uma navegação inválida.");

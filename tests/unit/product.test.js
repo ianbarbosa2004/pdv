@@ -46,6 +46,7 @@ test("duplica somente os dados cadastrais e limpa identidade, estoque e status",
       idProductTypeProduct: "4",
       idPhysicalStateProduct: "5",
       idUnitProduct: "6",
+      packageQuantityProduct: "1",
       priceProduct: "12.5",
       costPriceProduct: "8.5",
       stockQuantityProduct: "0",
@@ -66,19 +67,19 @@ test("mantém os controles de catálogo compartilhados para edição e duplicaç
   assert.doesNotMatch(source, /<span>Código PDV<\/span>/);
   assert.match(source, /pdvCodeProduct: productId\s*\? editingProduct\?\.pdvCodeProduct/);
   assert.match(source, /product-cost-stock-row/);
-  assert.doesNotMatch(source, /"Custo", "product-cost-column"/);
-  assert.doesNotMatch(source, /product-cost-column">R\$/);
-  assert.match(source, /product-stock-column/);
+  assert.match(source, /"Custo", "product-cost-column"/);
+  assert.match(source, /product-cost-column">R\$/);
+  assert.doesNotMatch(source, /product-stock-column/);
+  assert.match(source, /packageQuantityProduct: "1"/);
+  assert.match(source, /field-help-tooltip/);
+  assert.match(source, /pointerenter.*is-help-visible/);
+  assert.doesNotMatch(source, /field-help-trigger:hover \.field-help-tooltip/);
   assert.match(source, /units\.filter\(\(unit\) => Number\(unit\.isTaxableUnit\) === 1\)/);
   assert.match(source, /product-visibility-column">PDV/);
   assert.match(source, /product-status-column">Status/);
   assert.doesNotMatch(sharedListSource, /costPriceProduct", "Preço de custo"/);
   assert.doesNotMatch(sharedListSource, /formatMoney\(product\.costPriceProduct\)/);
-  assert.match(source, /const renderProductRecipeLinks = \(\) =>/);
-  assert.ok(
-    source.indexOf("const renderNcmField =") < source.indexOf("const renderProductRecipeLinks ="),
-    "recipe-link renderer must be available outside the NCM renderer"
-  );
+  assert.doesNotMatch(source, /renderProductRecipeLinks|data-product-recipe-target|api\/product-recipes/);
 });
 
 test("gera Código PDV de novos produtos pelo ID e preserva o valor de produtos antigos", async () => {

@@ -1,7 +1,7 @@
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::Deserialize;
 use serde_json::{Map, Value};
-use tauri::Manager;
+use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use windows::Win32::Foundation::{HLOCAL, LocalFree};
 use windows::Win32::Security::Cryptography::{
     CRYPT_INTEGER_BLOB, CryptProtectData, CryptUnprotectData,
@@ -88,6 +88,248 @@ fn update_window_icon(app: tauri::AppHandle, data: String) -> Result<(), String>
     window
         .set_icon(image)
         .map_err(|error| format!("Não foi possível atualizar o ícone da janela: {error}"))
+}
+
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+    let url = url.trim();
+    let host = url
+        .strip_prefix("https://")
+        .and_then(|value| value.split('/').next())
+        .unwrap_or("")
+        .split(':')
+        .next()
+        .unwrap_or("");
+    if host.is_empty() || (!host.ends_with(".fazenda.mg.gov.br") && host != "fazenda.mg.gov.br") {
+        return Err("A URL externa não pertence ao domínio oficial permitido.".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("rundll32.exe")
+            .args(["url.dll,FileProtocolHandler", url])
+            .spawn()
+            .map_err(|error| format!("Não foi possível abrir o navegador externo: {error}"))?;
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("A abertura do navegador externo está disponível apenas no Windows.".to_string())
+    }
+}
+
+const FISCAL_WEBVIEW_LABEL: &str = "fiscal-consultation";
+const FISCAL_CONSULTATION_URL: &str =
+    "https://portalsped.fazenda.mg.gov.br/portalnfce/sistema/consultaarg.xhtml";
+const FISCAL_DOM_EVENT: &str = "fiscal-dom-read";
+const FISCAL_DOM_ERROR_EVENT: &str = "fiscal-dom-error";
+const FISCAL_CONTROLS_SCRIPT: &str = r#"
+(() => {
+  const toolbarId = "pdv-fiscal-toolbar";
+  const mount = () => {
+    if (!document.body || document.getElementById(toolbarId)) return;
+    const toolbar = document.createElement("div");
+    toolbar.id = toolbarId;
+    toolbar.style.cssText = [
+      "position:fixed",
+      "top:8px",
+      "right:16px",
+      "z-index:2147483647",
+      "display:flex",
+      "align-items:center",
+      "gap:8px",
+      "padding:8px 10px",
+      "background:#274c77",
+      "border:1px solid #16324f",
+      "border-radius:4px",
+      "box-shadow:0 2px 8px rgba(0,0,0,.25)",
+      "font:14px Arial,sans-serif"
+    ].join(";");
+    const status = document.createElement("span");
+    status.textContent = "Consulta fiscal";
+    status.style.cssText = "color:#fff;margin-right:4px";
+    window.__PDV_FISCAL_STATUS__ = (message, success) => {
+      status.textContent = String(message || "Consulta fiscal");
+      status.style.color = success ? '#d9f99d' : '#ffd6d6';
+      readButton.disabled = false;
+      readButton.textContent = "Ler consulta completa";
+    };
+    const buttonStyle = "border:1px solid #d5e2ef;border-radius:3px;padding:7px 10px;background:#fff;color:#16324f;cursor:pointer;font:600 13px Arial,sans-serif";
+    const readButton = document.createElement("button");
+    readButton.type = "button";
+    readButton.textContent = "Ler consulta completa";
+    readButton.style.cssText = buttonStyle;
+    readButton.addEventListener("click", async () => {
+      readButton.disabled = true;
+      readButton.textContent = "Lendo consulta...";
+      status.textContent = "Aguarde";
+      window.location.href = "pdv://read-fiscal-dom";
+    });
+    const closeButton = document.createElement("button");
+    closeButton.type = "button";
+    closeButton.textContent = "Fechar consulta";
+    closeButton.style.cssText = buttonStyle;
+    closeButton.addEventListener("click", () => {
+      window.location.href = "pdv://close-fiscal-consultation";
+    });
+    toolbar.append(status, readButton, closeButton);
+    document.body.appendChild(toolbar);
+  };
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", mount, { once: true });
+  } else {
+    mount();
+  }
+})();
+"#;
+
+fn is_allowed_fiscal_url(url: &str) -> bool {
+    let url = url.trim();
+    let host = url
+        .strip_prefix("https://")
+        .and_then(|value| value.split('/').next())
+        .unwrap_or("")
+        .split(':')
+        .next()
+        .unwrap_or("");
+    host == "portalsped.fazenda.mg.gov.br"
+}
+
+#[tauri::command]
+async fn open_fiscal_consultation(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(FISCAL_WEBVIEW_LABEL) {
+        window
+            .show()
+            .map_err(|error| format!("Não foi possível exibir a consulta fiscal: {error}"))?;
+        window
+            .set_focus()
+            .map_err(|error| format!("Não foi possível focar a consulta fiscal: {error}"))?;
+        return Ok(());
+    }
+
+    let url = FISCAL_CONSULTATION_URL
+        .parse()
+        .map_err(|error| format!("A URL oficial da consulta fiscal é inválida: {error}"))?;
+    let navigation_app = app.clone();
+    WebviewWindowBuilder::new(&app, FISCAL_WEBVIEW_LABEL, WebviewUrl::External(url))
+        .title("Consulta fiscal SEF/MG")
+        .inner_size(1200.0, 820.0)
+        .min_inner_size(900.0, 640.0)
+        .center()
+        .resizable(true)
+        .initialization_script(FISCAL_CONTROLS_SCRIPT)
+        .on_navigation(move |url| {
+            let app = navigation_app.clone();
+            match url.as_str() {
+                "pdv://read-fiscal-dom" => {
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(error) = read_fiscal_dom(app.clone()).await {
+                            if let Some(main_window) = app.get_webview_window("main") {
+                                let _ = main_window.emit(FISCAL_DOM_ERROR_EVENT, error);
+                            }
+                        }
+                    });
+                    false
+                }
+                "pdv://close-fiscal-consultation" => {
+                    let _ = close_fiscal_consultation(app);
+                    false
+                }
+                _ => is_allowed_fiscal_url(url.as_str()),
+            }
+        })
+        .build()
+        .map_err(|error| format!("Não foi possível abrir a consulta fiscal: {error}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn read_fiscal_dom(app: tauri::AppHandle) -> Result<Value, String> {
+    let window = app
+        .get_webview_window(FISCAL_WEBVIEW_LABEL)
+        .ok_or_else(|| "Abra a consulta fiscal antes de ler a tela.".to_string())?;
+    let current_url = window.url().map_err(|error| {
+        format!("Não foi possível identificar a URL da consulta fiscal: {error}")
+    })?;
+    if !is_allowed_fiscal_url(current_url.as_str()) {
+        return Err("A página atual não pertence ao portal fiscal oficial permitido.".to_string());
+    }
+
+    let (sender, receiver) = std::sync::mpsc::channel();
+    window
+        .eval_with_callback(
+            "JSON.stringify({ url: window.location.href, html: document.documentElement.outerHTML })",
+            move |value| {
+                let _ = sender.send(value);
+            },
+        )
+        .map_err(|error| format!("Não foi possível ler o DOM da consulta fiscal: {error}"))?;
+
+    let callback_value = tauri::async_runtime::spawn_blocking(move || {
+        receiver
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .map_err(|_| "A consulta fiscal não respondeu à leitura do DOM.".to_string())
+    })
+    .await
+    .map_err(|error| format!("Falha ao aguardar a leitura da consulta fiscal: {error}"))??;
+
+    let serialized = serde_json::from_str::<String>(&callback_value).unwrap_or(callback_value);
+    let payload: Value = serde_json::from_str(&serialized)
+        .map_err(|error| format!("A consulta fiscal retornou um DOM inválido: {error}"))?;
+    let page_url = payload
+        .get("url")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let html = payload
+        .get("html")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if !is_allowed_fiscal_url(page_url) || html.trim().is_empty() {
+        return Err("A página fiscal não retornou um DOM válido para importação.".to_string());
+    }
+    if html.len() > 15 * 1024 * 1024 {
+        return Err(
+            "O DOM da consulta fiscal excede o limite permitido para importação.".to_string(),
+        );
+    }
+
+    let payload = serde_json::json!({ "url": page_url, "html": html });
+    if let Some(main_window) = app.get_webview_window("main") {
+        main_window
+            .emit(FISCAL_DOM_EVENT, &payload)
+            .map_err(|error| format!("Não foi possível enviar a consulta fiscal para o PDV: {error}"))?;
+    }
+    Ok(payload)
+}
+
+#[tauri::command]
+fn close_fiscal_consultation(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(FISCAL_WEBVIEW_LABEL) {
+        window
+            .close()
+            .map_err(|error| format!("Não foi possível fechar a consulta fiscal: {error}"))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn set_fiscal_consultation_status(
+    app: tauri::AppHandle,
+    message: String,
+    success: bool,
+) -> Result<(), String> {
+    let window = app
+        .get_webview_window(FISCAL_WEBVIEW_LABEL)
+        .ok_or_else(|| "A consulta fiscal não está aberta.".to_string())?;
+    let message = serde_json::to_string(&message)
+        .map_err(|error| format!("Não foi possível preparar o status da consulta: {error}"))?;
+    window
+        .eval(&format!(
+            "window.__PDV_FISCAL_STATUS__?.({}, {});",
+            message, success
+        ))
+        .map_err(|error| format!("Não foi possível atualizar o status da consulta fiscal: {error}"))
 }
 
 #[cfg(target_os = "windows")]
@@ -612,11 +854,16 @@ pub fn run() {
             print_receipt,
             list_installed_printers,
             update_window_icon,
+            open_external_url,
             get_selected_printer,
             save_selected_printer,
             load_offline_config,
             save_offline_config,
-            clear_offline_config
+            clear_offline_config,
+            open_fiscal_consultation,
+            read_fiscal_dom,
+            close_fiscal_consultation,
+            set_fiscal_consultation_status
         ])
         .run(tauri::generate_context!())
         .expect("error while building tauri application");

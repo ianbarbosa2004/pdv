@@ -2,6 +2,7 @@ import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { renderScreenContextBar } from "../ui/screen-context.js";
 import { renderNavigationIntro } from "../ui/navigation-intro.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { apiFetch, getApiUrl, openExternalUrl } from "../shared/api.js";
 
 const escapeHtml = (value) =>
   String(value ?? "")
@@ -47,6 +48,7 @@ export function createNfceQueryScreen({ onBack, onNfce, ...handlers }) {
   const root = document.createElement("main");
   let accessKey = demoNfce.accessKey;
   let selectedItems = new Set();
+  let manualQueryUrl = "https://portalsped.fazenda.mg.gov.br/portalnfce/sistema/consultaresumida.xhtml";
   let message = "";
   const scheduleMessageClear = createFeedbackTimer();
 
@@ -77,11 +79,11 @@ export function createNfceQueryScreen({ onBack, onNfce, ...handlers }) {
           </div>
         </section>
         <section class="classic-grid-panel nfce-query-result" aria-live="polite">
-          <div class="classic-panel-header">Resultado demonstrativo</div>
+          <div class="classic-panel-header">Resultado demonstrativo local - não é retorno da SEFAZ</div>
           <div class="classic-form-body">
             <div class="api-status-summary is-connected">
               <span class="api-status-indicator" aria-hidden="true"></span>
-              <div><strong>NFC-e ${demoNfce.status}</strong><small>Dados carregados somente para teste local.</small></div>
+              <div><strong>NFC-e ${demoNfce.status}</strong><small>Dados fixos de demonstração; esta tela não consulta automaticamente a SEFAZ.</small></div>
             </div>
             <dl class="api-status-details">
               <div><dt>Chave</dt><dd>${escapeHtml(demoNfce.accessKey)}</dd></div>
@@ -124,14 +126,19 @@ export function createNfceQueryScreen({ onBack, onNfce, ...handlers }) {
       accessKey = event.currentTarget.value.replace(/\D/g, "").slice(0, 44);
     });
     root.querySelector("[data-open-portal]")?.addEventListener("click", () => {
-      const url = "https://portalsped.fazenda.mg.gov.br/portalnfce/sistema/consultaarg.xhtml";
-      window.open(url, "_blank", "noopener,noreferrer");
-      message = "Consulta oficial aberta. Informe a chave e conclua o desafio humano no portal.";
-      render();
-      scheduleMessageClear(() => {
-        message = "";
-        clearRenderedFeedback(root);
-      });
+      void openExternalUrl(manualQueryUrl)
+        .then(() => {
+          message = "Consulta oficial aberta. Informe a chave e conclua o desafio humano no portal.";
+          render();
+          scheduleMessageClear(() => {
+            message = "";
+            clearRenderedFeedback(root);
+          });
+        })
+        .catch((error) => {
+          message = error instanceof Error ? error.message : "Não foi possível abrir a consulta oficial.";
+          render();
+        });
     });
     root.querySelector("[data-load-demo]")?.addEventListener("click", () => {
       accessKey = demoNfce.accessKey;
@@ -163,5 +170,15 @@ export function createNfceQueryScreen({ onBack, onNfce, ...handlers }) {
   };
 
   render();
+  void apiFetch(`${getApiUrl()}/api/general-settings`)
+    .then((response) => response.json())
+    .then((payload) => {
+      const setting = payload.settings?.find(({ keyGeneralSetting }) => keyGeneralSetting === "nfceManualQueryUrl");
+      if (setting?.valueGeneralSetting) manualQueryUrl = setting.valueGeneralSetting;
+    })
+    .catch(() => {
+      message = "Não foi possível carregar a URL configurada para a consulta manual.";
+      render();
+    });
   return root;
 }
