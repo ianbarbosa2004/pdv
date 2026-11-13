@@ -320,6 +320,7 @@ const ensureRecipeSchemaOnce = async () => {
     idComponentProductRecipe BIGINT UNSIGNED NULL,
     idComponentRecipe BIGINT UNSIGNED NULL,
     orderRecipeComponent INT UNSIGNED NOT NULL DEFAULT 0,
+    detailsRecipeComponent VARCHAR(255) NULL,
     idCulinaryUnitRecipeComponent BIGINT UNSIGNED NULL,
     idCulinaryUnitConversionRecipeComponent BIGINT UNSIGNED NULL,
     quantityRecipeComponent DECIMAL(12,4) NOT NULL,
@@ -354,6 +355,9 @@ const ensureRecipeSchemaOnce = async () => {
   if (!componentColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "orderRecipeComponent")) {
     await pool.query("ALTER TABLE recipe_components ADD COLUMN orderRecipeComponent INT UNSIGNED NOT NULL DEFAULT 0 AFTER idComponentRecipe");
     await pool.query("UPDATE recipe_components SET orderRecipeComponent = idRecipeComponent WHERE orderRecipeComponent = 0");
+  }
+  if (!componentColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "detailsRecipeComponent")) {
+    await pool.query("ALTER TABLE recipe_components ADD COLUMN detailsRecipeComponent VARCHAR(255) NULL AFTER orderRecipeComponent");
   }
   if (!componentColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "idCulinaryUnitRecipeComponent")) {
     await pool.query("ALTER TABLE recipe_components ADD COLUMN idCulinaryUnitRecipeComponent BIGINT UNSIGNED NULL AFTER idComponentRecipe");
@@ -752,29 +756,217 @@ const ensureFiscalEntrySchema = async () => {
     idFiscalEntryItem BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     idFiscalEntry BIGINT UNSIGNED NOT NULL,
     idFiscalDocumentItem BIGINT UNSIGNED NOT NULL,
-    idProduct BIGINT UNSIGNED NULL,
-    idStockUnit BIGINT UNSIGNED NULL,
-    conversionFactor DECIMAL(14,6) NOT NULL DEFAULT 1,
+    idProductFiscalReference BIGINT UNSIGNED NULL,
     selected TINYINT(1) NOT NULL DEFAULT 1,
     status ENUM('pending', 'linked', 'omitted') NOT NULL DEFAULT 'pending',
     createdAtFiscalEntryItem TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updatedAtFiscalEntryItem TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (idFiscalEntryItem),
     UNIQUE KEY uqFiscalEntryItemsSource (idFiscalEntry, idFiscalDocumentItem),
-    KEY idxFiscalEntryItemsProduct (idProduct),
     CONSTRAINT fkFiscalEntryItemsEntry
       FOREIGN KEY (idFiscalEntry) REFERENCES fiscal_entries (idFiscalEntry)
       ON DELETE CASCADE,
     CONSTRAINT fkFiscalEntryItemsDocumentItem
       FOREIGN KEY (idFiscalDocumentItem) REFERENCES fiscal_document_items (idFiscalDocumentItem)
-      ON DELETE RESTRICT,
-    CONSTRAINT fkFiscalEntryItemsProduct
+      ON DELETE RESTRICT
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS product_fiscal_references (
+    idProductFiscalReference BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    idProduct BIGINT UNSIGNED NOT NULL,
+    idStockUnit BIGINT UNSIGNED NULL,
+    conversionFactor DECIMAL(14,6) NOT NULL DEFAULT 1,
+    descriptionFiscalProductReference VARCHAR(255) NOT NULL,
+    fiscalUnitProductReference VARCHAR(20) NOT NULL DEFAULT '',
+    cfopProductFiscalReference VARCHAR(10) NOT NULL DEFAULT '',
+    ncmProductFiscalReference VARCHAR(20) NOT NULL DEFAULT '',
+    cestProductFiscalReference VARCHAR(20) NOT NULL DEFAULT '',
+    createdAtProductFiscalReference TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updatedAtProductFiscalReference TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (idProductFiscalReference),
+    UNIQUE KEY uqProductFiscalReference (
+      idProduct,
+      descriptionFiscalProductReference,
+      fiscalUnitProductReference,
+      cfopProductFiscalReference,
+      ncmProductFiscalReference,
+      cestProductFiscalReference
+    ),
+    KEY idxProductFiscalReferencesProduct (idProduct),
+    KEY idxProductFiscalReferencesStockUnit (idStockUnit),
+    CONSTRAINT fkProductFiscalReferencesProduct
       FOREIGN KEY (idProduct) REFERENCES products (idProduct)
-      ON DELETE RESTRICT,
-    CONSTRAINT fkFiscalEntryItemsStockUnit
+      ON DELETE CASCADE,
+    CONSTRAINT fkProductFiscalReferencesStockUnit
       FOREIGN KEY (idStockUnit) REFERENCES units (idUnit)
       ON DELETE RESTRICT
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  const productFiscalReferenceColumns = await pool.query(
+    `SELECT COLUMN_NAME
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'product_fiscal_references'`
+  );
+  const productFiscalReferenceColumnNames = new Set(
+    productFiscalReferenceColumns[0].map(({ COLUMN_NAME }) => COLUMN_NAME)
+  );
+  if (!productFiscalReferenceColumnNames.has("idStockUnit")) {
+    await pool.query(
+      "ALTER TABLE product_fiscal_references ADD COLUMN idStockUnit BIGINT UNSIGNED NULL AFTER idProduct"
+    );
+    await pool.query(
+      "ALTER TABLE product_fiscal_references ADD KEY idxProductFiscalReferencesStockUnit (idStockUnit)"
+    );
+    await pool.query(
+      `ALTER TABLE product_fiscal_references
+       ADD CONSTRAINT fkProductFiscalReferencesStockUnit
+       FOREIGN KEY (idStockUnit) REFERENCES units (idUnit)
+       ON DELETE RESTRICT`
+    );
+  }
+  if (!productFiscalReferenceColumnNames.has("conversionFactor")) {
+    await pool.query(
+      "ALTER TABLE product_fiscal_references ADD COLUMN conversionFactor DECIMAL(14,6) NOT NULL DEFAULT 1 AFTER idStockUnit"
+    );
+  }
+  const fiscalEntryItemColumns = await pool.query(
+    `SELECT COLUMN_NAME
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'fiscal_entry_items'`
+  );
+  const fiscalEntryItemColumnNames = new Set(
+    fiscalEntryItemColumns[0].map(({ COLUMN_NAME }) => COLUMN_NAME)
+  );
+  const legacyFiscalEntryColumnNames = [
+    "idProduct",
+    "idStockUnit",
+    "conversionFactor"
+  ];
+  const hasLegacyFiscalEntryColumns = legacyFiscalEntryColumnNames
+    .some((columnName) => fiscalEntryItemColumnNames.has(columnName));
+  const hasCompleteLegacyFiscalEntryColumns = legacyFiscalEntryColumnNames
+    .every((columnName) => fiscalEntryItemColumnNames.has(columnName));
+  if (hasLegacyFiscalEntryColumns && !hasCompleteLegacyFiscalEntryColumns) {
+    throw new Error(
+      "A migração de fiscal_entry_items encontrou apenas parte das colunas legadas."
+    );
+  }
+  if (hasCompleteLegacyFiscalEntryColumns) {
+    await pool.query(
+      `INSERT INTO product_fiscal_references
+        (idProduct, idStockUnit, conversionFactor,
+         descriptionFiscalProductReference, fiscalUnitProductReference,
+         cfopProductFiscalReference, ncmProductFiscalReference, cestProductFiscalReference)
+       SELECT DISTINCT ei.idProduct, ei.idStockUnit, ei.conversionFactor,
+              di.descriptionFiscalDocumentItem,
+              di.fiscalUnitFiscalDocumentItem, di.cfopFiscalDocumentItem,
+              di.ncmFiscalDocumentItem, di.cestFiscalDocumentItem
+       FROM fiscal_entry_items ei
+       JOIN fiscal_document_items di
+         ON di.idFiscalDocumentItem = ei.idFiscalDocumentItem
+       WHERE ei.status = 'linked' AND ei.selected = 1 AND ei.idProduct IS NOT NULL
+       ON DUPLICATE KEY UPDATE
+         idStockUnit = VALUES(idStockUnit),
+         conversionFactor = VALUES(conversionFactor)`
+    );
+  }
+  if (!fiscalEntryItemColumnNames.has("idProductFiscalReference")) {
+    const position = fiscalEntryItemColumnNames.has("idProduct")
+      ? " AFTER idProduct"
+      : " AFTER idFiscalDocumentItem";
+    await pool.query(
+      `ALTER TABLE fiscal_entry_items ADD COLUMN idProductFiscalReference BIGINT UNSIGNED NULL${position}`
+    );
+  }
+  const fiscalEntryItemIndexes = await pool.query(
+    `SELECT DISTINCT INDEX_NAME
+     FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'fiscal_entry_items'`
+  );
+  const fiscalEntryItemIndexNames = new Set(
+    fiscalEntryItemIndexes[0].map(({ INDEX_NAME }) => INDEX_NAME)
+  );
+  if (!fiscalEntryItemIndexNames.has("idxFiscalEntryItemsProductFiscalReference")) {
+    await pool.query(
+      "ALTER TABLE fiscal_entry_items ADD KEY idxFiscalEntryItemsProductFiscalReference (idProductFiscalReference)"
+    );
+  }
+  const fiscalEntryItemForeignKeys = await pool.query(
+    `SELECT CONSTRAINT_NAME
+     FROM information_schema.KEY_COLUMN_USAGE
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'fiscal_entry_items'
+       AND COLUMN_NAME = 'idProductFiscalReference'
+       AND REFERENCED_TABLE_NAME = 'product_fiscal_references'`
+  );
+  if (!fiscalEntryItemForeignKeys[0].length) {
+    await pool.query(
+      `ALTER TABLE fiscal_entry_items
+       ADD CONSTRAINT fkFiscalEntryItemsProductFiscalReference
+       FOREIGN KEY (idProductFiscalReference)
+       REFERENCES product_fiscal_references (idProductFiscalReference)
+       ON DELETE RESTRICT`
+    );
+  }
+  if (hasCompleteLegacyFiscalEntryColumns) {
+    await pool.query(
+      `UPDATE fiscal_entry_items ei
+       JOIN fiscal_document_items di
+         ON di.idFiscalDocumentItem = ei.idFiscalDocumentItem
+       JOIN product_fiscal_references pfr
+         ON pfr.idProduct = ei.idProduct
+        AND pfr.idStockUnit <=> ei.idStockUnit
+        AND pfr.conversionFactor = ei.conversionFactor
+        AND pfr.descriptionFiscalProductReference COLLATE utf8mb4_unicode_ci =
+            di.descriptionFiscalDocumentItem COLLATE utf8mb4_unicode_ci
+        AND pfr.fiscalUnitProductReference COLLATE utf8mb4_unicode_ci =
+            di.fiscalUnitFiscalDocumentItem COLLATE utf8mb4_unicode_ci
+        AND pfr.cfopProductFiscalReference COLLATE utf8mb4_unicode_ci =
+            di.cfopFiscalDocumentItem COLLATE utf8mb4_unicode_ci
+        AND pfr.ncmProductFiscalReference COLLATE utf8mb4_unicode_ci =
+            di.ncmFiscalDocumentItem COLLATE utf8mb4_unicode_ci
+        AND pfr.cestProductFiscalReference COLLATE utf8mb4_unicode_ci =
+            di.cestFiscalDocumentItem COLLATE utf8mb4_unicode_ci
+       SET ei.idProductFiscalReference = pfr.idProductFiscalReference
+       WHERE ei.status = 'linked' AND ei.selected = 1`
+    );
+  }
+  if (hasLegacyFiscalEntryColumns) {
+    const legacyFiscalEntryColumns = new Set(
+      (await pool.query(
+       `SELECT COLUMN_NAME
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'fiscal_entry_items'`
+      ))[0].map(({ COLUMN_NAME }) => COLUMN_NAME)
+    );
+    const [foreignKeys] = await pool.query(
+     `SELECT DISTINCT CONSTRAINT_NAME
+      FROM information_schema.KEY_COLUMN_USAGE
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'fiscal_entry_items'
+        AND COLUMN_NAME IN ('idProduct', 'idStockUnit')
+        AND REFERENCED_TABLE_NAME IS NOT NULL`
+    );
+    for (const { CONSTRAINT_NAME: constraintName } of foreignKeys) {
+     await pool.query(`ALTER TABLE fiscal_entry_items DROP FOREIGN KEY \`${constraintName}\``);
+    }
+    const [indexes] = await pool.query(
+     `SELECT DISTINCT INDEX_NAME
+      FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'fiscal_entry_items'
+        AND COLUMN_NAME IN ('idProduct', 'idStockUnit', 'conversionFactor')
+        AND INDEX_NAME <> 'PRIMARY'`
+    );
+    for (const { INDEX_NAME: indexName } of indexes) {
+     await pool.query(`ALTER TABLE fiscal_entry_items DROP INDEX \`${indexName}\``);
+    }
+    const columnsToDrop = legacyFiscalEntryColumnNames
+     .filter((columnName) => legacyFiscalEntryColumns.has(columnName));
+    if (columnsToDrop.length) {
+     await pool.query(
+       `ALTER TABLE fiscal_entry_items ${columnsToDrop.map((columnName) => `DROP COLUMN \`${columnName}\``).join(", ")}`
+     );
+    }
+  }
   await pool.query(`CREATE TABLE IF NOT EXISTS fiscal_entry_payments (
     idFiscalEntryPayment BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     idFiscalEntry BIGINT UNSIGNED NOT NULL,
@@ -789,19 +981,31 @@ const ensureFiscalEntrySchema = async () => {
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
 };
 
-const ensureFiscalOperationSchema = async () => {
+let fiscalOperationSchemaPromise = null;
+
+const ensureFiscalOperationSchema = () => {
+  if (fiscalOperationSchemaPromise) return fiscalOperationSchemaPromise;
+  fiscalOperationSchemaPromise = (async () => {
   const [columns] = await pool.query(
     `SELECT COLUMN_NAME
      FROM information_schema.COLUMNS
      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'fiscal_operations'
-       AND COLUMN_NAME IN (?, ?)`,
+       AND COLUMN_NAME IN (?, ?, ?)`,
     [
       config.database.name,
+      "descriptionFiscalOperation",
       "fcpUseReductionBaseFiscalOperation",
       "fcpStUseReductionBaseFiscalOperation"
     ]
   );
   const existing = new Set(columns.map(({ COLUMN_NAME }) => COLUMN_NAME));
+  if (!existing.has("descriptionFiscalOperation")) {
+    await pool.query(
+      `ALTER TABLE fiscal_operations
+       ADD COLUMN descriptionFiscalOperation VARCHAR(180) NOT NULL DEFAULT ''
+       AFTER idFiscalOperation`
+    );
+  }
   if (!existing.has("fcpUseReductionBaseFiscalOperation")) {
     await pool.query(
       `ALTER TABLE fiscal_operations
@@ -816,6 +1020,11 @@ const ensureFiscalOperationSchema = async () => {
        AFTER fcpStEnabledFiscalOperation`
     );
   }
+  })();
+  fiscalOperationSchemaPromise.catch(() => {
+    fiscalOperationSchemaPromise = null;
+  });
+  return fiscalOperationSchemaPromise;
 };
 
 const ensureNcmCestSchema = async () => {

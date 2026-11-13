@@ -72,6 +72,13 @@ pode ser sugerido automaticamente em documentos futuros com a mesma descrição 
 unidade, mas pode ser revisto antes da confirmação.
 _Evitar_: código compartilhado, vínculo por fornecedor.
 
+**Catálogo de vínculos fiscais**:
+Conjunto global de Vínculos de descrição fiscal confirmados em Pré-entradas,
+consultado para visualizar quais descrições fiscais já foram associadas a cada
+Produto comercial. Não é um cadastro manual nem substitui o vínculo específico
+de cada item de Pré-entrada.
+_Evitar_: cadastro de fornecedor, produto fiscal separado.
+
 **Vínculo ambíguo**:
 Situação em que uma descrição, unidade e embalagem de origem podem corresponder
 a mais de um Produto comercial local sem identificador compartilhado confiável,

@@ -38,6 +38,13 @@ export const calculateComponentCost = ({
   return grossQuantity * factor * cost;
 };
 
+export const calculateCostPerYieldUnit = (totalCost, yieldQuantity) => {
+  const cost = Number(totalCost);
+  const yieldValue = Number(yieldQuantity);
+  if (!Number.isFinite(cost) || cost < 0 || !Number.isFinite(yieldValue) || yieldValue <= 0) return null;
+  return cost / yieldValue;
+};
+
 export const validateRecipeDefinition = (definition = {}) => {
   const errors = [];
   if (!RECIPE_KINDS.has(definition.kind)) {

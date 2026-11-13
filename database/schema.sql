@@ -233,6 +233,7 @@ CREATE TABLE IF NOT EXISTS recipe_components (
   idComponentProductRecipe BIGINT UNSIGNED NULL,
   idComponentRecipe BIGINT UNSIGNED NULL,
   orderRecipeComponent INT UNSIGNED NOT NULL DEFAULT 0,
+  detailsRecipeComponent VARCHAR(255) NULL,
   idCulinaryUnitRecipeComponent BIGINT UNSIGNED NULL,
   idCulinaryUnitConversionRecipeComponent BIGINT UNSIGNED NULL,
   quantityRecipeComponent DECIMAL(12,4) NOT NULL,
@@ -330,26 +331,49 @@ CREATE TABLE IF NOT EXISTS fiscal_entry_items (
   idFiscalEntryItem BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   idFiscalEntry BIGINT UNSIGNED NOT NULL,
   idFiscalDocumentItem BIGINT UNSIGNED NOT NULL,
-  idProduct BIGINT UNSIGNED NULL,
-  idStockUnit BIGINT UNSIGNED NULL,
-  conversionFactor DECIMAL(14,6) NOT NULL DEFAULT 1,
+  idProductFiscalReference BIGINT UNSIGNED NULL,
   selected TINYINT(1) NOT NULL DEFAULT 1,
   status ENUM('pending', 'linked', 'omitted') NOT NULL DEFAULT 'pending',
   createdAtFiscalEntryItem TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAtFiscalEntryItem TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (idFiscalEntryItem),
   UNIQUE KEY uqFiscalEntryItemsSource (idFiscalEntry, idFiscalDocumentItem),
-  KEY idxFiscalEntryItemsProduct (idProduct),
+  KEY idxFiscalEntryItemsProductFiscalReference (idProductFiscalReference),
   CONSTRAINT fkFiscalEntryItemsEntry
     FOREIGN KEY (idFiscalEntry) REFERENCES fiscal_entries (idFiscalEntry)
     ON DELETE CASCADE,
   CONSTRAINT fkFiscalEntryItemsDocumentItem
     FOREIGN KEY (idFiscalDocumentItem) REFERENCES fiscal_document_items (idFiscalDocumentItem)
-    ON DELETE RESTRICT,
-  CONSTRAINT fkFiscalEntryItemsProduct
+    ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS product_fiscal_references (
+  idProductFiscalReference BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  idProduct BIGINT UNSIGNED NOT NULL,
+  idStockUnit BIGINT UNSIGNED NULL,
+  conversionFactor DECIMAL(14,6) NOT NULL DEFAULT 1,
+  descriptionFiscalProductReference VARCHAR(255) NOT NULL,
+  fiscalUnitProductReference VARCHAR(20) NOT NULL DEFAULT '',
+  cfopProductFiscalReference VARCHAR(10) NOT NULL DEFAULT '',
+  ncmProductFiscalReference VARCHAR(20) NOT NULL DEFAULT '',
+  cestProductFiscalReference VARCHAR(20) NOT NULL DEFAULT '',
+  createdAtProductFiscalReference TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAtProductFiscalReference TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (idProductFiscalReference),
+  UNIQUE KEY uqProductFiscalReference (
+    idProduct,
+    descriptionFiscalProductReference,
+    fiscalUnitProductReference,
+    cfopProductFiscalReference,
+    ncmProductFiscalReference,
+    cestProductFiscalReference
+  ),
+  KEY idxProductFiscalReferencesProduct (idProduct),
+  KEY idxProductFiscalReferencesStockUnit (idStockUnit),
+  CONSTRAINT fkProductFiscalReferencesProduct
     FOREIGN KEY (idProduct) REFERENCES products (idProduct)
-    ON DELETE RESTRICT,
-  CONSTRAINT fkFiscalEntryItemsStockUnit
+    ON DELETE CASCADE,
+  CONSTRAINT fkProductFiscalReferencesStockUnit
     FOREIGN KEY (idStockUnit) REFERENCES units (idUnit)
     ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

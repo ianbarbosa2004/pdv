@@ -240,6 +240,18 @@ const htmlCell = (row, headers, aliases) => {
   return index >= 0 ? row[index] || "" : "";
 };
 
+const findHtmlTableRow = (tables, requiredHeaders, predicate = () => true) => {
+  for (const table of tables) {
+    const headerRow = findHtmlHeaderRow(table, requiredHeaders);
+    if (!headerRow.length) continue;
+    const headerIndex = table.indexOf(headerRow);
+    const headers = headerRow.map(normalizeHtmlHeader);
+    const row = table.slice(headerIndex + 1).find((candidate) => predicate(candidate, headers));
+    if (row) return { headers, row };
+  }
+  return null;
+};
+
 const parseHtmlNumber = (value, currency = false) => {
   const text = String(value ?? "").replace(/[^\d,.-]/g, "").trim();
   if (!text) return "0";
@@ -292,6 +304,23 @@ export const parseFiscalDocumentHtml = (html, expectedAccessKey = "") => {
   const values = valuesTable?.find((row) => row.length >= 3 && row.some((cell) => /R\$\s*[\d.,]+/.test(cell))) || [];
   const issuerTable = findHtmlTable(tables, "Nome / Razão Social");
   const issuer = issuerTable?.find((row) => row.length >= 4 && /^\d{8,14}$/.test(onlyDigits(row[0]))) || [];
+  const detailedIssuer = findHtmlTableRow(
+    tables,
+    ["Nome / Razão Social", "Nome Fantasia", "CNPJ", "Inscrição Estadual"],
+    (row) => /^\d{8,14}$/.test(onlyDigits(htmlCell(row, [
+      "nome / razao social", "nome fantasia", "cnpj", "inscricao estadual"
+    ], ["CNPJ"])))
+  );
+  const detailedAddress = findHtmlTableRow(
+    tables,
+    ["Endereço", "Bairro / Distrito", "Município"],
+    (row) => row.length >= 3
+  );
+  const detailedContact = findHtmlTableRow(
+    tables,
+    ["Telefone", "CEP"],
+    (row) => row.length >= 2
+  );
   const recipientTable = findHtmlTable(tables, "CPF");
   const recipient = recipientTable?.find((row) =>
     row.length >= 3 && (row[0].includes("*") || /^\d{11}$/.test(onlyDigits(row[0])))
@@ -338,6 +367,18 @@ export const parseFiscalDocumentHtml = (html, expectedAccessKey = "") => {
   const authorizationTable = findHtmlTable(tables, "Eventos da NFC-e");
   const authorization = authorizationTable?.find((row) => row.some((cell) => cell.includes("Autorização de Uso"))) || [];
   const statusText = decodeHtmlEntities(source).toLocaleLowerCase("pt-BR");
+  const issuerAddressText = htmlCell(
+    detailedAddress?.row || [],
+    detailedAddress?.headers || [],
+    ["Endereço"]
+  );
+  const issuerAddressMatch = issuerAddressText.match(/^(.*?)(?:,\s*(\d+[\w/-]*))?$/);
+  const issuerCityText = htmlCell(
+    detailedAddress?.row || [],
+    detailedAddress?.headers || [],
+    ["Município"]
+  );
+  const issuerCityMatch = issuerCityText.match(/^(.*?)(?:,\s*([A-Z]{2}))?$/i);
   const issuedAt = parseHtmlDateTime(identification[3]);
   const total = parseHtmlNumber(values[0], true);
   const items = productRows.map(({ row, headers }) => {
@@ -379,10 +420,32 @@ export const parseFiscalDocumentHtml = (html, expectedAccessKey = "") => {
     model: 65,
     issuerDocument: onlyDigits(issuer[0]),
     issuer: {
-      legalName: issuer[1] || "",
-      tradeName: "",
-      stateRegistration: issuer[2] || "",
-      address: { street: "", number: "", neighborhood: "", city: "", state: issuer[3] || "", postalCode: "" }
+      legalName: detailedIssuer
+        ? htmlCell(detailedIssuer.row, detailedIssuer.headers, ["Nome / Razão Social"])
+        : issuer[1] || "",
+      tradeName: detailedIssuer
+        ? htmlCell(detailedIssuer.row, detailedIssuer.headers, ["Nome Fantasia"])
+        : "",
+      stateRegistration: detailedIssuer
+        ? htmlCell(detailedIssuer.row, detailedIssuer.headers, ["Inscrição Estadual"])
+        : issuer[2] || "",
+      address: {
+        street: issuerAddressMatch?.[1]?.trim() || "",
+        number: issuerAddressMatch?.[2] || "",
+        complement: "",
+        neighborhood: htmlCell(
+          detailedAddress?.row || [],
+          detailedAddress?.headers || [],
+          ["Bairro / Distrito"]
+        ),
+        city: issuerCityMatch?.[1]?.trim() || "",
+        state: issuerCityMatch?.[2]?.toLocaleUpperCase("pt-BR") || issuer[3] || "",
+        postalCode: onlyDigits(htmlCell(
+          detailedContact?.row || [],
+          detailedContact?.headers || [],
+          ["CEP"]
+        ))
+      }
     },
     taxTotals: {
       icmsBase: parseHtmlNumber(values[1], true),
@@ -494,6 +557,7 @@ export const parseFiscalDocumentXml = (xml, expectedAccessKey = "") => {
       address: {
         street: readXmlTag(issuerAddress, "xLgr") || "",
         number: readXmlTag(issuerAddress, "nro") || "",
+        complement: readXmlTag(issuerAddress, "xCpl") || "",
         neighborhood: readXmlTag(issuerAddress, "xBairro") || "",
         city: readXmlTag(issuerAddress, "xMun") || "",
         state: readXmlTag(issuerAddress, "UF") || "",

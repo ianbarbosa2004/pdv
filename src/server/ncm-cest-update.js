@@ -38,6 +38,15 @@ const normalizeCode = (value, length) => {
   return code.length === length ? code : "";
 };
 
+const normalizeNcmReferences = (value) => {
+  const references = String(value ?? "").match(/\d[\d.\-]*/g) || [];
+  return [...new Set(
+    references
+      .map((reference) => reference.replace(/\D/g, ""))
+      .filter((reference) => [4, 6, 8].includes(reference.length))
+  )];
+};
+
 const getField = (row, names) => {
   const entries = Object.entries(row || {});
   const normalizedNames = new Set(
@@ -74,17 +83,32 @@ const parseDelimited = (text) => {
 };
 
 const parseHtmlRows = (text) => {
+  const normalizeHeader = (value) =>
+    normalizeText(value)
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]/gi, "")
+      .toLowerCase();
   const rows = [];
-  for (const rowMatch of text.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
-    const cells = [...rowMatch[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)]
-      .map((cell) => normalizeText(cell[1].replace(/<[^>]+>/g, "")));
-    if (cells.length >= 3) rows.push(cells);
+  for (const tableMatch of text.matchAll(/<table[^>]*>([\s\S]*?)<\/table>/gi)) {
+    const tableRows = [...tableMatch[1].matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)]
+      .map((rowMatch) =>
+        [...rowMatch[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)]
+          .map((cell) => normalizeText(cell[1].replace(/<[^>]+>/g, "")))
+      )
+      .filter((cells) => cells.length >= 3);
+    const headerIndex = tableRows.findIndex((cells) => {
+      const headers = cells.map(normalizeHeader);
+      return headers.some((header) => header === "cest" || header === "codecest")
+        && headers.some((header) => header === "ncmsh" || header === "ncm");
+    });
+    if (headerIndex < 0) continue;
+    const headers = tableRows[headerIndex].map((header) => header.toLowerCase());
+    for (const cells of tableRows.slice(headerIndex + 1)) {
+      rows.push(Object.fromEntries(headers.map((header, index) => [header, cells[index] || ""])));
+    }
   }
-  if (rows.length < 2) return [];
-  const headers = rows[0].map((header) => header.toLowerCase());
-  return rows.slice(1).map((cells) =>
-    Object.fromEntries(headers.map((header, index) => [header, cells[index] || ""]))
-  );
+  return rows;
 };
 
 const parseJson = (text) => {
@@ -116,9 +140,8 @@ const parseCestRows = (rows) => {
       getField(row, ["cest", "codecest", "codigo cest", "codigocest"]),
       7
     );
-    const codeNcm = normalizeCode(
-      getField(row, ["ncm", "codencm", "codigo ncm", "codigoncm", "ncmsh"]),
-      8
+    const codeNcmReferences = normalizeNcmReferences(
+      getField(row, ["ncm", "codencm", "codigo ncm", "codigoncm", "ncmsh"])
     );
     const descriptionCest = normalizeText(
       getField(row, ["descricao", "descricaocest", "description", "item"])
@@ -128,7 +151,9 @@ const parseCestRows = (rows) => {
     );
     if (!codeCest || !descriptionCest) continue;
     items.push({ codeCest, descriptionCest, segmentCest: segmentCest || null });
-    if (codeNcm) relations.push({ codeNcm, codeCest });
+    for (const codeNcm of codeNcmReferences) {
+      relations.push({ codeNcm, codeCest });
+    }
   }
   return {
     items: [...new Map(items.map((item) => [item.codeCest, item])).values()],
@@ -142,11 +167,17 @@ const parseCestPayload = (text) => {
     const rows = Array.isArray(payload)
       ? payload
       : payload.items || payload.data || payload.cests || payload.Cests;
-    if (Array.isArray(rows)) return parseCestRows(rows);
+    if (Array.isArray(rows)) {
+      const parsed = parseCestRows(rows);
+      if (parsed.items.length) return parsed;
+    }
   }
 
   const delimitedRows = parseDelimited(text);
-  if (delimitedRows.length) return parseCestRows(delimitedRows);
+  if (delimitedRows.length) {
+    const parsed = parseCestRows(delimitedRows);
+    if (parsed.items.length) return parsed;
+  }
 
   const htmlRows = parseHtmlRows(text);
   if (htmlRows.length) return parseCestRows(htmlRows);
@@ -156,20 +187,42 @@ const parseCestPayload = (text) => {
   );
 };
 
+const expandCestRelations = (ncmItems, relations) => {
+  const ncmCodes = ncmItems.map((item) => item.codeNcm);
+  return [...new Map(
+    relations.flatMap((relation) =>
+      ncmCodes
+        .filter((codeNcm) => codeNcm.startsWith(relation.codeNcm))
+        .map((codeNcm) => [`${codeNcm}:${relation.codeCest}`, { codeNcm, codeCest: relation.codeCest }])
+    )
+  ).values()];
+};
+
 const fetchSource = async (url, label) => {
-  const safeUrl = validateOfficialSourceUrl(url, label);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
   try {
-    const response = await fetch(safeUrl, {
-      headers: { Accept: "application/json,text/csv,text/html,*/*" },
-      signal: controller.signal,
-      redirect: "error"
-    });
-    if (!response.ok) throw new Error(`${label} respondeu HTTP ${response.status}.`);
-    const text = await response.text();
-    if (!text.trim()) throw new Error(`${label} respondeu um arquivo vazio.`);
-    return text;
+    let safeUrl = validateOfficialSourceUrl(url, label);
+    for (let redirectCount = 0; redirectCount <= 3; redirectCount += 1) {
+      const response = await fetch(safeUrl, {
+        headers: { Accept: "application/json,text/csv,text/html,*/*" },
+        signal: controller.signal,
+        redirect: "manual"
+      });
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get("location");
+        if (!location || redirectCount === 3) {
+          throw new Error(`${label} respondeu um redirecionamento inválido.`);
+        }
+        safeUrl = validateOfficialSourceUrl(new URL(location, safeUrl).toString(), label);
+        continue;
+      }
+      if (!response.ok) throw new Error(`${label} respondeu HTTP ${response.status}.`);
+      const text = await response.text();
+      if (!text.trim()) throw new Error(`${label} respondeu um arquivo vazio.`);
+      return text;
+    }
+    throw new Error(`${label} excedeu o limite de redirecionamentos.`);
   } catch (error) {
     if (error.name === "AbortError") {
       throw new Error(`Tempo excedido ao consultar a fonte ${label}.`);
@@ -244,7 +297,8 @@ const updateCatalog = async (pool, { ncmSourceUrl, cestSourceUrl }) => {
     const ncmPayload = parseNcmPayload(parseJson(await fetchSource(ncmSourceUrl, "NCM")));
     const cestPayload = parseCestPayload(await fetchSource(cestSourceUrl, "CEST"));
     const ncmCodes = new Set(ncmPayload.map((item) => item.codeNcm));
-    const relations = cestPayload.relations.filter((relation) => ncmCodes.has(relation.codeNcm));
+    const relations = expandCestRelations(ncmPayload, cestPayload.relations)
+      .filter((relation) => ncmCodes.has(relation.codeNcm));
     if (!cestPayload.items.length) {
       throw new Error("A fonte CEST não contém itens válidos.");
     }
@@ -330,6 +384,8 @@ export {
   DEFAULT_NCM_SOURCE_URL,
   ensureUpdateSchema,
   parseCestPayload,
+  expandCestRelations,
+  fetchSource,
   parseNcmPayload,
   validateOfficialSourceUrl,
   updateCatalog

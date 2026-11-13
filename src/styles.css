@@ -2136,6 +2136,113 @@ h2 {
   width: 100%;
 }
 
+.product-fiscal-reference-details,
+.product-fiscal-reference-list {
+  min-width: 0;
+}
+
+.product-fiscal-reference-details .section-divider {
+  margin: 22px 0;
+}
+
+.product-fiscal-reference-card {
+  position: relative;
+  margin: 12px 0;
+  padding: 12px 0 0;
+  border-top: 1px solid #d5dde7;
+}
+
+.product-fiscal-reference-card .classic-form-grid {
+  margin-top: 12px;
+}
+
+.product-fiscal-reference-operation-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.product-fiscal-reference-card .product-fiscal-reference-operation-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.product-fiscal-reference-ncm-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.product-fiscal-reference-list .classic-table th.text-center,
+.product-fiscal-reference-list .classic-table td.text-center {
+  text-align: center;
+}
+
+.product-fiscal-reference-list .classic-table th.text-center .table-sort-button {
+  width: 100%;
+  justify-content: center;
+  text-align: center;
+}
+
+.product-fiscal-reference-list .ok-column {
+  width: 70px;
+  min-width: 70px;
+  max-width: 70px;
+}
+
+.product-fiscal-reference-edit-actions .fiscal-edit-product-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  margin-left: 6px;
+  padding: 3px 6px;
+  font-size: 0.7rem;
+  vertical-align: middle;
+}
+
+.product-fiscal-reference-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  min-height: 30px;
+  margin-top: 10px;
+}
+
+.product-fiscal-reference-edit-actions .fiscal-edit-product-button {
+  margin-left: 0;
+}
+
+.product-fiscal-reference-edit-actions .fiscal-edit-product-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.product-fiscal-reference-list .fiscal-consistency-icon {
+  width: 18px;
+  height: 18px;
+  vertical-align: middle;
+}
+
+.product-fiscal-reference-list .fiscal-consistency-icon.is-consistent {
+  color: #19733b;
+}
+
+.product-fiscal-reference-list .fiscal-consistency-icon.is-inconsistent {
+  color: #b42318;
+}
+
+.product-fiscal-reference-list .classic-grid-wrapper {
+  max-height: 640px;
+}
+
+.product-fiscal-reference-list tbody tr {
+  cursor: pointer;
+}
+
+.product-fiscal-reference-list tbody tr:hover,
+.product-fiscal-reference-list tbody tr:focus-visible,
+.product-fiscal-reference-list tbody tr.is-selected {
+  background: #edf4fb;
+  outline: 1px solid #8fb0d1;
+  outline-offset: -1px;
+}
+
+
 .views-tree {
   display: flex;
   flex-direction: column;
@@ -2185,6 +2292,7 @@ h2 {
   .views-workspace {
     grid-template-columns: 1fr;
   }
+
 }
 
 .catalog-import-screen .classic-content {
@@ -3071,6 +3179,24 @@ h2 {
   grid-column: 1 / -1;
 }
 
+.recipe-component-picker-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.7fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.recipe-component-picker-row .recipe-component-picker {
+  grid-column: auto;
+}
+
+.recipe-component-details {
+  display: block;
+  margin-top: 2px;
+  color: #5f6872;
+  font-size: 0.78rem;
+}
+
 .recipe-component-input-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3141,9 +3267,45 @@ h2 {
   vertical-align: middle;
 }
 
-.recipe-components-table th:nth-child(6),
-.recipe-components-table td:nth-child(6) {
+.recipe-components-table .component-index-column {
+  width: 50px;
+  min-width: 50px;
+  max-width: 50px;
+  text-align: center;
+}
+
+.recipe-components-table .component-name-column {
+  width: auto;
+  min-width: 0;
+}
+
+.recipe-components-table .component-quantity-column {
+  width: 100px;
+  min-width: 100px;
+  max-width: 100px;
+}
+
+.recipe-components-table th.component-quantity-column {
+  text-align: center;
+}
+
+.recipe-components-table td.component-quantity-column {
   text-align: right;
+}
+
+.recipe-components-table .component-unit-column {
+  width: 150px;
+  min-width: 150px;
+  max-width: 150px;
+  text-align: center;
+}
+
+.recipe-components-table .component-loss-column,
+.recipe-components-table .component-cost-column {
+  width: 80px;
+  min-width: 80px;
+  max-width: 80px;
+  text-align: center;
 }
 
 .recipe-components-table tfoot th,
@@ -3170,10 +3332,11 @@ h2 {
   padding-right: 10px;
 }
 
-.recipe-components-table .actions-column {
+.recipe-components-table .component-actions-column {
   width: 100px;
   min-width: 100px;
   max-width: 100px;
+  text-align: center;
 }
 
 .recipe-order-actions .icon-button {
@@ -3468,7 +3631,9 @@ h2 {
 
 .fiscal-entry-only-screen .fiscal-entry-list-panel .classic-table th:nth-child(2),
 .fiscal-entry-only-screen .fiscal-entry-list-panel .classic-table td:nth-child(2) {
-  width: 16%;
+  width: 90px;
+  min-width: 90px;
+  max-width: 90px;
 }
 
 .fiscal-entry-only-screen .fiscal-entry-list-panel .classic-table th:nth-child(3),
@@ -3478,7 +3643,9 @@ h2 {
 
 .fiscal-entry-only-screen .fiscal-entry-list-panel .classic-table th:nth-child(4),
 .fiscal-entry-only-screen .fiscal-entry-list-panel .classic-table td:nth-child(4) {
-  width: 12%;
+  width: 90px;
+  min-width: 90px;
+  max-width: 90px;
 }
 
 .fiscal-entry-only-screen .fiscal-entry-list-panel .classic-table th:nth-child(5),
@@ -3519,6 +3686,10 @@ h2 {
   overflow: visible;
 }
 
+.fiscal-entry-only-screen .fiscal-entry-list-panel .classic-table th.supplier-column {
+  white-space: nowrap;
+}
+
 .fiscal-entry-only-screen .fiscal-entry-list-panel .value-column {
   white-space: nowrap;
   overflow-wrap: normal;
@@ -3547,6 +3718,13 @@ h2 {
 .fiscal-entry-only-screen .fiscal-entry-workspace-panel .classic-table th:nth-child(3),
 .fiscal-entry-only-screen .fiscal-entry-workspace-panel .classic-table td:nth-child(3) {
   width: 39%;
+}
+.fiscal-entry-only-screen .fiscal-entry-workspace-panel .classic-table th.description-column,
+.fiscal-entry-only-screen .fiscal-entry-workspace-panel .classic-table td.description-column {
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: normal;
+  overflow: visible;
 }
 .fiscal-entry-only-screen .fiscal-entry-workspace-panel .classic-table th:nth-child(4),
 .fiscal-entry-only-screen .fiscal-entry-workspace-panel .classic-table td:nth-child(4) {
@@ -3579,6 +3757,26 @@ h2 {
   font-weight: inherit;
 }
 
+.fiscal-entry-status {
+  font-weight: 700;
+}
+
+.fiscal-entry-status-draft {
+  color: #000;
+}
+
+.fiscal-entry-status-open {
+  color: #1d5e9f;
+}
+
+.fiscal-entry-status-confirmed {
+  color: #19733b;
+}
+
+.fiscal-entry-status-cancelled {
+  color: #b42318;
+}
+
 .fiscal-document-queue-screen .classic-content {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -3594,6 +3792,34 @@ h2 {
 .fiscal-document-import-column {
   display: grid;
   gap: 18px;
+}
+
+.missing-suppliers-panel {
+  min-width: 0;
+}
+
+.missing-suppliers-panel .classic-table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+.missing-suppliers-panel .classic-table th,
+.missing-suppliers-panel .classic-table td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  vertical-align: top;
+}
+
+.missing-suppliers-panel .classic-table th:nth-child(1),
+.missing-suppliers-panel .classic-table td:nth-child(1) {
+  width: 145px;
+  white-space: nowrap;
+}
+
+.missing-suppliers-panel .classic-table th:nth-child(3),
+.missing-suppliers-panel .classic-table td:nth-child(3) {
+  width: 112px;
+  white-space: nowrap;
 }
 
 .fiscal-browser-panel .classic-form-actions {
@@ -3618,11 +3844,20 @@ h2 {
 .fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table th,
 .fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table td {
   white-space: normal;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  overflow-wrap: normal;
+  word-break: normal;
   overflow: hidden;
   line-height: 1.25;
   vertical-align: top;
+}
+
+.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table th,
+.fiscal-entry-only-screen .fiscal-entry-list-panel .classic-table th,
+.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table .table-sort-button,
+.fiscal-entry-only-screen .fiscal-entry-list-panel .classic-table .table-sort-button {
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 .fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table th:nth-child(1),
@@ -3632,7 +3867,9 @@ h2 {
 
 .fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table th:nth-child(2),
 .fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table td:nth-child(2) {
-  width: 16%;
+  width: 90px;
+  min-width: 90px;
+  max-width: 90px;
 }
 
 .fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table th:nth-child(3),
@@ -3642,7 +3879,9 @@ h2 {
 
 .fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table th:nth-child(4),
 .fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table td:nth-child(4) {
-  width: 12%;
+  width: 90px;
+  min-width: 90px;
+  max-width: 90px;
 }
 
 .fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table th:nth-child(5),
@@ -3680,6 +3919,10 @@ h2 {
   overflow-wrap: normal;
   word-break: normal;
   overflow: visible;
+}
+
+.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table th.supplier-column {
+  white-space: nowrap;
 }
 
 .fiscal-document-queue-layout .fiscal-entry-list-panel .value-column {
@@ -4098,6 +4341,43 @@ h2 {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.fiscal-entry-list-header {
+  display: grid;
+  gap: 8px;
+}
+
+.fiscal-entry-list-header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.fiscal-entry-status-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.fiscal-entry-status-filter {
+  min-height: 26px;
+  padding: 3px 9px;
+  border: 1px solid #9aa9b8;
+  border-radius: 3px;
+  color: #27313d;
+  background: #fff;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 400;
+}
+
+.fiscal-entry-status-filter:hover,
+.fiscal-entry-status-filter.is-active {
+  border-color: #315b8a;
+  color: #173a61;
+  background: #e7f0fa;
 }
 
 .classic-list-search {
@@ -4548,6 +4828,12 @@ h2 {
   margin: 0;
 }
 
+.recipe-list-panel .recipe-kind-column,
+.recipe-list-panel .recipe-status-column,
+.recipe-list-panel .recipe-actions-column {
+  text-align: center;
+}
+
 .recipe-component-modal .classic-panel-header {
   display: flex;
   align-items: center;
@@ -4754,6 +5040,16 @@ h2 {
   border-color: #b8c1cc;
   opacity: 1;
   -webkit-text-fill-color: #5f6872;
+}
+
+.product-fiscal-reference-details label.form-field.fiscal-code-mismatch > input {
+  color: #b42318;
+  font-weight: 700;
+  border-color: #b42318;
+}
+
+.product-fiscal-reference-details label.form-field.fiscal-code-mismatch > input {
+  -webkit-text-fill-color: #b42318;
 }
 
 .classic-form-panel .form-field input:focus,

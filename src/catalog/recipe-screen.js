@@ -5,9 +5,10 @@ import { getContextualNavigationItems, renderContextualNavigationItems } from ".
 import { resolveNavigationHandler } from "../ui/navigation-routing.js";
 import { formatBrazilianDecimal, parseBrazilianDecimal } from "../shared/decimal.js";
 import { bindNumberMasks, formatMaskedNumber } from "../ui/number-mask.js";
+import { installComboboxDismissal } from "../ui/combobox.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
-import { calculateComponentCost } from "../shared/recipe.js";
+import { calculateComponentCost, calculateCostPerYieldUnit } from "../shared/recipe.js";
 import {
   filterRecipeComponentOptions,
   formatCulinaryUnitName,
@@ -82,10 +83,18 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
     target: "",
     culinaryUnitId: "",
     conversionId: "",
+    details: "",
     quantity: "1",
     lossPercent: "0",
     isOpen: false
   };
+  installComboboxDismissal(root, {
+    isOpen: () => componentDraft.isOpen,
+    close: () => {
+    componentDraft.isOpen = false;
+    render();
+    }
+  });
 
   const load = async () => {
     loading = true;
@@ -161,6 +170,7 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
       target: "",
       culinaryUnitId: "",
       conversionId: "",
+      details: "",
       quantity: "1",
       lossPercent: "0",
       isOpen: false
@@ -218,6 +228,7 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
               : { productId: component.productId }),
             culinaryUnitId: component.culinaryUnitId || null,
             conversionId: component.conversionId || null,
+            details: component.details || "",
             quantity: component.quantity,
             lossPercent: component.lossPercent
           }))
@@ -262,6 +273,7 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
           : { productId: component.idComponentProductRecipe }),
         culinaryUnitId: component.idCulinaryUnitRecipeComponent || "",
         conversionId: component.idCulinaryUnitConversionRecipeComponent || "",
+        details: component.detailsRecipeComponent || "",
         culinaryUnitLabel: component.culinaryUnitName || "",
         conversionLabel: component.conversionLabel || "",
         quantity: Number(component.quantityRecipeComponent || 0),
@@ -334,8 +346,8 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
   const componentOptions = () => filterRecipeComponentOptions([
     ...products.map((product) => ({
       value: `product:${product.idProduct}`,
-      label: product.nameProduct,
-      searchText: `${product.nameProduct} ${product.codeUnit || ""} ${product.descriptionUnit || ""}`
+      label: `${product.nameProduct}${product.pdvCodeProduct || product.skuProduct ? ` (${product.pdvCodeProduct || product.skuProduct})` : ""}`,
+      searchText: `${product.nameProduct} ${product.pdvCodeProduct || ""} ${product.skuProduct || ""} ${product.codeUnit || ""} ${product.descriptionUnit || ""}`
     })),
     ...recipes.map((recipe) => ({
       value: `recipe:${recipe.idRecipe}`,
@@ -346,7 +358,10 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
 
   const selectedComponentLabel = () => {
     const option = [
-      ...products.map((product) => ({ value: `product:${product.idProduct}`, label: product.nameProduct })),
+      ...products.map((product) => ({
+        value: `product:${product.idProduct}`,
+        label: `${product.nameProduct}${product.pdvCodeProduct || product.skuProduct ? ` (${product.pdvCodeProduct || product.skuProduct})` : ""}`
+      })),
       ...recipes.map((recipe) => ({ value: `recipe:${recipe.idRecipe}`, label: recipe.nameRecipe }))
     ].find((item) => item.value === componentDraft.target);
     return option?.label || "Selecione um componente";
@@ -378,23 +393,28 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
   };
 
   const totalComponentCost = () => form.components.reduce((total, component) => total + componentCost(component), 0);
+  const yieldUnitLabel = () => units.find((unit) => String(unit.idUnit) === String(form.yieldUnitId))?.descriptionUnit || "unidade";
+  const costPerYieldUnit = () => {
+    const yieldQuantity = parseBrazilianDecimal(form.yieldQuantityRecipe);
+    return calculateCostPerYieldUnit(totalComponentCost(), yieldQuantity) || 0;
+  };
 
   const renderComponentList = ({ readOnly = false } = {}) => {
     if (!form.components.length) return '<p class="classic-empty">Nenhum componente informado.</p>';
     return `
       <div class="recipe-components-table-wrapper">
         <table class="classic-table recipe-components-table">
-          <thead><tr><th>#</th><th>Componente</th><th>Unidade culinária</th><th>Quantidade</th><th>Perda</th><th>Custo</th>${readOnly ? "" : '<th class="actions-column">Ações</th>'}</tr></thead>
+          <thead><tr><th class="component-index-column">#</th><th class="component-name-column">Componente</th><th class="component-quantity-column">Quantidade</th><th class="component-unit-column">Unidade culinária</th><th class="component-loss-column">Perda</th><th class="component-cost-column">Custo</th>${readOnly ? "" : '<th class="actions-column component-actions-column">Ações</th>'}</tr></thead>
           <tbody>
             ${form.components.map((component, index) => `
               <tr>
-                <td>${index + 1}</td>
-                <td>${escapeHtml(componentName(component))}</td>
-                        <td>${escapeHtml(component.culinaryUnitLabel || "—")}</td>
-                <td>${escapeHtml(formatBrazilianDecimal(component.quantity, 2))}</td>
-                <td>${escapeHtml(formatBrazilianDecimal(component.lossPercent, 2))}%</td>
-                <td>${escapeHtml(formatBrazilianDecimal(componentCost(component), 2))}</td>
-                ${readOnly ? "" : `<td class="actions-column recipe-order-actions">
+                <td class="component-index-column">${index + 1}</td>
+                <td class="component-name-column"><div>${escapeHtml(componentName(component))}</div>${component.details ? `<em class="recipe-component-details">${escapeHtml(component.details)}</em>` : ""}</td>
+                <td class="component-quantity-column">${escapeHtml(formatBrazilianDecimal(component.quantity, 2))}</td>
+                <td class="component-unit-column">${escapeHtml(component.culinaryUnitLabel || "—")}</td>
+                <td class="component-loss-column">${escapeHtml(formatBrazilianDecimal(component.lossPercent, 2))}%</td>
+                <td class="component-cost-column">${escapeHtml(formatBrazilianDecimal(componentCost(component), 2))}</td>
+                ${readOnly ? "" : `<td class="actions-column component-actions-column recipe-order-actions">
                   <button class="icon-button edit" type="button" data-edit-component="${index}" aria-label="Editar componente" title="Editar componente"><i data-lucide="pencil"></i></button>
                   <button class="icon-button" type="button" data-move-component="${index}" data-direction="up" aria-label="Mover componente para cima" title="Mover para cima" ${index === 0 ? "disabled" : ""}><i data-lucide="arrow-up"></i></button>
                   <button class="icon-button" type="button" data-move-component="${index}" data-direction="down" aria-label="Mover componente para baixo" title="Mover para baixo" ${index === form.components.length - 1 ? "disabled" : ""}><i data-lucide="arrow-down"></i></button>
@@ -403,7 +423,10 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
               </tr>
             `).join("")}
           </tbody>
-          <tfoot><tr><th colspan="${readOnly ? 5 : 6}">Custo total estimado</th><th>${escapeHtml(formatBrazilianDecimal(totalComponentCost(), 2))}</th></tr></tfoot>
+          <tfoot>
+            <tr><th colspan="${readOnly ? 5 : 6}">Custo total estimado</th><th>${escapeHtml(formatBrazilianDecimal(totalComponentCost(), 2))}</th></tr>
+            <tr><th colspan="${readOnly ? 5 : 6}">Custo por ${escapeHtml(yieldUnitLabel())}</th><th>${escapeHtml(formatBrazilianDecimal(costPerYieldUnit(), 2))}</th></tr>
+          </tfoot>
         </table>
       </div>
     `;
@@ -417,16 +440,17 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
           <button class="modal-close-button" data-close-component-edit type="button" aria-label="Fechar edição do componente" title="Fechar"><i data-lucide="x"></i></button>
         </div>
         <div class="classic-form-body">
-          <div class="recipe-component-picker">
-            <span class="form-field"><span>Componente</span>
+          <div class="recipe-component-picker-row">
+            <div class="form-field recipe-component-picker classic-combobox"><span>Componente</span>
               <button type="button" class="classic-select-trigger" data-component-toggle aria-haspopup="listbox" aria-expanded="${componentDraft.isOpen ? "true" : "false"}">${escapeHtml(selectedComponentLabel())}</button>
-              ${componentDraft.isOpen ? `<div class="recipe-component-options" role="listbox" aria-label="Componentes">
+              ${editingComponentIndex !== null && componentDraft.isOpen ? `<div class="recipe-component-options" role="listbox" aria-label="Componentes">
                 <input data-component-search type="search" autocomplete="off" value="${escapeHtml(componentDraft.searchTerm)}" placeholder="Pesquisar componente..." aria-label="Pesquisar componente" />
                 ${componentOptions().map((option) =>
                   `<button class="recipe-component-option ${componentDraft.target === option.value ? "is-selected" : ""}" type="button" data-component-option="${escapeHtml(option.value)}">${escapeHtml(option.label)}</button>`
                 ).join("") || '<span class="classic-empty">Nenhum componente encontrado.</span>'}
               </div>` : ""}
-            </span>
+            </div>
+            <label class="form-field"><span>Detalhes</span><input data-component-details maxlength="255" value="${escapeHtml(componentDraft.details)}" placeholder="Ex.: usar frio, 3 colheres" /></label>
           </div>
           ${componentDraft.target ? `<div class="recipe-component-input-grid">${renderComponentUnits()}</div>` : ""}
           ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}
@@ -442,15 +466,18 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
   const renderComponentEntry = () => {
     return `
       <div class="recipe-component-entry">
-        <div class="form-field recipe-component-picker"><span>Componente</span>
+        <div class="recipe-component-picker-row">
+          <div class="form-field recipe-component-picker classic-combobox"><span>Componente</span>
           <input type="hidden" data-component-target value="${escapeHtml(componentDraft.target)}" />
           <button type="button" class="classic-select-trigger" data-component-toggle aria-haspopup="listbox" aria-expanded="${componentDraft.isOpen ? "true" : "false"}">${escapeHtml(selectedComponentLabel())}</button>
-          ${componentDraft.isOpen ? `<div class="recipe-component-options" role="listbox" aria-label="Componentes">
+          ${editingComponentIndex === null && componentDraft.isOpen ? `<div class="recipe-component-options" role="listbox" aria-label="Componentes">
             <input data-component-search type="search" autocomplete="off" value="${escapeHtml(componentDraft.searchTerm)}" placeholder="Pesquisar componente..." aria-label="Pesquisar componente" />
             ${componentOptions().map((option) =>
               `<button class="recipe-component-option ${componentDraft.target === option.value ? "is-selected" : ""}" type="button" data-component-option="${escapeHtml(option.value)}">${escapeHtml(option.label)}</button>`
             ).join("") || '<span class="classic-empty">Nenhum componente encontrado.</span>'}
           </div>` : ""}
+          </div>
+          <label class="form-field"><span>Detalhes</span><input data-component-details maxlength="255" value="${escapeHtml(componentDraft.details)}" placeholder="Ex.: usar frio, 3 colheres" /></label>
         </div>
         <div class="recipe-component-input-grid">${renderComponentUnits()}</div>
         <button class="classic-button" data-add-component type="button" ${componentDraft.target ? "" : "disabled"}>Adicionar componente</button>
@@ -538,7 +565,7 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
           <div class="recipe-status-filters" role="group" aria-label="Filtrar receitas por status">
             ${statusFilters.map(([value, label]) => `<button class="recipe-status-filter ${statusFilter === value ? "is-active" : ""}" type="button" data-recipe-status-filter="${value}" aria-pressed="${statusFilter === value ? "true" : "false"}">${label} <span>${value === "all" ? recipes.length : recipes.filter((recipe) => recipe.statusRecipe === value).length}</span></button>`).join("")}
           </div>
-          <div class="classic-grid-wrapper">${loading ? '<p class="classic-empty">Carregando receitas...</p>' : loadError ? `<p class="error-message">${escapeHtml(loadError)}</p>` : visibleRecipes.length ? `<table class="classic-table"><thead><tr><th>Nome</th><th>Tipo</th><th>Status</th><th class="actions-column">Ações</th></tr></thead><tbody>${visibleRecipes.map((recipe) => `<tr class="${recipe.statusRecipe === "archived" ? "is-inactive" : ""}" data-view-recipe="${recipe.idRecipe}" tabindex="0"><td>${escapeHtml(recipe.nameRecipe)}</td><td>${recipe.kindRecipe === "production" ? "Receita de Produção" : "Composição de Produto"}</td><td class="${recipe.statusRecipe === "draft" || recipe.statusRecipe === "review_required" ? "recipe-status-emphasis" : ""}">${recipe.statusRecipe === "active" ? "Ativa" : recipe.statusRecipe === "review_required" ? "Revisão" : recipe.statusRecipe === "archived" ? "Arquivada" : "Rascunho"}</td><td class="actions-column"><button class="icon-button edit" type="button" data-edit-recipe="${recipe.idRecipe}" aria-label="Editar receita" title="Editar receita"><i data-lucide="pencil"></i></button><button class="icon-button delete" type="button" data-delete-recipe="${recipe.idRecipe}" aria-label="Arquivar receita" title="Arquivar receita"><i data-lucide="trash-2"></i></button></td></tr>`).join("")}</tbody></table>` : '<p class="classic-empty">Nenhuma Receita ou Composição cadastrada.</p>'}</div>
+          <div class="classic-grid-wrapper">${loading ? '<p class="classic-empty">Carregando receitas...</p>' : loadError ? `<p class="error-message">${escapeHtml(loadError)}</p>` : visibleRecipes.length ? `<table class="classic-table"><thead><tr><th>Nome</th><th class="recipe-kind-column">Tipo</th><th class="recipe-status-column">Status</th><th class="actions-column recipe-actions-column">Ações</th></tr></thead><tbody>${visibleRecipes.map((recipe) => `<tr class="${recipe.statusRecipe === "archived" ? "is-inactive" : ""}" data-view-recipe="${recipe.idRecipe}" tabindex="0"><td>${escapeHtml(recipe.nameRecipe)}</td><td class="recipe-kind-column">${recipe.kindRecipe === "production" ? "Receita de Produção" : "Composição de Produto"}</td><td class="recipe-status-column ${recipe.statusRecipe === "draft" || recipe.statusRecipe === "review_required" ? "recipe-status-emphasis" : ""}">${recipe.statusRecipe === "active" ? "Ativa" : recipe.statusRecipe === "review_required" ? "Revisão" : recipe.statusRecipe === "archived" ? "Arquivada" : "Rascunho"}</td><td class="actions-column recipe-actions-column"><button class="icon-button edit" type="button" data-edit-recipe="${recipe.idRecipe}" aria-label="Editar receita" title="Editar receita"><i data-lucide="pencil"></i></button><button class="icon-button delete" type="button" data-delete-recipe="${recipe.idRecipe}" aria-label="Arquivar receita" title="Arquivar receita"><i data-lucide="trash-2"></i></button></td></tr>`).join("")}</tbody></table>` : '<p class="classic-empty">Nenhuma Receita ou Composição cadastrada.</p>'}</div>
         </section>
       </section>
       ${editingComponentIndex !== null ? renderComponentEditor() : ""}
@@ -548,9 +575,17 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
     bindMainMenu(root, menuHandlers);
     bindNavigation(root, { back: onBack, recipes: onRecipes });
     root.querySelector("[data-recipe-search]")?.addEventListener("input", (event) => {
-      searchTerm = event.currentTarget.value;
+      const input = event.currentTarget;
+      const selectionStart = input.selectionStart;
+      const selectionEnd = input.selectionEnd;
+      const selectionDirection = input.selectionDirection;
+      searchTerm = input.value;
       render();
-      root.querySelector("[data-recipe-search]")?.focus();
+      const nextInput = root.querySelector("[data-recipe-search]");
+      nextInput?.focus();
+      if (selectionStart !== null && selectionEnd !== null) {
+        nextInput?.setSelectionRange(selectionStart, selectionEnd, selectionDirection || "none");
+      }
     });
     root.querySelectorAll("[data-recipe-status-filter]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -576,12 +611,15 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
     componentEditorRoot.querySelector("[data-component-toggle]")?.addEventListener("click", () => {
       componentDraft.isOpen = !componentDraft.isOpen;
       render();
-      if (componentDraft.isOpen) componentEditorRoot.querySelector("[data-component-search]")?.focus();
+      if (componentDraft.isOpen) root.querySelector("[data-component-search]")?.focus();
+    });
+    componentEditorRoot.querySelector("[data-component-details]")?.addEventListener("input", (event) => {
+      componentDraft.details = event.currentTarget.value;
     });
     componentEditorRoot.querySelector("[data-component-search]")?.addEventListener("input", (event) => {
       componentDraft.searchTerm = event.currentTarget.value;
       render();
-      const searchInput = componentEditorRoot.querySelector("[data-component-search]");
+      const searchInput = root.querySelector("[data-component-search]");
       searchInput?.focus();
       const cursorPosition = componentDraft.searchTerm.length;
       searchInput?.setSelectionRange(cursorPosition, cursorPosition);
@@ -644,6 +682,7 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
         ...(targetType === "recipe" ? { recipeId: targetId } : { productId: targetId }),
         culinaryUnitId: targetType === "product" ? componentDraft.culinaryUnitId : "",
         conversionId: targetType === "product" ? componentDraft.conversionId : "",
+        details: componentDraft.details.trim(),
         culinaryUnitLabel: targetType === "product"
           ? (() => {
             const unit = culinaryUnits.find((item) => String(item.idCulinaryUnit) === String(componentDraft.culinaryUnitId));
@@ -664,6 +703,7 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
         target: "",
         culinaryUnitId: "",
         conversionId: "",
+        details: "",
         quantity: "1",
         lossPercent: "0",
         isOpen: false
@@ -677,6 +717,8 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
         ?? componentDraft.quantity;
       const lossPercent = componentEditorRoot.querySelector("[data-component-loss]")?.value
         ?? componentDraft.lossPercent;
+      const details = componentEditorRoot.querySelector("[data-component-details]")?.value
+        ?? componentDraft.details;
       const culinaryUnitId = componentEditorRoot.querySelector("[data-component-culinary-unit]")?.value
         || componentDraft.culinaryUnitId;
       const conversionSelect = componentEditorRoot.querySelector("[data-component-conversion]");
@@ -703,6 +745,7 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
         ...(targetType === "recipe" ? { recipeId: targetId } : { productId: targetId }),
         culinaryUnitId: targetType === "product" ? culinaryUnitId : "",
         conversionId: targetType === "product" ? conversionId : "",
+        details: details.trim(),
         culinaryUnitLabel: targetType === "product"
           ? (() => {
             const unit = culinaryUnits.find((item) => String(item.idCulinaryUnit) === String(culinaryUnitId));
@@ -724,6 +767,7 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
         target: "",
         culinaryUnitId: "",
         conversionId: "",
+        details: "",
         quantity: "1",
         lossPercent: "0",
         isOpen: false
@@ -773,6 +817,7 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
         target: `${component.targetType}:${component.targetType === "recipe" ? component.recipeId : component.productId}`,
         culinaryUnitId: component.culinaryUnitId || "",
         conversionId: component.conversionId || "",
+        details: component.details || "",
         quantity: String(component.quantity ?? 1).replace(".", ","),
         lossPercent: String(component.lossPercent ?? 0).replace(".", ","),
         isOpen: false

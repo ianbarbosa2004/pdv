@@ -10,7 +10,11 @@ import {
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { apiFetch, getApiUrl } from "../shared/api.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
-import { buildDuplicatedProductDraft } from "../shared/product.js";
+import {
+  buildDuplicatedProductDraft,
+  formatProductStockForInput,
+  normalizeProductPackageQuantity
+} from "../shared/product.js";
 import { normalizePrintPlace } from "../shared/print-place.js";
 
 const escapeHtml = (value) =>
@@ -21,25 +25,7 @@ const escapeHtml = (value) =>
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 
-const formatIntegerStock = (value) => {
-  const normalizedValue = String(value ?? "");
-  return /^-?\d+\.0+$/.test(normalizedValue)
-    ? normalizedValue.slice(0, normalizedValue.indexOf("."))
-    : normalizedValue;
-};
-
-const formatStockForInput = (value, isFractionalProduct) =>
-  isFractionalProduct
-    ? String(value ?? "0") || "0"
-    : formatIntegerStock(value ?? "0") || "0";
-
 const normalizeSku = (value) => String(value ?? "").trim().toUpperCase();
-const normalizePackageQuantity = (value) => {
-  const normalizedValue = String(value ?? "").trim();
-  return !normalizedValue || normalizedValue.toLowerCase() === "undefined" || normalizedValue.toLowerCase() === "null"
-    ? "1"
-    : normalizedValue;
-};
 
 export function createCatalogScreen({
   title = "Produtos",
@@ -311,7 +297,7 @@ export function createCatalogScreen({
 
   const renderStockInput = (product, label) => {
     const stockControlled = isStockControlled(product);
-    const value = formatStockForInput(product.stockQuantityProduct, product.isFractionalProduct);
+    const value = formatProductStockForInput(product.stockQuantityProduct, product.isFractionalProduct);
     return `
       <label class="form-field"><span>${label}</span>
         <input name="stockQuantityProduct" type="${product.isFractionalProduct ? "text" : "number"}" inputmode="decimal" ${allowNegativeStock ? "" : 'min="0"'} step="${product.isFractionalProduct ? "0.001" : "1"}" ${stockControlled ? "" : "readonly disabled"} required value="${escapeHtml(value)}" />
@@ -375,7 +361,7 @@ export function createCatalogScreen({
             <label class="form-field"><span>Operação fiscal de venda</span><select name="idFiscalOperationSaleProduct">${renderFiscalOperationOptions(newProductDraft.idFiscalOperationSaleProduct)}</select></label>
           </div>
           <div class="classic-form-grid">
-            <label class="form-field"><span class="field-label-with-help">Conteúdo por unidade <button class="field-help-trigger" type="button" aria-label="Ajuda sobre conteúdo por unidade" aria-describedby="new-package-quantity-help">?<span class="field-help-tooltip" id="new-package-quantity-help" role="tooltip">Quantidade da unidade tributável contida em uma embalagem deste produto. Ex.: uma garrafa com 750 ml informa 750.</span></button></span><input name="packageQuantityProduct" data-number-mask inputmode="decimal" min="0.001" required value="${escapeHtml(normalizePackageQuantity(newProductDraft.packageQuantityProduct))}" /></label>
+            <label class="form-field"><span class="field-label-with-help">Conteúdo por unidade <button class="field-help-trigger" type="button" aria-label="Ajuda sobre conteúdo por unidade" aria-describedby="new-package-quantity-help">?<span class="field-help-tooltip" id="new-package-quantity-help" role="tooltip">Quantidade da unidade tributável contida em uma embalagem deste produto. Ex.: uma garrafa com 750 ml informa 750.</span></button></span><input name="packageQuantityProduct" data-number-mask="decimal" inputmode="decimal" min="0.001" required             value="${escapeHtml(formatMaskedNumber(normalizeProductPackageQuantity(newProductDraft.packageQuantityProduct)))}" /></label>
             <label class="form-field"><span>Unidade tributável</span><select name="idUnitProduct" required>${renderUnitOptions(newProductDraft.idUnitProduct)}</select></label>
           </div>
           ${isRawMaterialsCatalog ? `<label class="form-field"><span>Estado físico</span><select name="idPhysicalStateProduct" required>${renderPhysicalStateOptions(newProductDraft.idPhysicalStateProduct)}</select></label>` : ""}
@@ -383,9 +369,9 @@ export function createCatalogScreen({
             ${renderNcmField(newNcmProduct)}
             <label class="form-field"><span>CEST</span><select name="cestProduct" ${cestOptions.length ? "" : "disabled"}>${renderCestOptions(newCestProduct)}</select></label>
           </div>
-          ${isNonSaleCatalog ? "" : `<div class="classic-form-grid product-sale-price-row">${renderSalePriceField(newProductDraft)}</div>`}
+          ${isNonSaleCatalog ? "" : `<div class="classic-form-grid product-sale-price-row">${renderSalePriceField(newProductDraft, true)}</div>`}
           <div class="classic-form-grid product-cost-stock-row">
-            ${renderCostField(newProductDraft)}
+            ${renderCostField(newProductDraft, true)}
             ${renderStockInput(newProductDraft, "Estoque inicial")}
           </div>
           <div class="classic-form-grid">${renderPrintPlaceField(newProductDraft)}</div>
@@ -483,7 +469,7 @@ export function createCatalogScreen({
                   <label class="form-field"><span>Operação fiscal de venda</span><select name="idFiscalOperationSaleProduct">${renderFiscalOperationOptions(editingProduct.idFiscalOperationSaleProduct)}</select></label>
                 </div>
                 <div class="classic-form-grid">
-                  <label class="form-field"><span class="field-label-with-help">Conteúdo por unidade <button class="field-help-trigger" type="button" aria-label="Ajuda sobre conteúdo por unidade" aria-describedby="edit-package-quantity-help">?<span class="field-help-tooltip" id="edit-package-quantity-help" role="tooltip">Quantidade da unidade tributável contida em uma embalagem deste produto. Ex.: uma garrafa com 750 ml informa 750.</span></button></span><input name="packageQuantityProduct" data-number-mask inputmode="decimal" min="0.001" required value="${escapeHtml(normalizePackageQuantity(editingProduct.packageQuantityProduct))}" /></label>
+                  <label class="form-field"><span class="field-label-with-help">Conteúdo por unidade <button class="field-help-trigger" type="button" aria-label="Ajuda sobre conteúdo por unidade" aria-describedby="edit-package-quantity-help">?<span class="field-help-tooltip" id="edit-package-quantity-help" role="tooltip">Quantidade da unidade tributável contida em uma embalagem deste produto. Ex.: uma garrafa com 750 ml informa 750.</span></button></span><input name="packageQuantityProduct" data-number-mask="decimal" inputmode="decimal" min="0.001" required                   value="${escapeHtml(formatMaskedNumber(normalizeProductPackageQuantity(editingProduct.packageQuantityProduct)))}" /></label>
                   <label class="form-field"><span>Unidade tributável</span><select name="idUnitProduct" required>${renderUnitOptions(editingProduct.idUnitProduct)}</select></label>
                 </div>
                 ${isRawMaterialsCatalog ? `<label class="form-field"><span>Estado físico</span><select name="idPhysicalStateProduct" required>${renderPhysicalStateOptions(editingProduct.idPhysicalStateProduct)}</select></label>` : ""}
@@ -586,7 +572,17 @@ export function createCatalogScreen({
       units: onUnits,
       "ncm-cest": onNcmCest
     });
-    bindFormRowPreview(root, { formSelector: "[data-product-form]" });
+    bindFormRowPreview(root, {
+      formSelector: "[data-product-form]",
+      formatValue: (value, fieldName) => [
+        "packageQuantityProduct",
+        "priceProduct",
+        "costPriceProduct",
+        "stockQuantityProduct"
+      ].includes(fieldName)
+        ? formatMaskedNumber(value)
+        : value
+    });
     root.querySelector("[data-search]")?.addEventListener("input", (event) => {
       searchTerm = event.currentTarget.value;
       render();
@@ -915,7 +911,7 @@ export function createCatalogScreen({
             ? Number(formData.get("idPhysicalStateProduct"))
             : null,
           idUnitProduct: formData.get("idUnitProduct") ? Number(formData.get("idUnitProduct")) : null,
-          packageQuantityProduct: normalizeMaskedNumber(formData.get("packageQuantityProduct") || "1"),
+          packageQuantityProduct: formData.get("packageQuantityProduct") || "1",
           ncmProduct: formData.get("ncmProduct") || null,
           cestProduct: formData.get("cestProduct") || null,
           priceProduct: isNonSaleCatalog
