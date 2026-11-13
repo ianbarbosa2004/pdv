@@ -9,6 +9,16 @@ import { fetchWithTimeout } from "../shared/request-timeout.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import {
+  bindSupplierFormFormatting,
+  formatSupplierCep,
+  formatSupplierEmail,
+  formatSupplierPhone,
+  formatSupplierTitle,
+  renderSupplierFormFields
+} from "../catalog/supplier-form.js";
+
+const isTauriWindow = () => Boolean(window.__TAURI_INTERNALS__);
 
 const escapeHtml = (value) => String(value ?? "")
   .replaceAll("&", "&amp;")
@@ -58,6 +68,13 @@ const fiscalEntryStatusLabel = (status) => ({
   cancelled: "Cancelada"
 }[status] || status || "Não informado");
 
+const fiscalEntryStatusClass = (status) => ({
+  draft: "draft",
+  open: "open",
+  confirmed: "confirmed",
+  cancelled: "cancelled"
+}[status] || "unknown");
+
 export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, initialEntryId = null, ...handlers }) {
   const root = document.createElement("main");
   let xmlSubmitting = false;
@@ -69,6 +86,7 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
   let entryError = "";
   let currentEntry = null;
   let fiscalEntries = [];
+  let missingSuppliers = [];
   let entriesLoading = false;
   let products = [];
   let paymentMethods = [];
@@ -76,6 +94,12 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
   let editingItem = null;
   let entryPayments = [];
   let message = "";
+  let supplierModal = null;
+  let supplierSubmitting = false;
+  let supplierError = "";
+  let fiscalEntrySort = { key: "issuedAtFiscalDocument", direction: "asc" };
+  let fiscalEntrySearch = "";
+  let fiscalEntryStatusFilter = "draft";
   const scheduleMessageClear = createFeedbackTimer();
 
   const selectedEntryTotal = () => (currentEntry?.items || [])
@@ -83,6 +107,89 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
     .reduce((total, item) => total + Number(item.totalFiscalDocumentItem || 0), 0);
 
   const selectedProduct = (item) => products.find((product) => Number(product.idProduct) === Number(item?.idProduct));
+
+  const sortedFiscalEntries = () => [...fiscalEntries].sort((left, right) => {
+    const key = fiscalEntrySort.key;
+    let comparison;
+    if (key === "issuedAtFiscalDocument") {
+      comparison = new Date(left[key]).getTime() - new Date(right[key]).getTime();
+    } else if (key === "totalFiscalDocument") {
+      comparison = Number(left[key] || 0) - Number(right[key] || 0);
+    } else {
+      const leftValue = key === "statusFiscalEntry"
+        ? fiscalEntryStatusLabel(left[key])
+        : key === "modelFiscalDocument"
+          ? Number(left[key]) === 65 ? "NFC-e" : "NF-e"
+          : key === "numberFiscalDocument"
+            ? left.numberFiscalDocument
+              ? `${left.seriesFiscalDocument || ""}/${left.numberFiscalDocument}`
+              : left.accessKeyFiscalDocument
+          : left[key];
+      const rightValue = key === "statusFiscalEntry"
+        ? fiscalEntryStatusLabel(right[key])
+        : key === "modelFiscalDocument"
+          ? Number(right[key]) === 65 ? "NFC-e" : "NF-e"
+          : key === "numberFiscalDocument"
+            ? right.numberFiscalDocument
+              ? `${right.seriesFiscalDocument || ""}/${right.numberFiscalDocument}`
+              : right.accessKeyFiscalDocument
+          : right[key];
+      comparison = String(leftValue || "").localeCompare(String(rightValue || ""), "pt-BR", { sensitivity: "base" });
+    }
+    if (comparison === 0) {
+      comparison = Number(left.idFiscalEntry) - Number(right.idFiscalEntry);
+    }
+    return fiscalEntrySort.direction === "asc" ? comparison : -comparison;
+  });
+
+  const visibleFiscalEntries = () => {
+    const search = fiscalEntrySearch.trim().toLocaleLowerCase("pt-BR");
+    return sortedFiscalEntries().filter((entry) => {
+      if (fiscalEntryStatusFilter !== "all" && entry.statusFiscalEntry !== fiscalEntryStatusFilter) {
+        return false;
+      }
+      if (!search) return true;
+      return [
+        Number(entry.modelFiscalDocument) === 65 ? "NFC-e" : "NF-e",
+        entry.numberFiscalDocument ? `${entry.seriesFiscalDocument || ""}/${entry.numberFiscalDocument}` : entry.accessKeyFiscalDocument,
+        entry.issuerLegalNameFiscalDocument,
+        entry.issuerDocumentFiscalDocument,
+        fiscalEntryStatusLabel(entry.statusFiscalEntry)
+      ].some((value) => String(value || "").toLocaleLowerCase("pt-BR").includes(search));
+    });
+  };
+
+  const statusFilterOptions = [
+    ["all", "Todos"],
+    ["draft", "Em Digitação"],
+    ["open", "Em Aberto"],
+    ["confirmed", "Confirmadas"],
+    ["cancelled", "Canceladas"]
+  ];
+
+  const renderFiscalEntryListHeader = (title) => `
+    <div class="classic-panel-header fiscal-entry-list-header">
+      <div class="fiscal-entry-list-header-top">
+        <span>${title}</span>
+        <input class="classic-list-search" data-fiscal-entry-search type="search" placeholder="Pesquisar..." aria-label="Pesquisar documentos na fila" value="${escapeHtml(fiscalEntrySearch)}" />
+      </div>
+      <div class="fiscal-entry-status-filters" role="group" aria-label="Filtrar documentos por status">
+        ${statusFilterOptions.map(([value, label]) => {
+          const count = value === "all"
+            ? fiscalEntries.length
+            : fiscalEntries.filter((entry) => entry.statusFiscalEntry === value).length;
+          return `<button class="fiscal-entry-status-filter${fiscalEntryStatusFilter === value ? " is-active" : ""}" type="button" data-fiscal-entry-status-filter="${value}" aria-pressed="${fiscalEntryStatusFilter === value}">${label} ${count}</button>`;
+        }).join("")}
+      </div>
+    </div>`;
+
+  const sortIndicator = (key) =>
+    fiscalEntrySort.key === key ? (fiscalEntrySort.direction === "asc" ? "↑" : "↓") : "↕";
+
+  const sortableHeader = (key, label, className = "") => `
+    <th class="${className}" aria-sort="${fiscalEntrySort.key === key ? (fiscalEntrySort.direction === "asc" ? "ascending" : "descending") : "none"}">
+      <button class="table-sort-button" type="button" data-fiscal-entry-sort="${key}">${label} <span aria-hidden="true">${sortIndicator(key)}</span></button>
+    </th>`;
 
   const applyLinkToMatchingItems = (sourceItem, product, conversionFactor) => {
     const description = normalizeFiscalItemMatchValue(sourceItem.descriptionFiscalDocumentItem);
@@ -101,6 +208,29 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
     });
   };
 
+  const applyStoredFiscalReferences = (entry) => {
+    const references = Array.isArray(entry?.productFiscalReferences)
+      ? entry.productFiscalReferences
+      : [];
+    if (!references.length) return;
+    entry.items?.forEach((item) => {
+      if (item.idProduct) return;
+      const description = normalizeFiscalItemMatchValue(item.descriptionFiscalDocumentItem);
+      const fiscalUnit = normalizeFiscalItemMatchValue(item.fiscalUnitFiscalDocumentItem);
+      const matches = references.filter((reference) =>
+        normalizeFiscalItemMatchValue(reference.descriptionFiscalProductReference) === description
+        && normalizeFiscalItemMatchValue(reference.fiscalUnitProductFiscalReference || reference.fiscalUnitProductReference) === fiscalUnit
+      );
+      if (matches.length !== 1) return;
+      const reference = matches[0];
+      item.idProduct = Number(reference.idProduct);
+      item.idStockUnit = reference.idStockUnit ? Number(reference.idStockUnit) : null;
+      item.conversionFactor = reference.conversionFactor || "1";
+      item.selected = 1;
+      item.status = "linked";
+    });
+  };
+
   const loadFiscalEntries = async () => {
     entriesLoading = true;
     try {
@@ -110,6 +240,7 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
         throw new Error(result.error || "Não foi possível carregar as pré-entradas.");
       }
       fiscalEntries = result.fiscalEntries;
+      missingSuppliers = Array.isArray(result.missingSuppliers) ? result.missingSuppliers : [];
     } catch (entriesError) {
       error = entriesError instanceof Error ? entriesError.message : "Falha ao carregar as pré-entradas.";
     } finally {
@@ -149,20 +280,32 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
                 </div>
                 <div class="classic-form-actions"><button class="classic-button primary" type="submit" ${xmlSubmitting ? "disabled" : ""}>${xmlSubmitting ? "Importando..." : "Importar como pré-entrada"}</button></div>
               </form>
+              <section class="classic-grid-panel missing-suppliers-panel">
+                <div class="classic-panel-header">Fornecedores não cadastrados</div>
+                <div class="classic-grid-wrapper">${entriesLoading ? `<p class="classic-empty">Carregando fornecedores...</p>` : missingSuppliers.length ? `
+                  <table class="classic-table"><thead><tr><th>CNPJ</th><th>Fornecedor</th><th class="actions-column">Ação</th></tr></thead>
+                  <tbody>${missingSuppliers.map((supplier) => `
+                    <tr>
+                      <td>${escapeHtml(formatDocument(supplier.documentSupplier))}</td>
+                      <td>${escapeHtml(supplier.companyNameSupplier || supplier.tradeNameSupplier || "Não informado")}</td>
+                      <td class="actions-column"><button class="classic-button primary" type="button" data-register-supplier="${escapeHtml(supplier.documentSupplier)}">Cadastrar</button></td>
+                    </tr>`).join("")}</tbody>
+                  </table>` : `<p class="classic-empty">Nenhum fornecedor não cadastrado.</p>`}</div>
+              </section>
             </div>
             <section class="classic-grid-panel fiscal-entry-list-panel">
-              <div class="classic-panel-header">Documentos na Fila</div>
-              <div class="classic-grid-wrapper">${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : entriesLoading ? `<p class="classic-empty">Carregando documentos...</p>` : fiscalEntries.length ? `
+              ${renderFiscalEntryListHeader("Documentos na Fila")}
+              <div class="classic-grid-wrapper">${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : entriesLoading ? `<p class="classic-empty">Carregando documentos...</p>` : visibleFiscalEntries().length ? `
                 <table class="classic-table">
-                  <thead><tr><th>Tipo</th><th>Documento</th><th class="supplier-column product-name-column">Fornecedor</th><th>Emissão</th><th class="value-column">Valor</th><th>Status</th><th class="actions-column">Ações</th></tr></thead>
-                  <tbody>${fiscalEntries.map((entry) => `
+                  <thead><tr>${sortableHeader("modelFiscalDocument", "Tipo")}${sortableHeader("numberFiscalDocument", "Doc")}${sortableHeader("issuerLegalNameFiscalDocument", "Fornecedor", "supplier-column product-name-column")}${sortableHeader("issuedAtFiscalDocument", "Emissão")}${sortableHeader("totalFiscalDocument", "Valor", "value-column")}${sortableHeader("statusFiscalEntry", "Status")}<th class="actions-column">Ações</th></tr></thead>
+                  <tbody>${visibleFiscalEntries().map((entry) => `
                     <tr>
                       <td>${Number(entry.modelFiscalDocument) === 65 ? "NFC-e" : "NF-e"}</td>
                       <td>${escapeHtml(entry.numberFiscalDocument ? `${entry.seriesFiscalDocument || ""}/${entry.numberFiscalDocument}` : entry.accessKeyFiscalDocument)}</td>
                       <td class="supplier-column product-name-column">${escapeHtml(entry.issuerLegalNameFiscalDocument || formatDocument(entry.issuerDocumentFiscalDocument))}</td>
                       <td>${escapeHtml(formatDateOnly(entry.issuedAtFiscalDocument))}</td>
                       <td class="value-column">${escapeHtml(formatMoney(entry.totalFiscalDocument))}</td>
-                      <td>${escapeHtml(fiscalEntryStatusLabel(entry.statusFiscalEntry))}</td>
+                      <td><span class="fiscal-entry-status fiscal-entry-status-${fiscalEntryStatusClass(entry.statusFiscalEntry)}">${escapeHtml(fiscalEntryStatusLabel(entry.statusFiscalEntry))}</span></td>
                       <td class="actions-column"><button class="icon-button" type="button" data-open-entry="${entry.idFiscalEntry}" aria-label="Continuar revisão" title="Continuar revisão"><i data-lucide="arrow-right-circle"></i></button><button class="icon-button delete" type="button" data-delete-entry="${entry.idFiscalEntry}" aria-label="Excluir documento" title="Excluir documento"><i data-lucide="trash-2"></i></button></td>
                     </tr>`).join("")}</tbody>
                 </table>` : `<p class="classic-empty">Nenhum documento na fila.</p>`}</div>
@@ -171,18 +314,18 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
         ` : ""}
         ${entryOnly ? `
           <section class="classic-grid-panel fiscal-entry-list-panel">
-            <div class="classic-panel-header">Pré-entradas iniciadas</div>
-            <div class="classic-grid-wrapper">${entriesLoading ? `<p class="classic-empty">Carregando pré-entradas...</p>` : fiscalEntries.length ? `
+            ${renderFiscalEntryListHeader("Pré-entradas iniciadas")}
+            <div class="classic-grid-wrapper">${entriesLoading ? `<p class="classic-empty">Carregando pré-entradas...</p>` : visibleFiscalEntries().length ? `
               <table class="classic-table">
-                <thead><tr><th>Tipo</th><th>Documento</th><th class="supplier-column product-name-column">Fornecedor</th><th>Emissão</th><th class="value-column">Valor</th><th>Status</th><th class="actions-column">Ações</th></tr></thead>
-                <tbody>${fiscalEntries.map((entry) => `
+                <thead><tr>${sortableHeader("modelFiscalDocument", "Tipo")}${sortableHeader("numberFiscalDocument", "Doc")}${sortableHeader("issuerLegalNameFiscalDocument", "Fornecedor", "supplier-column product-name-column")}${sortableHeader("issuedAtFiscalDocument", "Emissão")}${sortableHeader("totalFiscalDocument", "Valor", "value-column")}${sortableHeader("statusFiscalEntry", "Status")}<th class="actions-column">Ações</th></tr></thead>
+                <tbody>${visibleFiscalEntries().map((entry) => `
                   <tr>
                     <td>${Number(entry.modelFiscalDocument) === 65 ? "NFC-e" : "NF-e"}</td>
                     <td>${escapeHtml(entry.numberFiscalDocument ? `${entry.seriesFiscalDocument || ""}/${entry.numberFiscalDocument}` : entry.accessKeyFiscalDocument)}</td>
                     <td class="supplier-column product-name-column">${escapeHtml(entry.issuerLegalNameFiscalDocument || formatDocument(entry.issuerDocumentFiscalDocument))}</td>
                     <td>${escapeHtml(formatDateOnly(entry.issuedAtFiscalDocument))}</td>
                     <td class="value-column">${escapeHtml(formatMoney(entry.totalFiscalDocument))}</td>
-                    <td>${escapeHtml(fiscalEntryStatusLabel(entry.statusFiscalEntry))}</td>
+                    <td><span class="fiscal-entry-status fiscal-entry-status-${fiscalEntryStatusClass(entry.statusFiscalEntry)}">${escapeHtml(fiscalEntryStatusLabel(entry.statusFiscalEntry))}</span></td>
                     <td class="actions-column"><button class="icon-button" type="button" data-open-entry="${entry.idFiscalEntry}" aria-label="Continuar revisão" title="Continuar revisão"><i data-lucide="arrow-right-circle"></i></button><button class="icon-button delete" type="button" data-delete-entry="${entry.idFiscalEntry}" aria-label="Excluir pré-entrada" title="Excluir pré-entrada"><i data-lucide="trash-2"></i></button></td>
                   </tr>`).join("")}</tbody>
               </table>` : `<p class="classic-empty">Nenhuma pré-entrada iniciada.</p>`}</div>
@@ -190,19 +333,19 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
         ` : ""}
         ${currentEntry ? `
           <section class="classic-grid-panel fiscal-entry-workspace-panel">
-            <div class="classic-panel-header">Pré-entrada ${escapeHtml(currentEntry.fiscalEntry.idFiscalEntry)} - ${escapeHtml(fiscalEntryStatusLabel(currentEntry.fiscalEntry.statusFiscalEntry))}</div>
+            <div class="classic-panel-header">Pré-entrada ${escapeHtml(currentEntry.fiscalEntry.idFiscalEntry)} - <span class="fiscal-entry-status fiscal-entry-status-${fiscalEntryStatusClass(currentEntry.fiscalEntry.statusFiscalEntry)}">${escapeHtml(fiscalEntryStatusLabel(currentEntry.fiscalEntry.statusFiscalEntry))}</span></div>
             <div class="classic-form-body">
               <p class="form-help">Documento ${escapeHtml(currentEntry.fiscalEntry.accessKeyFiscalDocument)} · ${escapeHtml(currentEntry.fiscalEntry.issuerLegalNameFiscalDocument || currentEntry.fiscalEntry.issuerDocumentFiscalDocument)}</p>
               <p class="form-help">Esta revisão ainda não movimenta, reserva ou baixa estoque. Clique em um item para vincular o produto e informar a conversão. Quando todos os itens e o pagamento estiverem válidos, gravar promoverá o estado para <strong>Em Aberto</strong>.</p>
             </div>
             <div class="classic-grid-wrapper">
               <table class="classic-table">
-                <thead><tr><th>Usar</th><th>Linha</th><th>Descrição</th><th>Qtd</th><th>Unidade</th><th class="value-column">Valor</th><th>Status</th></tr></thead>
+                <thead><tr><th>Usar</th><th>Linha</th><th class="description-column">Descrição</th><th>Qtd</th><th>Unidade</th><th class="value-column">Valor</th><th>Status</th></tr></thead>
                 <tbody>${currentEntry.items.map((item) => `
                   <tr data-edit-item="${item.idFiscalEntryItem}" class="${item.idProduct ? "entry-item-linked" : ""}">
                     <td><input type="checkbox" data-select-item="${item.idFiscalEntryItem}" ${item.selected ? "checked" : ""} aria-label="Incluir item ${escapeHtml(item.lineNumberFiscalDocumentItem)}" /></td>
                     <td>${escapeHtml(item.lineNumberFiscalDocumentItem)}</td>
-                    <td>${escapeHtml(item.descriptionFiscalDocumentItem)}</td>
+                    <td class="description-column">${escapeHtml(item.descriptionFiscalDocumentItem)}</td>
                     <td>${escapeHtml(formatQuantity(item.quantityFiscalDocumentItem))}</td>
                     <td>${escapeHtml(item.fiscalUnitFiscalDocumentItem)}</td>
                     <td class="value-column">${escapeHtml(formatMoney(item.totalFiscalDocumentItem))}</td>
@@ -248,11 +391,118 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
             </section>
           </div>
         ` : ""}
+        ${supplierModal ? `
+          <div class="classic-modal-backdrop" data-missing-supplier-backdrop>
+            <section class="classic-modal supplier-edit-modal" role="dialog" aria-modal="true" aria-labelledby="missing-supplier-title">
+              <div class="classic-panel-header modal-panel-header"><span id="missing-supplier-title">Editar fornecedor</span><button class="modal-close-button" data-cancel-missing-supplier type="button" aria-label="Fechar" title="Fechar"><i data-lucide="x"></i></button></div>
+              <form data-missing-supplier-form>
+                <div class="classic-form-body"><div class="classic-form-grid">${renderSupplierFormFields(supplierModal, { lookupCnpj: true, lookupCep: true })}</div>${supplierError ? `<p class="payment-error">${escapeHtml(supplierError)}</p>` : ""}</div>
+                <div class="classic-form-actions"><button class="classic-button primary" type="submit" ${supplierSubmitting ? "disabled" : ""}>${supplierSubmitting ? "Salvando..." : "Cadastrar fornecedor"}</button><button class="classic-button" data-cancel-missing-supplier type="button">Cancelar</button></div>
+              </form>
+            </section>
+          </div>
+        ` : ""}
       </section>
     `;
     renderLucideIcons(root);
     bindMainMenu(root, handlers);
+    bindSupplierFormFormatting(root);
     bind();
+  };
+
+  const setSupplierModalField = (form, name, value) => {
+    const field = form?.querySelector(`[name="${name}"]`);
+    if (!field || value == null) return;
+    field.value = name === "phoneSupplier"
+      ? formatSupplierPhone(value)
+      : name === "zipCodeSupplier"
+        ? formatSupplierCep(value)
+        : name === "emailSupplier"
+          ? formatSupplierEmail(value)
+          : String(value);
+  };
+
+  const lookupMissingSupplierCnpj = async (form) => {
+    const cnpj = String(form?.querySelector("[name='documentSupplier']")?.value || "").replace(/\D/g, "");
+    if (cnpj.length !== 14) {
+      supplierError = "Informe um CNPJ com 14 dígitos para consultar.";
+      render();
+      return;
+    }
+    try {
+      const response = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
+      const company = await response.json();
+      if (!response.ok || company.message) throw new Error(company.message || "CNPJ não encontrado.");
+      setSupplierModalField(form, "companyNameSupplier", company.razao_social);
+      setSupplierModalField(form, "tradeNameSupplier", company.nome_fantasia);
+      setSupplierModalField(form, "phoneSupplier", company.ddd_telefone_1);
+      setSupplierModalField(form, "emailSupplier", company.email);
+      setSupplierModalField(form, "zipCodeSupplier", company.cep);
+      setSupplierModalField(form, "addressSupplier", company.logradouro);
+      setSupplierModalField(form, "addressNumberSupplier", company.numero);
+      setSupplierModalField(form, "addressComplementSupplier", company.complemento);
+      setSupplierModalField(form, "neighborhoodSupplier", company.bairro);
+      setSupplierModalField(form, "citySupplier", company.municipio);
+      setSupplierModalField(form, "stateSupplier", company.uf);
+      supplierError = "";
+    } catch (lookupError) {
+      supplierError = lookupError instanceof Error ? lookupError.message : "Não foi possível consultar o CNPJ.";
+      render();
+    }
+  };
+
+  const lookupMissingSupplierCep = async (form) => {
+    const cep = String(form?.querySelector("[name='zipCodeSupplier']")?.value || "").replace(/\D/g, "");
+    if (cep.length !== 8) {
+      supplierError = "Informe um CEP com 8 dígitos para consultar.";
+      render();
+      return;
+    }
+    try {
+      const response = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+      const address = await response.json();
+      if (!response.ok || address.erro) throw new Error("CEP não encontrado.");
+      setSupplierModalField(form, "addressSupplier", address.logradouro);
+      setSupplierModalField(form, "neighborhoodSupplier", address.bairro);
+      setSupplierModalField(form, "citySupplier", address.localidade);
+      setSupplierModalField(form, "stateSupplier", address.uf);
+      supplierError = "";
+    } catch (lookupError) {
+      supplierError = lookupError instanceof Error ? lookupError.message : "Não foi possível consultar o CEP.";
+      render();
+    }
+  };
+
+  const submitMissingSupplier = async (form) => {
+    const body = Object.fromEntries(new FormData(form));
+    supplierModal = { ...supplierModal, ...body };
+    supplierSubmitting = true;
+    supplierError = "";
+    render();
+    try {
+      const response = await apiFetch(`${getApiUrl()}/api/suppliers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...supplierModal,
+          documentSupplier: String(supplierModal.documentSupplier || "").replace(/\D/g, ""),
+          phoneSupplier: String(supplierModal.phoneSupplier || "").replace(/\D/g, ""),
+          emailSupplier: formatSupplierEmail(supplierModal.emailSupplier),
+          zipCodeSupplier: String(supplierModal.zipCodeSupplier || "").replace(/\D/g, ""),
+          countrySupplier: "Brasil"
+        })
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Não foi possível cadastrar o fornecedor.");
+      supplierModal = null;
+      message = "Fornecedor cadastrado com sucesso.";
+      await loadFiscalEntries();
+    } catch (submitError) {
+      supplierError = submitError instanceof Error ? submitError.message : "Falha ao cadastrar o fornecedor.";
+    } finally {
+      supplierSubmitting = false;
+      render();
+    }
   };
 
   const bind = () => {
@@ -261,6 +511,44 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
     root.querySelector("[data-xml-form]")?.addEventListener("submit", (event) => {
       event.preventDefault();
       void submitXml(event.currentTarget);
+    });
+    root.querySelectorAll("[data-register-supplier]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const supplier = missingSuppliers.find((item) => String(item.documentSupplier) === String(button.dataset.registerSupplier));
+        if (!supplier) return;
+        supplierModal = {
+          typeSupplier: String(supplier.documentSupplier || "").replace(/\D/g, "").length === 11 ? "fisica" : "juridica",
+          documentSupplier: supplier.documentSupplier || "",
+          companyNameSupplier: formatSupplierTitle(supplier.companyNameSupplier),
+          tradeNameSupplier: formatSupplierTitle(supplier.tradeNameSupplier),
+          zipCodeSupplier: supplier.zipCodeSupplier || "",
+          addressSupplier: formatSupplierTitle(supplier.addressSupplier),
+          addressNumberSupplier: supplier.addressNumberSupplier || "",
+          addressComplementSupplier: formatSupplierTitle(supplier.addressComplementSupplier),
+          neighborhoodSupplier: formatSupplierTitle(supplier.neighborhoodSupplier),
+          citySupplier: formatSupplierTitle(supplier.citySupplier),
+          stateSupplier: supplier.stateSupplier || ""
+        };
+        supplierError = "";
+        render();
+      });
+    });
+    root.querySelector("[data-missing-supplier-form]")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      void submitMissingSupplier(event.currentTarget);
+    });
+    root.querySelectorAll("[data-cancel-missing-supplier]").forEach((button) => {
+      button.addEventListener("click", () => {
+        supplierModal = null;
+        supplierError = "";
+        render();
+      });
+    });
+    root.querySelector("[data-missing-supplier-form] [data-lookup-cnpj]")?.addEventListener("click", (event) => {
+      void lookupMissingSupplierCnpj(event.currentTarget.closest("form"));
+    });
+    root.querySelector("[data-missing-supplier-form] [data-lookup-cep]")?.addEventListener("click", (event) => {
+      void lookupMissingSupplierCep(event.currentTarget.closest("form"));
     });
     root.querySelectorAll("[data-open-entry]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -274,6 +562,32 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
     });
     root.querySelectorAll("[data-delete-entry]").forEach((button) => {
       button.addEventListener("click", () => void removeEntry(Number(button.dataset.deleteEntry)));
+    });
+    root.querySelectorAll("[data-fiscal-entry-sort]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const key = button.dataset.fiscalEntrySort;
+        if (fiscalEntrySort.key === key) {
+          fiscalEntrySort.direction = fiscalEntrySort.direction === "asc" ? "desc" : "asc";
+        } else {
+          fiscalEntrySort = { key, direction: "asc" };
+        }
+        render();
+      });
+    });
+    root.querySelectorAll("[data-fiscal-entry-status-filter]").forEach((button) => {
+      button.addEventListener("click", () => {
+        fiscalEntryStatusFilter = button.dataset.fiscalEntryStatusFilter;
+        render();
+      });
+    });
+    root.querySelectorAll("[data-fiscal-entry-search]").forEach((input) => {
+      input.addEventListener("input", (event) => {
+        fiscalEntrySearch = event.currentTarget.value;
+        render();
+        const searchInput = root.querySelector("[data-fiscal-entry-search]");
+        searchInput?.focus();
+        searchInput?.setSelectionRange(fiscalEntrySearch.length, fiscalEntrySearch.length);
+      });
     });
     root.querySelector("[data-entry-payment-form] select[name='paymentMethod']")?.addEventListener("change", (event) => {
       selectedPaymentMethod = event.currentTarget.value;
@@ -360,6 +674,11 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
 
   const openFiscalBrowser = async () => {
     fiscalBrowserError = "";
+    if (!isTauriWindow()) {
+      fiscalBrowserError = "A consulta fiscal interativa exige o aplicativo Tauri.";
+      render();
+      return;
+    }
     try {
       await invoke("open_fiscal_consultation");
     } catch (openError) {
@@ -459,6 +778,7 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
     if (!response.ok || !result.fiscalEntry) {
       throw new Error(result.error || "Não foi possível carregar a pré-entrada.");
     }
+    applyStoredFiscalReferences(result);
     return result;
   };
 
@@ -562,15 +882,17 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
   };
 
   render();
-  void listen("fiscal-dom-read", (event) => {
-    const html = String(event.payload?.html || "");
-    void importFiscalDom(html);
-  });
-  void listen("fiscal-dom-error", (event) => {
-    fiscalBrowserBusy = false;
-    fiscalBrowserError = String(event.payload || "Falha ao ler a consulta fiscal.");
-    render();
-  });
+  if (isTauriWindow()) {
+    void listen("fiscal-dom-read", (event) => {
+      const html = String(event.payload?.html || "");
+      void importFiscalDom(html);
+    });
+    void listen("fiscal-dom-error", (event) => {
+      fiscalBrowserBusy = false;
+      fiscalBrowserError = String(event.payload || "Falha ao ler a consulta fiscal.");
+      render();
+    });
+  }
   void (async () => {
     await loadFiscalEntries();
     if (initialEntryId) await openEntry(Number(initialEntryId));

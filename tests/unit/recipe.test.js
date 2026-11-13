@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildStockConsumptionPlan,
   calculateComponentCost,
+  calculateCostPerYieldUnit,
   calculateGrossQuantity,
   expandRecipeComponents,
   findRecipeCycles,
@@ -117,6 +118,11 @@ test("calculates gross quantity and cost including loss", () => {
     }),
     34.496
   );
+});
+
+test("calcula o custo por unidade final pelo rendimento", () => {
+  assert.equal(calculateCostPerYieldUnit(30, 3), 10);
+  assert.equal(calculateCostPerYieldUnit(30, 0), null);
 });
 
 test("resolves fator pela unidade culinária e unidade do produto", () => {

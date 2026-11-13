@@ -76,6 +76,7 @@ export const DEFAULT_NAVIGATION = Object.freeze({
     item("cadastros", "consumers", "Consumidores", "consumers", 6, null, "bar", "Cadastre e consulte consumidores para identificar atendimentos e vínculos com clientes."),
     item("stock", "fiscal-document-queue", "Fila de Documentos", "fiscal-document-queue", 1, null, "bar", "Importe documentos fiscais e acompanhe as pré-entradas em estado Em Aberto."),
     item("stock", "fiscal-entry-xml", "Entrada de NF-e / NFC-e", "fiscal-entry-xml", 2, null, "bar", "Revise pré-entradas de NF-e e NFC-e, itens, vínculos, conversões e pagamentos."),
+    item("stock", "product-fiscal-references", "Produtos Vinculados", "product-fiscal-references", 3, null, "bar", "Consulte os produtos comerciais vinculados a descrições fiscais de documentos."),
     item("settings", "settings", "Impressoras", "settings", 1, null, "bar", "Defina as impressoras padrão usadas pelo PDV em cupons, comprovantes e relatórios."),
     item("settings", "general-settings", "Configurações Gerais", "general-settings", 2, null, "bar", "Defina regras gerais de funcionamento compartilhadas por todos os terminais do PDV."),
     item("settings", "theme", "Aparência", "theme", 3, null, "bar", "Escolha a aparência visual deste terminal do PDV."),

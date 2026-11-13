@@ -7,88 +7,18 @@ import { renderPreservingFormDraft } from "../ui/form-draft.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { apiFetch, getApiUrl } from "../shared/api.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
-
-const escapeHtml = (value) => String(value ?? "")
-  .replaceAll("&", "&amp;")
-  .replaceAll("<", "&lt;")
-  .replaceAll(">", "&gt;")
-  .replaceAll('"', "&quot;")
-  .replaceAll("'", "&#039;");
-
-const fields = [
-  ["typeSupplier", "Tipo", "select"],
-  ["documentSupplier", "CPF/CNPJ", "text"],
-  ["companyNameSupplier", "Razão social / Nome", "text"],
-  ["tradeNameSupplier", "Nome fantasia", "text"],
-  ["contactNameSupplier", "Contato", "text"],
-  ["phoneSupplier", "Telefone", "tel"],
-  ["emailSupplier", "E-mail", "email"],
-  ["zipCodeSupplier", "CEP", "text"],
-  ["addressSupplier", "Endereço", "text"],
-  ["addressNumberSupplier", "Número", "text"],
-  ["addressComplementSupplier", "Complemento", "text"],
-  ["neighborhoodSupplier", "Bairro", "text"],
-  ["citySupplier", "Cidade", "text"],
-  ["stateSupplier", "UF", "select"],
-  ["notesSupplier", "Observações", "textarea"]
-];
-
-const brazilianStates = [
-  ["AC", "Acre"], ["AL", "Alagoas"], ["AP", "Amapá"], ["AM", "Amazonas"],
-  ["BA", "Bahia"], ["CE", "Ceará"], ["DF", "Distrito Federal"], ["ES", "Espírito Santo"],
-  ["GO", "Goiás"], ["MA", "Maranhão"], ["MT", "Mato Grosso"], ["MS", "Mato Grosso do Sul"],
-  ["MG", "Minas Gerais"], ["PA", "Pará"], ["PB", "Paraíba"], ["PR", "Paraná"],
-  ["PE", "Pernambuco"], ["PI", "Piauí"], ["RJ", "Rio de Janeiro"], ["RN", "Rio Grande do Norte"],
-  ["RS", "Rio Grande do Sul"], ["RO", "Rondônia"], ["RR", "Roraima"], ["SC", "Santa Catarina"],
-  ["SP", "São Paulo"], ["SE", "Sergipe"], ["TO", "Tocantins"]
-];
-
-const emptySupplier = {
-  typeSupplier: "juridica",
-  documentSupplier: "",
-  companyNameSupplier: "",
-  tradeNameSupplier: "",
-  contactNameSupplier: "",
-  phoneSupplier: "",
-  emailSupplier: "",
-  zipCodeSupplier: "",
-  addressSupplier: "",
-  addressNumberSupplier: "",
-  addressComplementSupplier: "",
-  neighborhoodSupplier: "",
-  citySupplier: "",
-  stateSupplier: "",
-  notesSupplier: ""
-};
+import {
+  emptySupplier,
+  escapeHtml,
+  formatSupplierCep as formatCep,
+  formatSupplierDocument as formatDocument,
+  formatSupplierEmail as formatEmail,
+  formatSupplierPhone as formatPhone,
+  renderSupplierFormFields
+} from "./supplier-form.js";
 
 const displayName = (supplier) =>
   supplier.tradeNameSupplier || supplier.companyNameSupplier || supplier.contactNameSupplier || supplier.documentSupplier;
-
-const formatDocument = (value, type) => {
-  const digits = String(value ?? "").replace(/\D/g, "").slice(0, type === "fisica" ? 11 : 14);
-  if (type === "fisica") {
-    return digits.replace(/^(\d{3})(\d)/, "$1.$2").replace(/^(\d{3})\.(\d{3})(\d)/, "$1.$2.$3").replace(/\.(\d{3})(\d{1,2})$/, ".$1-$2");
-  }
-  return digits.replace(/^(\d{2})(\d)/, "$1.$2").replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3").replace(/\.(\d{3})(\d)/, ".$1/$2").replace(/(\d{4})(\d{1,2})$/, "$1-$2");
-};
-
-const formatCep = (value) => String(value ?? "").replace(/\D/g, "").slice(0, 8).replace(/^(\d{5})(\d)/, "$1-$2");
-
-const formatPhone = (value) => {
-  const digits = String(value ?? "").replace(/\D/g, "").slice(0, 11);
-  if (!digits) return "";
-  const areaCode = digits.slice(0, 2);
-  const number = digits.slice(2);
-  const prefixLength = digits.length > 10 ? 5 : 4;
-  const prefix = number.slice(0, prefixLength);
-  const suffix = number.slice(prefixLength, prefixLength + 4);
-  let formatted = areaCode.length === 2 ? `(${areaCode})` : `(${areaCode}`;
-  if (number) formatted += ` ${prefix}`;
-  if (suffix) formatted += `-${suffix}`;
-  return formatted;
-};
-
-const formatEmail = (value) => String(value ?? "").replace(/\s/g, "").toLocaleLowerCase("pt-BR").slice(0, 180);
 
 const normalizeSupplierText = (field, value) =>
   String(value ?? "").trim().replace(/\s+/g, " ");
@@ -143,42 +73,12 @@ export function createSupplierScreen({
     );
   };
 
-  const renderFormFields = (supplier, prefix = "") => fields.map(([field, label, type]) => {
-    const value = supplier[field] ?? "";
-    if (field === "typeSupplier") {
-      return `<label class="form-field"><span>${label}</span><select name="${prefix}${field}" required><option value="juridica" ${value === "juridica" ? "selected" : ""}>Pessoa Jurídica</option><option value="fisica" ${value === "fisica" ? "selected" : ""}>Pessoa Física</option></select></label>`;
-    }
-    if (field === "stateSupplier") {
-      return `<label class="form-field"><span>${label}</span><select name="${prefix}${field}"><option value="">Selecione</option>${brazilianStates.map(([uf, state]) => `<option value="${uf}" ${value === uf ? "selected" : ""}>${uf} - ${state}</option>`).join("")}</select></label>`;
-    }
-    if (type === "textarea") return `<label class="form-field supplier-notes-field"><span>${label}</span><textarea name="${prefix}${field}" maxlength="400" rows="3">${escapeHtml(value)}</textarea></label>`;
-    const formatted = field === "documentSupplier"
-      ? formatDocument(value, supplier.typeSupplier)
-      : field === "phoneSupplier"
-        ? formatPhone(value)
-        : field === "zipCodeSupplier"
-          ? formatCep(value)
-          : field === "emailSupplier"
-            ? formatEmail(value)
-            : value;
-    const required = ["documentSupplier", "companyNameSupplier"].includes(field);
-    const maxlength = field === "documentSupplier" ? 18 : field === "emailSupplier" ? 180 : field === "phoneSupplier" ? 15 : field === "zipCodeSupplier" ? 9 : 180;
-    const inputMode = ["documentSupplier", "phoneSupplier", "zipCodeSupplier"].includes(field) ? ' inputmode="numeric"' : "";
-    const autocomplete = {
-      companyNameSupplier: "organization",
-      phoneSupplier: "tel",
-      emailSupplier: "email",
-      zipCodeSupplier: "postal-code",
-      addressSupplier: "street-address",
-      citySupplier: "address-level2"
-    }[field];
-    const lookup = !prefix && field === "documentSupplier" && supplier.typeSupplier === "juridica"
-      ? `<button class="catalog-lookup-button" data-lookup-cnpj type="button" ${lookingUpCnpj ? "disabled" : ""} title="Buscar CNPJ" aria-label="Buscar CNPJ">${lookingUpCnpj ? "..." : "⌕"}</button>`
-      : !prefix && field === "zipCodeSupplier"
-        ? `<button class="catalog-lookup-button" data-lookup-cep type="button" ${lookingUpCep ? "disabled" : ""} title="Buscar CEP" aria-label="Buscar CEP">${lookingUpCep ? "..." : "⌕"}</button>`
-        : "";
-    return `<label class="form-field"><span>${label}</span>${lookup ? `<div class="supplier-lookup-control"><input name="${prefix}${field}" type="${type}" maxlength="${maxlength}"${inputMode}${autocomplete ? ` autocomplete="${autocomplete}"` : ""}${required ? " required" : ""} value="${escapeHtml(formatted)}" />${lookup}</div>` : `<input name="${prefix}${field}" type="${type}" maxlength="${maxlength}"${inputMode}${autocomplete ? ` autocomplete="${autocomplete}"` : ""}${required ? " required" : ""} value="${escapeHtml(formatted)}" />`}</label>`;
-  }).join("");
+  const renderFormFields = (supplier) => renderSupplierFormFields(supplier, {
+    lookupCnpj: true,
+    lookupCep: true,
+    lookingUpCnpj,
+    lookingUpCep
+  });
 
   const render = () => {
     const visible = getVisibleSuppliers();
@@ -403,7 +303,7 @@ export function createSupplierScreen({
       message = idSupplier ? "Fornecedor alterado com sucesso." : "Fornecedor cadastrado com sucesso.";
       if (!idSupplier) searchTerm = "";
       await load();
-      if (idSupplier) root.__PDV_FORM_PREVIEW_PENDING__ = items.find((item) => String(item.idSupplier) === String(idSupplier));
+      if (idSupplier) root.__PDV_FORM_PREVIEW_PENDING__ = suppliers.find((supplier) => String(supplier.idSupplier) === String(idSupplier));
       editingSupplier = null;
       scheduleMessageClear(() => { message = ""; clearRenderedFeedback(root); });
     } catch (submitError) {

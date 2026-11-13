@@ -9,6 +9,8 @@ import {
 } from "../../src/server/catalog-pagination.js";
 import {
   parseCestPayload,
+  expandCestRelations,
+  fetchSource,
   parseNcmPayload,
   validateOfficialSourceUrl
 } from "../../src/server/ncm-cest-update.js";
@@ -54,6 +56,65 @@ test("interpreta CEST, segmento e relação NCM em CSV", () => {
     { codeCest: "0100100", descriptionCest: "Mercadoria de teste", segmentCest: "Animais" }
   ]);
   assert.deepEqual(result.relations, [{ codeNcm: "01012100", codeCest: "0100100" }]);
+});
+
+test("interpreta relações em múltiplas tabelas HTML do CONFAZ", () => {
+  const result = parseCestPayload(
+    "<table><tr><td>ITEM</td><td>Descrição</td><td>Segmento</td></tr>" +
+      "<tr><td>1</td><td>Grupo</td><td>1</td></tr></table>" +
+      "<table><tr><td>ITEM</td><td>CEST</td><td>NCM/SH</td><td>DESCRIÇÃO</td></tr>" +
+      "<tr><td>46.0</td><td>17.010.00</td><td>2009.61.00</td><td>Suco de uva</td></tr></table>"
+  );
+  assert.deepEqual(result.items, [
+    { codeCest: "1701000", descriptionCest: "Suco de uva", segmentCest: null }
+  ]);
+  assert.deepEqual(result.relations, [{ codeNcm: "20096100", codeCest: "1701000" }]);
+});
+
+test("expande relação oficial de posição NCM para seus desdobramentos", () => {
+  assert.deepEqual(
+    expandCestRelations(
+      [
+        { codeNcm: "20096100" },
+        { codeNcm: "20096900" },
+        { codeNcm: "22030000" }
+      ],
+      [{ codeNcm: "2009", codeCest: "1701000" }]
+    ),
+    [
+      { codeNcm: "20096100", codeCest: "1701000" },
+      { codeNcm: "20096900", codeCest: "1701000" }
+    ]
+  );
+});
+
+test("segue redirecionamento oficial do Siscomex sem aceitar outro host", async () => {
+  const originalFetch = global.fetch;
+  const requests = [];
+  global.fetch = async (url, options) => {
+    requests.push({ url, options });
+    if (requests.length === 1) {
+      return new Response(null, {
+        status: 302,
+        headers: { location: `${url}?perfil=PUBLICO` }
+      });
+    }
+    return new Response('{"Nomenclaturas":[]}', { status: 200 });
+  };
+  try {
+    assert.equal(
+      await fetchSource(
+        "https://portalunico.siscomex.gov.br/classif/api/publico/nomenclatura/download/json",
+        "NCM"
+      ),
+      '{"Nomenclaturas":[]}'
+    );
+    assert.equal(requests.length, 2);
+    assert.equal(requests[1].url.endsWith("?perfil=PUBLICO"), true);
+    assert.equal(requests[0].options.redirect, "manual");
+  } finally {
+    global.fetch = originalFetch;
+  }
 });
 
 test("preparação NCM/CEST usa uma única definição de schema", async () => {

@@ -70,6 +70,67 @@ test("editor de componente mantém os campos visíveis e bloqueados sem seleçã
   assert.match(styles, /\.recipe-component-input-grid[\s\S]*?height: 96px/u);
 });
 
+test("receita persiste detalhes do componente e exibe custo por unidade final", async () => {
+  const screenSource = await readFile("src/catalog/recipe-screen.js", "utf8");
+  const serverSource = await readFile("src/server/server.js", "utf8");
+  const schemaSource = await readFile("src/server/schema-manager.js", "utf8");
+  assert.match(screenSource, /data-component-details maxlength="255"/u);
+  assert.match(screenSource, /component\.details \? `<em class="recipe-component-details">/u);
+  assert.match(screenSource, /component-index-column[\s\S]*?component-name-column[\s\S]*?component-quantity-column[\s\S]*?component-unit-column/u);
+  assert.match(screenSource, /Custo por \$\{escapeHtml\(yieldUnitLabel\(\)\)\}/u);
+  assert.match(serverSource, /components\.detailsRecipeComponent/u);
+  assert.match(serverSource, /details: component\.detailsRecipeComponent/u);
+  assert.match(schemaSource, /detailsRecipeComponent VARCHAR\(255\) NULL/u);
+  assert.match(schemaSource, /ADD COLUMN detailsRecipeComponent VARCHAR\(255\) NULL/u);
+});
+
+test("combobox de componentes é único, fecha fora e pesquisa pelo código", async () => {
+  const source = await readFile("src/catalog/recipe-screen.js", "utf8");
+  const combobox = await readFile("src/ui/combobox.js", "utf8");
+  assert.match(source, /editingComponentIndex === null && componentDraft\.isOpen/u);
+  assert.match(source, /editingComponentIndex !== null && componentDraft\.isOpen/u);
+  assert.match(source, /classic-combobox/u);
+  assert.match(source, /installComboboxDismissal/u);
+  assert.match(combobox, /event\.key !== "Escape"/u);
+  assert.match(combobox, /event\.target\?\.closest\(containerSelector\)/u);
+  assert.match(source, /pdvCodeProduct \|\| product\.skuProduct/u);
+  assert.match(source, /searchText: `\$\{product\.nameProduct\} \$\{product\.pdvCodeProduct/u);
+  assert.match(source, /products\.find\(\(product\) => String\(product\.idProduct\) === String\(component\.productId\)\)\?\.nameProduct/u);
+});
+
+test("listagem de componentes limita colunas fixas e deixa componente ocupar o restante", async () => {
+  const source = await readFile("src/catalog/recipe-screen.js", "utf8");
+  const styles = await readFile("src/styles.css", "utf8");
+  assert.match(source, /component-index-column/u);
+  assert.match(source, /component-actions-column/u);
+  assert.match(styles, /\.component-index-column[\s\S]*?max-width: 50px/u);
+  assert.match(styles, /\.component-quantity-column[\s\S]*?max-width: 100px/u);
+  assert.match(styles, /\.component-unit-column[\s\S]*?max-width: 150px/u);
+  assert.match(styles, /\.component-loss-column,[\s\S]*?\.component-cost-column[\s\S]*?max-width: 80px/u);
+  assert.match(styles, /\.component-actions-column[\s\S]*?max-width: 100px/u);
+  assert.match(styles, /\.component-name-column[\s\S]*?min-width: 0/u);
+});
+
+test("alinha colunas operacionais das listagens de receitas e componentes", async () => {
+  const source = await readFile("src/catalog/recipe-screen.js", "utf8");
+  const styles = await readFile("src/styles.css", "utf8");
+  assert.match(source, /recipe-kind-column/u);
+  assert.match(source, /recipe-status-column/u);
+  assert.match(source, /recipe-actions-column/u);
+  assert.match(styles, /th\.component-quantity-column[\s\S]*?text-align: center/u);
+  assert.match(styles, /td\.component-quantity-column[\s\S]*?text-align: right/u);
+  assert.match(styles, /\.component-unit-column[\s\S]*?text-align: center/u);
+  assert.match(styles, /\.component-loss-column,[\s\S]*?text-align: center/u);
+  assert.match(styles, /\.component-actions-column[\s\S]*?text-align: center/u);
+  assert.match(styles, /\.recipe-kind-column,[\s\S]*?\.recipe-actions-column[\s\S]*?text-align: center/u);
+});
+
+test("preserva a posição do cursor na pesquisa de receitas", async () => {
+  const source = await readFile("src/catalog/recipe-screen.js", "utf8");
+  assert.match(source, /const selectionStart = input\.selectionStart[\s\S]*?const selectionEnd = input\.selectionEnd/u);
+  assert.match(source, /nextInput\?\.setSelectionRange\(selectionStart, selectionEnd, selectionDirection \|\| "none"\)/u);
+});
+
 test("posiciona o bloco de componentes após divisor e antes da listagem", async () => {
   const source = await readFile("src/catalog/recipe-screen.js", "utf8");
   const styles = await readFile("src/styles.css", "utf8");

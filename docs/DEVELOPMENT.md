@@ -120,6 +120,82 @@ Receitas, sem ocultar erro de migração.
 
 ## Organização de arquivos
 
+### Produtos Vinculados
+
+**Estoque → Produtos Vinculados** é uma consulta somente leitura do catálogo
+global de vínculos fiscais. O catálogo é criado de forma idempotente por
+`ensureFiscalEntrySchema()` na tabela `product_fiscal_references` e é
+reconstruído a partir de itens de Pré-entrada com status `linked` e seleção
+confirmada. A chave de deduplicação considera Produto comercial, descrição
+fiscal, unidade fiscal, CFOP, NCM e CEST. O registro também preserva
+`idStockUnit` e `conversionFactor`, usados para reaproveitar a conversão na
+reabertura de uma Pré-entrada.
+
+Ao salvar uma Pré-entrada, a API grava e remove vínculos dentro da mesma
+transação dos itens da entrada. Um vínculo só é removido quando nenhuma outra
+Pré-entrada concluída ainda o utiliza. A tela consulta
+`GET /api/stock/product-fiscal-references`, agrupa os vínculos por produto e
+permite corrigir NCM e CEST divergentes em um modal próprio, sem trocar de
+tela. O modal usa `PUT /api/products/fiscal`, que altera somente os campos
+fiscais do Produto comercial e valida a relação NCM/CEST no servidor. Após o
+salvamento, a listagem e a visualização do produto selecionado são
+recarregadas. A listagem apresenta `# PDV`, Produto, Grupo e
+Vínculos, com ordenação por cabeçalho e pesquisa com preservação do cursor.
+Quando a descrição e a unidade fiscal possuem exatamente um vínculo global,
+a tela de Pré-entrada reaplica automaticamente Produto, unidade de estoque e
+fator de conversão. Com mais de um vínculo possível, nenhum é escolhido
+automaticamente.
+
+Ao editar um Produto, a API também oferece como opção o CEST encontrado em
+vínculos fiscais importados para o mesmo NCM, mesmo quando a relação ainda não
+existe no catálogo oficial NCM/CEST. Esse CEST pode ser salvo como evidência
+fiscal importada sem alterar a tabela oficial de relações.
+
+### Fornecedores não cadastrados na Consulta NFC-e
+
+O fluxo **Estoque → Fila de documentos fiscais** aceita duas fontes de
+importação: XML autorizado e DOM da **Consulta Completa** da NFC-e. Para o DOM,
+o operador informa a chave e resolve manualmente o desafio do portal oficial
+no aplicativo Tauri; a leitura captura somente a página autorizada já
+renderizada.
+
+Os dados do emitente são mapeados assim:
+
+| Portal da NFC-e | Cadastro de fornecedor |
+| --- | --- |
+| Nome / Razão Social | `companyNameSupplier` |
+| Nome Fantasia | `tradeNameSupplier` |
+| CNPJ | `documentSupplier` |
+| Inscrição Estadual | `stateRegistrationSupplier` |
+| Endereço | `addressSupplier` |
+| Número no final do endereço | `addressNumberSupplier` |
+| Bairro / Distrito | `neighborhoodSupplier` |
+| Município | `citySupplier` |
+| UF no Município | `stateSupplier` |
+| CEP | `zipCodeSupplier` |
+
+O parser HTML compartilha a validação de chave, modelo 65, autorização e
+protocolo com a importação fiscal. A tela de fornecedores ausentes reutiliza o
+mesmo modal da importação XML e aplica a capitalização de títulos antes de
+exibir os campos. Conteúdo HTML armazenado na fila é reconhecido na leitura
+posterior para que o cadastro continue disponível.
+
+Alterações no parser ou na rota de importação exigem reinício da API publicada.
+Alterações somente no fluxo visual da fila exigem recarregar ou republicar o
+frontend, sem reiniciar a API.
+
+Os itens de Pré-entrada também possuem `idProductFiscalReference`, que identifica
+o registro canônico reutilizável. A API grava esse identificador após sincronizar
+o vínculo e usa os dados da referência na leitura; `idProduct`, `idStockUnit` e
+`conversionFactor` permanecem temporariamente como compatibilidade e fallback
+durante a migração. A remoção física dessas colunas depende de backup e
+validação dos dados históricos.
+
+Alterações em `src/server/server.js`, `src/server/schema-manager.js` ou
+`database/schema.sql` exigem reinício da API publicada. Não é necessário
+executar build completo para essa mudança; a tela frontend deve apenas ser
+recarregada ou republicada no bundle quando distribuída.
+
 ### Temas da interface
 
 A aparência do terminal é uma preferência local. Em uma janela Tauri, ela é
@@ -1377,6 +1453,11 @@ falha de consulta não impede o preenchimento manual.
 A tabela `suppliers` é criada de forma idempotente pela API e já está definida
 no `database/schema.sql`. A tela segue o padrão de listagem com pesquisa, edição em
 modal, exclusão, ativação/inativação e feedback após cada operação.
+Na Fila de Documentos, o XML de NF-e/NFC-e preenche no cadastro sugerido o tipo
+e documento do emitente, razão social, nome fantasia e os campos de endereço
+disponíveis (`CEP`, logradouro, número, complemento, bairro, cidade e UF).
+Contato, telefone, e-mail e observações não possuem origem no XML e permanecem
+para preenchimento manual.
 
 ### Fila de Documentos
 
@@ -1392,6 +1473,54 @@ A tela apresenta os dois painéis de importação à esquerda e a listagem
 **Documentos na Fila** à direita. Cada linha identifica o tipo, documento,
 fornecedor, emissão, valor e status; o ícone de seta abre a mesma revisão
 detalhada anteriormente acessada pelo botão **Continuar**.
+Logo abaixo de **Importar XML de entrada**, a tela também lista os
+**Fornecedores não cadastrados**, agrupados por CNPJ/CPF e comparados
+server-side com a tabela `suppliers`. O botão **Cadastrar** abre o mesmo
+formulário de fornecedor usado no cadastro principal, já preenchido com os
+dados fiscais disponíveis na entrada; o salvamento usa `POST /api/suppliers`.
+Os cabeçalhos de Tipo, Documento, Fornecedor, Emissão, Valor e Status permitem
+ordenar a lista; a ordem inicial é por Emissão crescente (data mais antiga
+primeiro), e um novo clique alterna entre crescente e decrescente.
+O header também possui pesquisa textual e filtros por status, com contadores
+para Todos, Em Digitação, Em Aberto, Confirmadas e Canceladas. A tela inicia
+com o filtro **Em Digitação** selecionado; o filtro de status e a pesquisa são
+combinados antes da ordenação da lista.
+
+No Cadastro de Produtos, **Conteúdo por unidade** é exibido com a máscara
+brasileira de duas casas decimais também na abertura ou edição do formulário.
+Assim, o valor `1` persistido aparece como `1,00`, sem depender de o operador
+interagir com o campo. O formulário principal usa a mesma formatação numérica
+do modal de edição nos cinco cadastros de produtos.
+
+Na **Nova Receita**, cada componente pode receber **Detalhes**, como “usar
+frio” ou “3 colheres”. O campo fica ao lado do seletor de componente e o valor
+é exibido em itálico abaixo do componente na tabela. A tabela posiciona
+**Unidade culinária** depois de **Quantidade** e apresenta, após o custo total,
+o **Custo por [unidade final]**, calculado pela divisão do custo total pelo
+rendimento informado.
+
+Comboboxes customizados do projeto devem usar `classic-combobox` no contêiner e
+`installComboboxDismissal` de `src/ui/combobox.js`. O padrão mantém apenas o
+combobox ativo aberto, fecha ao clicar fora ou pressionar `Escape` e permite
+desregistrar os listeners quando a tela for desmontada. O seletor de
+componentes da receita segue essa convenção, inclusive durante a edição em
+modal. Produtos são exibidos como `Descrição (Código)`, priorizando
+`pdvCodeProduct` e usando `skuProduct` como alternativa; ambos os códigos
+participam da pesquisa somente no combobox; a listagem de componentes mantém
+apenas a descrição. Esta alteração é somente frontend e não exige reinício da
+API.
+
+Na listagem de componentes, as colunas possuem limites fixos para preservar a
+leitura: `#` 50px, `Quantidade` 100px, `Unidade culinária` 150px, `Perda` 80px,
+`Custo` 80px e `Ações` 100px. `Componente` ocupa o espaço restante.
+Os headers de `Quantidade`, `Unidade culinária`, `Perda`, `Custo` e `Ações`
+ficam centralizados; o conteúdo de `Quantidade` fica alinhado à direita. Na
+listagem de receitas, `Tipo`, `Status` e `Ações` ficam centralizados no header e
+no conteúdo.
+
+A pesquisa da listagem de receitas preserva foco, posição do cursor e direção
+da seleção ao rerenderizar a tabela, evitando inversão ou digitação em ordem
+visual incorreta.
 
 O XML continua exigindo uma chave identificável no conteúdo e validação
 server-side. A consulta interativa preserva o DOM renderizado e mapeia as
@@ -1428,6 +1557,10 @@ quebra somente entre palavras; não se deve usar `break-all` ou
 linhas ainda pendentes com a mesma descrição e unidade fiscal reutilizam o
 produto, a unidade de estoque e a conversão escolhidos. Linhas que já possuem
 outro vínculo não são sobrescritas.
+
+Os status da pré-entrada são exibidos em negrito e identificados por cor:
+**Em Digitação** em preto, **Em Aberto** em azul, **Confirmada** em verde e
+**Cancelada** em vermelho.
 
 Na **Fila de Documentos**, a ação **Abrir consulta fiscal** cria uma janela
 WebView Tauri restrita a `portalsped.fazenda.mg.gov.br`. O operador informa a
@@ -2068,6 +2201,12 @@ relação do Convênio ICMS 142/18; ela não deve ser apresentada como a ediçã
 oficial vigente em 26/10/2026. A origem e o caráter derivado estão registrados
 no histórico da execução. A próxima atualização deve ser feita pelas URLs
 oficiais configuradas quando elas estiverem acessíveis.
+
+O Convênio ICMS 142/18 publica os relacionamentos em vários anexos HTML, cada
+um com seu próprio cabeçalho. O parser deve ler todas as tabelas que contenham
+CEST e NCM/SH. Quando a legislação informar uma posição NCM, como `2009`, a
+relação deve ser expandida para todos os NCMs de oito dígitos dessa posição,
+incluindo `20096100`, sem criar uma exceção manual para um produto.
 
 NCM e CEST são catálogos nacionais e não substituem regras específicas de
 ICMS de Minas Gerais. Essas regras devem ser mantidas nas operações fiscais

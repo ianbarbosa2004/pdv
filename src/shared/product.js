@@ -3,6 +3,27 @@ const COPY_SUFFIX_PATTERN = /\s-\sCÓPIA(?:\s+\d+)?$/iu;
 const truncateWithSuffix = (baseName, suffix, maxLength) =>
   `${String(baseName).slice(0, Math.max(0, maxLength - suffix.length))}${suffix}`;
 
+const formatIntegerStock = (value) => {
+  const normalizedValue = String(value ?? "");
+  return /^-?\d+\.0+$/.test(normalizedValue)
+    ? normalizedValue.slice(0, normalizedValue.indexOf("."))
+    : normalizedValue;
+};
+
+export const normalizeProductPackageQuantity = (value) => {
+  const normalizedValue = String(value ?? "").trim();
+  return !normalizedValue
+    || normalizedValue.toLowerCase() === "undefined"
+    || normalizedValue.toLowerCase() === "null"
+    ? "1"
+    : normalizedValue;
+};
+
+export const formatProductStockForInput = (value, isFractionalProduct) =>
+  isFractionalProduct
+    ? String(value ?? "0") || "0"
+    : formatIntegerStock(value ?? "0") || "0";
+
 export const getDuplicatedProductName = (
   productName,
   existingNames = [],

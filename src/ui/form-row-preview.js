@@ -28,6 +28,14 @@ export const bindFormRowPreview = (root, {
     form.classList.remove("form-preview-mode");
     form.querySelectorAll("input, select, textarea, button").forEach((field) => {
       field.disabled = false;
+      if (field.dataset.previewOriginalType !== undefined) {
+        if (field.dataset.previewOriginalType) {
+          field.setAttribute("type", field.dataset.previewOriginalType);
+        } else {
+          field.removeAttribute("type");
+        }
+        delete field.dataset.previewOriginalType;
+      }
     });
     form.reset();
     form.querySelector("[data-preview-exit]")?.remove();
@@ -50,6 +58,10 @@ export const bindFormRowPreview = (root, {
     form.classList.add("form-preview-mode");
     form.querySelectorAll("[name]").forEach((field) => {
       if (Object.prototype.hasOwnProperty.call(record, field.name)) {
+        if (field.type === "number") {
+          field.dataset.previewOriginalType = field.getAttribute("type") || "";
+          field.setAttribute("type", "text");
+        }
         setFieldValue(field, formatValue(record[field.name], field.name, record));
       }
       if (field.type !== "hidden") field.disabled = true;

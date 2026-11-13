@@ -5,7 +5,53 @@ O número da versão deve ser incrementado antes da compilação quando a altera
 for distribuível. O hook `prebuild` e o fluxo `prerelease:client` podem acionar
 o versionamento automático quando o build é executado.
 
+## 0.16.0 - 2026-11-13
+
+- Consolidado o fluxo de Fila de documentos fiscais e Pré-entrada, incluindo
+  estados de revisão, ordenação, filtros, pesquisa e reaproveitamento de
+  vínculos fiscais por descrição e unidade.
+- Adicionado o catálogo global de vínculos fiscais e a tela somente leitura de
+  **Estoque → Produtos Vinculados**, com migração idempotente e atualização
+  fiscal de Produtos comerciais.
+- Implementada a leitura da Consulta Completa da NFC-e pelo DOM para preencher
+  fornecedores não cadastrados com Razão Social, Nome Fantasia, CNPJ, IE,
+  endereço, número, bairro, município, UF e CEP. A leitura de Produtos e
+  Serviços existente foi preservada.
+- Corrigida a compatibilidade da fila no navegador: eventos e comandos Tauri
+  só são registrados dentro do aplicativo Tauri.
+- Atualizados cadastros de Receitas, Produtos, Fornecedores, navegação,
+  importação de catálogos, NCM/CEST, temas e componentes de interface,
+  preservando rascunhos durante renderizações assíncronas.
+- Adicionados testes unitários e de integração para parser fiscal, importação,
+  timeout de requisições, formulários, navegação, vínculos e regressões de
+  interface.
+- Alterações em `src/server/`, schema e migrações exigem reinício da API
+  publicada; não foi executado build Tauri nesta versão.
+
 ## 0.15.0 - 2026-11-12
+
+- Criado o catálogo global de vínculos fiscais, com migração idempotente dos
+  itens de Pré-entrada concluídos, sincronização transacional ao salvar entradas
+  e consulta somente leitura em **Estoque → Produtos Vinculados**.
+- Adicionada a rota `GET /api/stock/product-fiscal-references`, agrupando os
+  vínculos por Produto comercial e preservando descrição, unidade fiscal, CFOP,
+  NCM e CEST de origem.
+- Iniciada a normalização dos itens de Pré-entrada com
+  `idProductFiscalReference`; a API passa a ler o produto, a unidade e a
+  conversão pelo catálogo canônico, mantendo os campos antigos apenas durante
+  a migração segura do histórico.
+- Atualizada a listagem de Produtos Vinculados com colunas de PDV, Produto,
+  Grupo e Vínculos, ordenação e pesquisa com cursor preservado.
+- A visualização dos vínculos fiscais passou a exibir operação/CFOP, unidade
+  fiscal e fator de conversão em três colunas, sem botão Voltar.
+- CESTs presentes em vínculos fiscais importados passaram a ser oferecidos no
+  cadastro do Produto para o mesmo NCM, mesmo sem relação no catálogo oficial,
+  preservando a evidência fiscal sem alterar o catálogo oficial.
+- Corrigida a inicialização concorrente do schema de operações fiscais, que
+  podia fazer a consulta de Produtos Vinculados falhar durante a migração.
+- Corrigida a atualização oficial NCM/CEST para interpretar todos os anexos
+  HTML do Convênio ICMS 142/18 e expandir relações informadas por posição NCM,
+  incluindo `2009 → 20096100 → 1701000`.
 
 - Pré-entradas novas começam em **Em Digitação** e podem ser salvas sem
   vínculos ou pagamento completos; quando os itens e o pagamento são válidos,
@@ -19,6 +65,37 @@ o versionamento automático quando o build é executado.
   substituir vínculos já definidos.
 - Ajustado o layout da tabela para preservar a altura natural das linhas,
   exibir todas as colunas e quebrar texto somente entre palavras.
+- Status da pré-entrada agora são exibidos em negrito, com cores distintas:
+  preto para Em Digitação, azul para Em Aberto, verde para Confirmada e
+  vermelho para Cancelada.
+- Adicionados controles de ordenação nos cabeçalhos da lista de documentos,
+  com ordem inicial por data de emissão crescente e alternância entre ASC e
+  DESC.
+- Adicionado header operacional com pesquisa textual e filtros por status,
+  exibindo contadores para Todos, Em Digitação, Em Aberto, Confirmadas e
+  Canceladas. A tela inicia com Em Digitação selecionado.
+- Corrigida a exibição inicial de Conteúdo por unidade no Cadastro de Produtos,
+  aplicando a máscara brasileira com duas casas decimais aos valores carregados
+  do banco.
+- Adicionado o campo Detalhes aos componentes de receitas, com exibição em
+  itálico na listagem, reorganização da coluna Unidade culinária e cálculo do
+  Custo por unidade final com base no rendimento.
+- Padronizado o comportamento de comboboxes customizados com
+  `src/ui/combobox.js`: somente o combobox ativo permanece aberto e o dropdown
+  fecha ao clicar fora ou pressionar `Escape`. O editor de componentes aplica
+  essa convenção, não abre simultaneamente os comboboxes da tela e do modal e
+  exibe o código do produto entre parênteses somente no combobox, também
+  incluindo-o na pesquisa; a listagem mantém apenas a descrição. Alteração
+  somente frontend, sem reinício da API.
+- Ajustadas as larguras da listagem de componentes: `#` 50px, `Quantidade`
+  100px, `Unidade culinária` 150px, `Perda` 80px, `Custo` 80px e `Ações`
+  100px; `Componente` ocupa o espaço disponível.
+- Centralizados os headers de `Quantidade`, `Unidade culinária`, `Perda`, `Custo`
+  e `Ações` na listagem de componentes, mantendo `Quantidade` à direita no
+  conteúdo. Na listagem de receitas, `Tipo`, `Status` e `Ações` ficam
+  centralizados no header e no conteúdo.
+- Corrigida a pesquisa da listagem de receitas para preservar foco, posição e
+  direção do cursor durante o rerender, evitando inversão da digitação.
 - Validação concluída com a suíte `npm.cmd test`, `node --check` nos arquivos
   JavaScript alterados e `git diff --check`; não foi executado build Tauri.
 

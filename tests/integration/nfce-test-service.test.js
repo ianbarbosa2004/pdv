@@ -128,7 +128,7 @@ test("extrai e valida dados do XML autorizado", () => {
       <NFe>
         <infNFe Id="NFe31261004641376030124650080000482771496517110">
           <ide><mod>65</mod><serie>8</serie><nNF>48277</nNF><natOp>Venda</natOp><dhEmi>2026-10-25T11:30:41-03:00</dhEmi></ide>
-          <emit><CNPJ>04641376030124</CNPJ><xNome>Fornecedor Teste</xNome><enderEmit><xLgr>Rua A</xLgr><nro>10</nro><xMun>Belo Horizonte</xMun><UF>MG</UF></enderEmit></emit>
+          <emit><CNPJ>04641376030124</CNPJ><xNome>Fornecedor Teste</xNome><enderEmit><xLgr>Rua A</xLgr><nro>10</nro><xCpl>Loja 2</xCpl><xMun>Belo Horizonte</xMun><UF>MG</UF><CEP>30110000</CEP></enderEmit></emit>
           <det nItem="1"><prod><cProd>0033857</cProd><xProd>STELLA ARTOIS PURE GOLD 600ML</xProd><NCM>22030000</NCM><CFOP>5405</CFOP><uCom>DZ</uCom><qCom>2.0000</qCom><vUnCom>276.85</vUnCom><vProd>553.70</vProd><uTrib>UN</uTrib><qTrib>24.0000</qTrib><vUnTrib>23.0708</vUnTrib></prod><imposto><ICMS><ICMS60><orig>0</orig><CST>60</CST></ICMS60></ICMS></imposto><indTot>1</indTot></det>
           <total><ICMSTot><vNF>209.57</vNF></ICMSTot></total>
           <cobr><dup><nDup>001</nDup><dVenc>2026-11-05</dVenc><vDup>553.70</vDup></dup></cobr>
@@ -143,6 +143,10 @@ test("extrai e valida dados do XML autorizado", () => {
   assert.equal(result.total, "209.57");
   assert.equal(result.status, "100");
   assert.equal(result.issuer.legalName, "Fornecedor Teste");
+  assert.equal(result.issuer.address.street, "Rua A");
+  assert.equal(result.issuer.address.number, "10");
+  assert.equal(result.issuer.address.complement, "Loja 2");
+  assert.equal(result.issuer.address.postalCode, "30110000");
   assert.equal(result.items[0].supplierCode, "0033857");
   assert.equal(result.items[0].fiscalUnit, "DZ");
   assert.equal(result.items[0].taxableQuantity, "24.0000");
@@ -187,6 +191,37 @@ test("extrai o conjunto mínimo de dados da consulta HTML da NFC-e", () => {
     finalConsumer: "1 - Sim",
     buyerPresence: "1 - Operação presencial",
     type: "1 - Saída"
+  });
+
+  test("extrai o cadastro do emitente e o endereço da consulta HTML detalhada", () => {
+    const result = parseFiscalDocumentHtml(`
+      <h4>Consulta Completa - Ambiente de Produção</h4>
+      <h5>31-26/10-23.881.328/0001-60-65-001-000.053.576-129.713.4347</h5>
+      <table><tr><th>Modelo</th><th>Série</th><th>Número</th><th>Data Emissão</th></tr>
+        <tr><td>65</td><td>1</td><td>53576</td><td>29/10/2026 17:12:33</td></tr></table>
+      <table><tr><th>Valor total do serviço</th><th>Base de Cálculo ICMS</th><th>Valor ICMS</th></tr>
+        <tr><td>R$ 114,79</td><td>R$ 0,00</td><td>R$ 0,00</td></tr></table>
+      <table><tr><th>CNPJ</th><th>Nome / Razão Social</th><th>Inscrição Estadual</th><th>UF</th></tr>
+        <tr><td>23881328000160</td><td>Casa dos Frangos Eireli ME</td><td>0026790840028</td><td>MG</td></tr></table>
+      <table><tr><th>Nome / Razão Social</th><th>Nome Fantasia</th><th>CNPJ</th><th>Inscrição Estadual</th></tr>
+        <tr><td>Casa dos Frangos Eireli ME</td><td>CASA DO FRANGO</td><td>23881328000160</td><td>0026790840028</td></tr></table>
+      <table><tr><th>Endereço</th><th>Bairro / Distrito</th><th>Município</th></tr>
+        <tr><td>Rua Espirito Santo, 1262</td><td>Cristo Redentor</td><td>Patos de Minas, MG</td></tr></table>
+      <table><tr><th>Telefone</th><th>CEP</th></tr>
+        <tr><td>(34) 9999-99-82</td><td>38700254</td></tr></table>
+      <table><tr><th>Número</th><th>Descrição</th><th>Quantidade</th><th>Unidade Comercial</th><th>Valor Unitário</th><th>Valor(R$)</th></tr>
+        <tr><td>1</td><td>FRANGO PASSARINHO</td><td>1.0000</td><td>Kg</td><td>R$ 14,99</td><td>R$ 14,99</td></tr></table>
+      <div>Situação atual: AUTORIZADA</div>
+      <table><tr><th>Eventos da NFC-e</th><th>Protocolo</th><th>Data Autorização</th><th>Data Inclusão BD</th></tr>
+        <tr><td>Autorização de Uso (Cód.: 110100)</td><td>131262746466051</td><td>29/10/2026 17:12:33</td><td>29/10/2026 17:12:33</td></tr></table>
+    `);
+    assert.equal(result.issuer.tradeName, "CASA DO FRANGO");
+    assert.equal(result.issuer.address.street, "Rua Espirito Santo");
+    assert.equal(result.issuer.address.number, "1262");
+    assert.equal(result.issuer.address.neighborhood, "Cristo Redentor");
+    assert.equal(result.issuer.address.city, "Patos de Minas");
+    assert.equal(result.issuer.address.state, "MG");
+    assert.equal(result.issuer.address.postalCode, "38700254");
   });
   assert.deepEqual(result.emission, {
     process: "0 - com aplicativo do Contribuinte",

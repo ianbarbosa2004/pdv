@@ -69,10 +69,10 @@ export function createNcmCestUpdateScreen({ onBack, onTools, onProducts, onTherm
 
   const render = () => {
     root.className = "catalog-screen ncm-cest-update-screen";
-    const update = status?.update;
-    const updateMessage = update?.message === "fetch failed"
+    const lastUpdate = status?.update;
+    const updateMessage = lastUpdate?.message === "fetch failed"
       ? "A fonte oficial não pôde ser acessada pelo servidor. Nenhum dado foi alterado."
-      : update?.message;
+      : lastUpdate?.message;
     root.innerHTML = `
       <header class="classic-titlebar">
         <strong>PDV - Atualizar NCM / CEST</strong>
@@ -98,10 +98,10 @@ export function createNcmCestUpdateScreen({ onBack, onTools, onProducts, onTherm
               <dd>${escapeHtml(status?.sources?.cest || "Carregando...")}</dd>
             </dl>
             ${statusLoading ? "<p>Consultando o último status...</p>" : ""}
-            ${update ? `
-              <p><strong>Última execução:</strong> ${escapeHtml(formatDate(update.completedAt || update.startedAt))}</p>
-              <p><strong>Status:</strong> ${escapeHtml(update.status)} — ${escapeHtml(updateMessage || "")}</p>
-              <p><strong>Registros:</strong> ${update.ncmCount} NCMs, ${update.cestCount} CESTs e ${update.relationCount} relações.</p>
+            ${lastUpdate ? `
+              <p><strong>Última execução:</strong> ${escapeHtml(formatDate(lastUpdate.completedAt || lastUpdate.startedAt))}</p>
+              <p><strong>Status:</strong> ${escapeHtml(lastUpdate.status)} — ${escapeHtml(updateMessage || "")}</p>
+              <p><strong>Registros:</strong> ${lastUpdate.ncmCount} NCMs, ${lastUpdate.cestCount} CESTs e ${lastUpdate.relationCount} relações.</p>
             ` : ""}
             ${error ? `<p class="error-message">${escapeHtml(error)}</p>` : ""}
           </div>

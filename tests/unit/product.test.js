@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildDuplicatedProductDraft,
-  getDuplicatedProductName
+  formatProductStockForInput,
+  getDuplicatedProductName,
+  normalizeProductPackageQuantity
 } from "../../src/shared/product.js";
 import { readFile } from "node:fs/promises";
 
@@ -59,8 +61,16 @@ test("duplica somente os dados cadastrais e limpa identidade, estoque e status",
   );
 });
 
+test("normaliza conteúdo por unidade e estoque de forma idêntica nos modais", () => {
+  assert.equal(normalizeProductPackageQuantity("10"), "10");
+  assert.equal(normalizeProductPackageQuantity(null), "1");
+  assert.equal(formatProductStockForInput("0.000", false), "0");
+  assert.equal(formatProductStockForInput("1.250", true), "1.250");
+});
+
 test("mantém os controles de catálogo compartilhados para edição e duplicação", async () => {
   const source = await readFile(new URL("../../src/catalog/catalog-screen.js", import.meta.url), "utf8");
+  const viewsSource = await readFile(new URL("../../src/tools/views-screen.js", import.meta.url), "utf8");
   const sharedListSource = await readFile(new URL("../../src/tools/product-list-view.js", import.meta.url), "utf8");
   assert.match(source, /data-edit="\$\{product\.idProduct\}"/);
   assert.match(source, /data-duplicate="\$\{product\.idProduct\}"/);
@@ -71,6 +81,23 @@ test("mantém os controles de catálogo compartilhados para edição e duplicaç
   assert.match(source, /product-cost-column">R\$/);
   assert.doesNotMatch(source, /product-stock-column/);
   assert.match(source, /packageQuantityProduct: "1"/);
+  assert.match(
+    source,
+    /value="\$\{escapeHtml\(formatMaskedNumber\(normalizeProductPackageQuantity\(newProductDraft\.packageQuantityProduct\)\)\)\}"/
+  );
+  assert.match(
+    source,
+    /value="\$\{escapeHtml\(formatMaskedNumber\(normalizeProductPackageQuantity\(editingProduct\.packageQuantityProduct\)\)\)\}"/
+  );
+  assert.doesNotMatch(source, /packageQuantityProduct: normalizeMaskedNumber/u);
+  assert.match(viewsSource, /normalizeProductPackageQuantity\(product\.packageQuantityProduct\)/u);
+  assert.match(viewsSource, /formatProductStockForInput\(product\.stockQuantityProduct, product\.isFractionalProduct\)/u);
+  assert.doesNotMatch(viewsSource, /normalizeMaskedNumber\(product\.packageQuantityProduct/u);
+  assert.match(viewsSource, /name="skuProduct" data-uppercase-mask/u);
+  assert.match(viewsSource, /product-sale-price-row/u);
+  assert.match(viewsSource, /product-cost-stock-row/u);
+  assert.match(viewsSource, /name="printsPlace"/u);
+  assert.match(viewsSource, /name="controlsStockProduct"/u);
   assert.match(source, /field-help-tooltip/);
   assert.match(source, /pointerenter.*is-help-visible/);
   assert.doesNotMatch(source, /field-help-trigger:hover \.field-help-tooltip/);

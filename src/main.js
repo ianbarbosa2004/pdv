@@ -30,6 +30,7 @@ import { createRecipeReviewScreen } from "./tools/recipe-review-screen.js";
 import { createCulinaryReferenceScreen } from "./catalog/culinary-reference-screen.js";
 import { createRecipeScreen } from "./catalog/recipe-screen.js";
 import { createFiscalDocumentQueueScreen } from "./stock/fiscal-document-queue-screen.js";
+import { createProductFiscalReferenceScreen } from "./stock/product-fiscal-reference-screen.js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { loadProjectIcon } from "./ui/project-icon.js";
 import { installTablePagination } from "./ui/table-pagination.js";
@@ -157,6 +158,7 @@ const common = () => ({
   "fiscal-document-queue": showFiscalDocumentQueue,
   onFiscalEntryXml: showFiscalEntryXml,
   "fiscal-entry-xml": showFiscalEntryXml,
+  "product-fiscal-references": showProductFiscalReferences,
   exit: requestExit,
   sair: requestExit
 });
@@ -285,6 +287,10 @@ const showFiscalEntryXml = (initialEntryId = null) =>
     initialEntryId,
     ...common()
   }));
+const showProductFiscalReferences = () =>
+  mount(createProductFiscalReferenceScreen({
+    ...common()
+  }));
 const showFiscalOperations = () =>
   mount(createFiscalOperationScreen({
     onBack: showBackoffice,
@@ -390,15 +396,6 @@ const showNfceQuery = () =>
   mount(createNfceQueryScreen({ onBack: showBackoffice, onNfce: showNfce, ...common() }));
 const showNavigationBuilder = () =>
   mount(createNavigationBuilderScreen({ onBack: showSettings, ...common() }));
-
-const showProductEditor = (product) => {
-  const productType = String(product?.productTypeDescription ?? "").trim().toLocaleUpperCase("pt-BR");
-  if (productType === "PRODUTO ACABADO") return showFinishedProducts(product.idProduct);
-  if (productType === "MATÉRIA-PRIMA") return showRawMaterials(product.idProduct);
-  if (productType === "EMBALAGEM") return showPackaging(product.idProduct);
-  if (productType === "MATERIAL DE USO E CONSUMO") return showConsumables(product.idProduct);
-  return showCatalog(product?.idProduct);
-};
 
 window.__PDV_NAVIGATION_HANDLERS__ = common();
 
