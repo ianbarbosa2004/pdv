@@ -17,6 +17,16 @@ test("normaliza textos extraídos para capitalização de títulos", () => {
   assert.equal(formatSupplierTitle("PATOS DE MINAS"), "Patos de Minas");
 });
 
+test("o preenchimento por CNPJ usa capitalização de títulos nos campos textuais", async () => {
+  const source = await readFile(
+    new URL("../../src/catalog/supplier-screen.js", import.meta.url),
+    "utf8"
+  );
+  assert.match(source, /formatSupplierTitle\(value\)/);
+  assert.match(source, /companyNameSupplier.*tradeNameSupplier.*contactNameSupplier/s);
+  assert.match(source, /setSupplierField\(form, "companyNameSupplier", company\.razao_social\)/);
+});
+
 test("renderiza os mesmos campos do modal de fornecedor para o cadastro pela fila", () => {
   const html = renderSupplierFormFields({
     typeSupplier: "juridica",

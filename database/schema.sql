@@ -62,6 +62,12 @@ CREATE TABLE IF NOT EXISTS fiscal_documents (
   issuerLegalNameFiscalDocument VARCHAR(180) NOT NULL DEFAULT '',
   issuerTradeNameFiscalDocument VARCHAR(180) NOT NULL DEFAULT '',
   issuerStateRegistrationFiscalDocument VARCHAR(30) NOT NULL DEFAULT '',
+  issuerAddressFiscalDocument VARCHAR(180) NOT NULL DEFAULT '',
+  issuerAddressNumberFiscalDocument VARCHAR(20) NOT NULL DEFAULT '',
+  issuerNeighborhoodFiscalDocument VARCHAR(100) NOT NULL DEFAULT '',
+  issuerCityFiscalDocument VARCHAR(100) NOT NULL DEFAULT '',
+  issuerStateFiscalDocument CHAR(2) NOT NULL DEFAULT '',
+  issuerZipCodeFiscalDocument VARCHAR(9) NOT NULL DEFAULT '',
   issuedAtFiscalDocument DATETIME NOT NULL,
   seriesFiscalDocument VARCHAR(20) NOT NULL DEFAULT '',
   numberFiscalDocument VARCHAR(30) NOT NULL DEFAULT '',
@@ -126,23 +132,6 @@ CREATE TABLE IF NOT EXISTS fiscal_document_items (
   UNIQUE KEY uqFiscalDocumentItemsLine (idFiscalDocument, lineNumberFiscalDocumentItem),
   KEY idxFiscalDocumentItemsDescription (descriptionFiscalDocumentItem),
   CONSTRAINT fkFiscalDocumentItemsDocument
-    FOREIGN KEY (idFiscalDocument) REFERENCES fiscal_documents (idFiscalDocument)
-    ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS fiscal_document_payments (
-  idFiscalDocumentPayment BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  idFiscalDocument BIGINT UNSIGNED NOT NULL,
-  installmentNumberFiscalDocumentPayment VARCHAR(30) NOT NULL DEFAULT '',
-  dueDateFiscalDocumentPayment DATE NULL,
-  amountFiscalDocumentPayment DECIMAL(14,2) NOT NULL DEFAULT 0,
-  paymentTypeFiscalDocumentPayment VARCHAR(10) NOT NULL DEFAULT '',
-  paymentDescriptionFiscalDocumentPayment VARCHAR(120) NOT NULL DEFAULT '',
-  cardBrandFiscalDocumentPayment VARCHAR(20) NOT NULL DEFAULT '',
-  createdAtFiscalDocumentPayment TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (idFiscalDocumentPayment),
-  KEY idxFiscalDocumentPaymentsDocument (idFiscalDocument, installmentNumberFiscalDocumentPayment),
-  CONSTRAINT fkFiscalDocumentPaymentsDocument
     FOREIGN KEY (idFiscalDocument) REFERENCES fiscal_documents (idFiscalDocument)
     ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

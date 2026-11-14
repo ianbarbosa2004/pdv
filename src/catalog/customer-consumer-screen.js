@@ -3,6 +3,7 @@ import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { renderScreenContextBar } from "../ui/screen-context.js";
 import { renderNavigationIntro } from "../ui/navigation-intro.js";
 import { bindFormRowPreview } from "../ui/form-row-preview.js";
+import { rerenderPreservingInputSelection } from "../ui/input-selection.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { apiFetch, getApiUrl } from "../shared/api.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
@@ -100,8 +101,9 @@ export function createCustomerConsumerScreen({
   let newDraft = {};
   const scheduleMessageClear = createFeedbackTimer();
 
-  const load = async ({ captureDraft = true } = {}) => {
-    loading = true; render({ captureDraft });
+  const load = async ({ captureDraft = true, renderState = true } = {}) => {
+    loading = true;
+    if (renderState) render({ captureDraft });
     try {
       const response = await apiFetch(`${getApiUrl()}/api/${endpoint}?includeInactive=1`);
       const payload = await response.json();
@@ -109,7 +111,7 @@ export function createCustomerConsumerScreen({
       items = payload[endpoint]; error = "";
     } catch (loadError) {
       error = loadError instanceof Error ? loadError.message : `Falha ao carregar ${title.toLocaleLowerCase("pt-BR")}.`;
-    } finally { loading = false; render({ captureDraft }); }
+    } finally { loading = false; if (renderState) render({ captureDraft }); }
   };
 
   const renderFields = (item = {}) => fields[entity].map(([name, label, type, required]) => {
@@ -190,7 +192,10 @@ export function createCustomerConsumerScreen({
       });
     });
     bindNumberMasks(root);
-    root.querySelector("[data-search]")?.addEventListener("input", (event) => { searchTerm = event.currentTarget.value; render(); root.querySelector("[data-search]")?.focus(); });
+    root.querySelector("[data-search]")?.addEventListener("input", (event) => {
+      searchTerm = event.currentTarget.value;
+      rerenderPreservingInputSelection(event.currentTarget, render, () => root.querySelector("[data-search]"));
+    });
     root.querySelector(formSelector)?.addEventListener("submit", (event) => { event.preventDefault(); void submit(Object.fromEntries(new FormData(event.currentTarget)), null); });
     root.querySelector("[data-edit-form]")?.addEventListener("submit", (event) => { event.preventDefault(); void submit(Object.fromEntries(new FormData(event.currentTarget)), getEntityId(editing)); });
     root.querySelector("[data-clear]")?.addEventListener("click", () => { newDraft = {}; error = ""; message = ""; render({ captureDraft: false }); });
@@ -213,7 +218,7 @@ export function createCustomerConsumerScreen({
       if (!response.ok) throw new Error(payload.error || `Não foi possível salvar ${singular}.`);
       message = id ? `O ${singular} foi alterado com sucesso.` : `O ${singular} foi cadastrado com sucesso.`;
       if (!id) newDraft = {};
-      await load({ captureDraft: false });
+      await load({ captureDraft: false, renderState: false });
       if (id) root.__PDV_FORM_PREVIEW_PENDING__ = items.find((item) => String(getEntityId(item)) === String(id));
       editing = null; scheduleMessageClear(clearFeedback);
     } catch (submitError) { error = submitError instanceof Error ? submitError.message : "Falha ao salvar."; }

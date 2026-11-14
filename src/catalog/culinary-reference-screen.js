@@ -7,6 +7,7 @@ import { confirmAction } from "../ui/confirmation-modal.js";
 import { formatBrazilianDecimal, parseBrazilianDecimal } from "../shared/decimal.js";
 import { getContextualNavigationItems, renderContextualNavigationItems } from "../ui/contextual-navigation.js";
 import { resolveNavigationHandler } from "../ui/navigation-routing.js";
+import { rerenderPreservingInputSelection } from "../ui/input-selection.js";
 
 const escapeHtml = (value) => String(value ?? "")
   .replaceAll("&", "&amp;")
@@ -67,17 +68,7 @@ const categoryLabels = new Map([
   ["general", "Geral"]
 ]);
 
-export const preserveCulinarySearchSelection = (input, render, getNextInput) => {
-  const selectionStart = input.selectionStart;
-  const selectionEnd = input.selectionEnd;
-  const selectionDirection = input.selectionDirection;
-  render();
-  const nextInput = getNextInput();
-  nextInput?.focus();
-  if (nextInput && selectionStart !== null && selectionEnd !== null) {
-    nextInput.setSelectionRange(selectionStart, selectionEnd, selectionDirection || "none");
-  }
-};
+export const preserveCulinarySearchSelection = rerenderPreservingInputSelection;
 
 export function createCulinaryReferenceScreen({ kind, onBack, ...menuHandlers }) {
   const definition = definitions[kind];

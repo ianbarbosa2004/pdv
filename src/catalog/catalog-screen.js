@@ -1,6 +1,7 @@
 import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { bindFormRowPreview } from "../ui/form-row-preview.js";
+import { rerenderPreservingInputSelection } from "../ui/input-selection.js";
 import { bindProductNavigation, renderProductNavigation } from "./product-navigation.js";
 import {
   bindNumberMasks,
@@ -79,6 +80,7 @@ export function createCatalogScreen({
   let ncmsLoading = false;
   let ncmLoadError = "";
   let ncmLoadPromise = null;
+  const ncmDescriptions = new Map();
   let cestOptions = [];
   let newNcmProduct = "";
   let newCestProduct = "";
@@ -135,12 +137,15 @@ export function createCatalogScreen({
   const renderNcmField = (selectedValue) => {
     const selectedNcm = getSelectedNcm(selectedValue);
     const selectedCode = selectedNcm?.codeNcm || selectedValue || "";
+    const description = selectedNcm?.descriptionNcm
+      || ncmDescriptions.get(String(selectedCode))
+      || (selectedCode ? "Carregando descrição..." : "Nenhum NCM selecionado");
     return `
-      <label class="form-field"><span>NCM</span>
+      <label class="form-field catalog-fiscal-field"><span>NCM</span>
         <div class="catalog-lookup-field">
-          <input name="ncmProduct" value="${escapeHtml(selectedCode)}" placeholder="Não informado" readonly />
+          <input name="ncmProduct" value="${escapeHtml(selectedCode)}" placeholder="Não informado" readonly data-open-ncm />
           <button class="catalog-lookup-button" type="button" data-open-ncm title="Consultar NCM" aria-label="Consultar NCM"><i data-lucide="search"></i></button>
-          <span class="catalog-lookup-description">${escapeHtml(selectedNcm?.descriptionNcm || "Nenhum NCM selecionado")}</span>
+          <span class="catalog-lookup-description">${escapeHtml(description)}</span>
         </div>
       </label>
     `;
@@ -289,6 +294,7 @@ export function createCatalogScreen({
     message = "";
     render();
     void loadCestOptions(newNcmProduct);
+    void loadNcmDescription(newNcmProduct);
     root.querySelector("[data-product-form] [name='nameProduct']")?.focus();
   };
 
@@ -361,13 +367,13 @@ export function createCatalogScreen({
             <label class="form-field"><span>Operação fiscal de venda</span><select name="idFiscalOperationSaleProduct">${renderFiscalOperationOptions(newProductDraft.idFiscalOperationSaleProduct)}</select></label>
           </div>
           <div class="classic-form-grid">
-            <label class="form-field"><span class="field-label-with-help">Conteúdo por unidade <button class="field-help-trigger" type="button" aria-label="Ajuda sobre conteúdo por unidade" aria-describedby="new-package-quantity-help">?<span class="field-help-tooltip" id="new-package-quantity-help" role="tooltip">Quantidade da unidade tributável contida em uma embalagem deste produto. Ex.: uma garrafa com 750 ml informa 750.</span></button></span><input name="packageQuantityProduct" data-number-mask="decimal" inputmode="decimal" min="0.001" required             value="${escapeHtml(formatMaskedNumber(normalizeProductPackageQuantity(newProductDraft.packageQuantityProduct)))}" /></label>
+            <label class="form-field"><span class="field-label-with-help">Conteúdo por unidade <button class="field-help-trigger" type="button" aria-label="Ajuda sobre conteúdo por unidade" aria-describedby="new-package-quantity-help">?<span class="field-help-tooltip" id="new-package-quantity-help" role="tooltip">Quantidade da unidade tributável contida em uma embalagem deste produto. Ex.: uma garrafa com 750 ml informa 750.</span></button></span><input name="packageQuantityProduct" data-number-mask="fractional-3" inputmode="decimal" min="0.001" required             value="${escapeHtml(formatMaskedNumber(normalizeProductPackageQuantity(newProductDraft.packageQuantityProduct), 3))}" /></label>
             <label class="form-field"><span>Unidade tributável</span><select name="idUnitProduct" required>${renderUnitOptions(newProductDraft.idUnitProduct)}</select></label>
           </div>
           ${isRawMaterialsCatalog ? `<label class="form-field"><span>Estado físico</span><select name="idPhysicalStateProduct" required>${renderPhysicalStateOptions(newProductDraft.idPhysicalStateProduct)}</select></label>` : ""}
           <div class="classic-form-grid">
             ${renderNcmField(newNcmProduct)}
-            <label class="form-field"><span>CEST</span><select name="cestProduct" ${cestOptions.length ? "" : "disabled"}>${renderCestOptions(newCestProduct)}</select></label>
+            <label class="form-field catalog-fiscal-field"><span>CEST</span><select name="cestProduct" ${cestOptions.length ? "" : "disabled"}>${renderCestOptions(newCestProduct)}</select></label>
           </div>
           ${isNonSaleCatalog ? "" : `<div class="classic-form-grid product-sale-price-row">${renderSalePriceField(newProductDraft, true)}</div>`}
           <div class="classic-form-grid product-cost-stock-row">
@@ -469,13 +475,13 @@ export function createCatalogScreen({
                   <label class="form-field"><span>Operação fiscal de venda</span><select name="idFiscalOperationSaleProduct">${renderFiscalOperationOptions(editingProduct.idFiscalOperationSaleProduct)}</select></label>
                 </div>
                 <div class="classic-form-grid">
-                  <label class="form-field"><span class="field-label-with-help">Conteúdo por unidade <button class="field-help-trigger" type="button" aria-label="Ajuda sobre conteúdo por unidade" aria-describedby="edit-package-quantity-help">?<span class="field-help-tooltip" id="edit-package-quantity-help" role="tooltip">Quantidade da unidade tributável contida em uma embalagem deste produto. Ex.: uma garrafa com 750 ml informa 750.</span></button></span><input name="packageQuantityProduct" data-number-mask="decimal" inputmode="decimal" min="0.001" required                   value="${escapeHtml(formatMaskedNumber(normalizeProductPackageQuantity(editingProduct.packageQuantityProduct)))}" /></label>
+                  <label class="form-field"><span class="field-label-with-help">Conteúdo por unidade <button class="field-help-trigger" type="button" aria-label="Ajuda sobre conteúdo por unidade" aria-describedby="edit-package-quantity-help">?<span class="field-help-tooltip" id="edit-package-quantity-help" role="tooltip">Quantidade da unidade tributável contida em uma embalagem deste produto. Ex.: uma garrafa com 750 ml informa 750.</span></button></span><input name="packageQuantityProduct" data-number-mask="fractional-3" inputmode="decimal" min="0.001" required                   value="${escapeHtml(formatMaskedNumber(normalizeProductPackageQuantity(editingProduct.packageQuantityProduct), 3))}" /></label>
                   <label class="form-field"><span>Unidade tributável</span><select name="idUnitProduct" required>${renderUnitOptions(editingProduct.idUnitProduct)}</select></label>
                 </div>
                 ${isRawMaterialsCatalog ? `<label class="form-field"><span>Estado físico</span><select name="idPhysicalStateProduct" required>${renderPhysicalStateOptions(editingProduct.idPhysicalStateProduct)}</select></label>` : ""}
                 <div class="classic-form-grid">
                   ${renderNcmField(editingProduct.ncmProduct)}
-                  <label class="form-field"><span>CEST</span><select name="cestProduct" ${cestOptions.length ? "" : "disabled"}>${renderCestOptions(editingProduct.cestProduct)}</select></label>
+                  <label class="form-field catalog-fiscal-field"><span>CEST</span><select name="cestProduct" ${cestOptions.length ? "" : "disabled"}>${renderCestOptions(editingProduct.cestProduct)}</select></label>
                 </div>
                 ${isNonSaleCatalog ? "" : `<div class="classic-form-grid product-sale-price-row">${renderSalePriceField(editingProduct, true)}</div>`}
                 <div class="classic-form-grid product-cost-stock-row">
@@ -585,13 +591,10 @@ export function createCatalogScreen({
     });
     root.querySelector("[data-search]")?.addEventListener("input", (event) => {
       searchTerm = event.currentTarget.value;
-      render();
-      const searchInput = root.querySelector("[data-search]");
-      searchInput?.focus();
-      searchInput?.setSelectionRange(searchTerm.length, searchTerm.length);
+      rerenderPreservingInputSelection(event.currentTarget, render, () => root.querySelector("[data-search]"));
     });
-    root.querySelectorAll("[data-open-ncm]").forEach((button) => {
-      button.addEventListener("click", () => {
+    root.querySelectorAll("[data-open-ncm]").forEach((control) => {
+      control.addEventListener("click", () => {
         if (!editingProduct) captureNewProductDraft();
         ncmLookupOpen = true;
         ncmLookupTerm = "";
@@ -609,15 +612,8 @@ export function createCatalogScreen({
     });
     root.querySelector("[data-ncm-lookup-search]")?.addEventListener("input", (event) => {
       const input = event.currentTarget;
-      const selectionStart = input.selectionStart;
-      const selectionEnd = input.selectionEnd;
       ncmLookupTerm = input.value;
-      render();
-      const nextInput = root.querySelector("[data-ncm-lookup-search]");
-      nextInput?.focus();
-      if (selectionStart !== null && selectionEnd !== null) {
-        nextInput?.setSelectionRange(selectionStart, selectionEnd);
-      }
+      rerenderPreservingInputSelection(input, render, () => root.querySelector("[data-ncm-lookup-search]"));
     });
     root.querySelectorAll("[data-select-ncm]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -661,6 +657,7 @@ export function createCatalogScreen({
         cestOptions = [];
         render();
         void loadCestOptions(editingProduct?.ncmProduct);
+        void loadNcmDescription(editingProduct?.ncmProduct);
         root.querySelector("[data-edit-product-form] [name='nameProduct']")?.focus();
       });
     });
@@ -763,6 +760,28 @@ export function createCatalogScreen({
     return ncmLoadPromise;
   };
 
+  const loadNcmDescription = async (ncmCode) => {
+    const code = String(ncmCode ?? "").replace(/\D/g, "");
+    if (!/^\d{8}$/.test(code) || ncmDescriptions.has(code)) return;
+    try {
+      const response = await apiFetch(
+        `${getApiUrl()}/api/ncm-cest/ncms?page=1&pageSize=1&search=${encodeURIComponent(code)}`
+      );
+      const payload = await response.json();
+      if (!response.ok || !Array.isArray(payload.ncms)) {
+        ncmDescriptions.set(code, payload.error || "Não foi possível carregar a descrição");
+        render();
+        return;
+      }
+      const ncm = payload.ncms.find((item) => String(item.codeNcm) === code);
+      ncmDescriptions.set(code, ncm?.descriptionNcm || "Descrição não encontrada");
+      render();
+    } catch {
+      ncmDescriptions.set(code, "Não foi possível carregar a descrição");
+      render();
+    }
+  };
+
   const deleteProduct = async (id) => {
     const confirmed = await confirmAction({
       title: "Excluir produto",
@@ -841,6 +860,7 @@ export function createCatalogScreen({
       if (initialProductId && !editingProduct) {
         editingProduct = products.find(({ idProduct }) => String(idProduct) === String(initialProductId)) || null;
       }
+      void loadNcmDescription(editingProduct?.ncmProduct);
       fiscalOperations = operationPayload.fiscalOperations.filter(({ typeFiscalOperation }) => typeFiscalOperation === "exit");
       productTypes = typePayload.productTypes;
       units = unitPayload.units;
@@ -911,7 +931,7 @@ export function createCatalogScreen({
             ? Number(formData.get("idPhysicalStateProduct"))
             : null,
           idUnitProduct: formData.get("idUnitProduct") ? Number(formData.get("idUnitProduct")) : null,
-          packageQuantityProduct: formData.get("packageQuantityProduct") || "1",
+          packageQuantityProduct: normalizeMaskedNumber(formData.get("packageQuantityProduct"), 3) || "1.000",
           ncmProduct: formData.get("ncmProduct") || null,
           cestProduct: formData.get("cestProduct") || null,
           priceProduct: isNonSaleCatalog

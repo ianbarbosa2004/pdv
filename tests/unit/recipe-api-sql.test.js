@@ -127,8 +127,8 @@ test("alinha colunas operacionais das listagens de receitas e componentes", asyn
 
 test("preserva a posição do cursor na pesquisa de receitas", async () => {
   const source = await readFile("src/catalog/recipe-screen.js", "utf8");
-  assert.match(source, /const selectionStart = input\.selectionStart[\s\S]*?const selectionEnd = input\.selectionEnd/u);
-  assert.match(source, /nextInput\?\.setSelectionRange\(selectionStart, selectionEnd, selectionDirection \|\| "none"\)/u);
+  assert.match(source, /import \{ rerenderPreservingInputSelection \} from "\.\.\/ui\/input-selection\.js";/u);
+  assert.match(source, /rerenderPreservingInputSelection\(input, render, \(\) => root\.querySelector\("\[data-recipe-search\]"\)\)/u);
 });
 
 test("posiciona o bloco de componentes após divisor e antes da listagem", async () => {

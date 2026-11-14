@@ -1,12 +1,11 @@
 {
   "name": "pdv",
-  "version": "0.16.0",
+  "version": "0.16.2",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "prebuild": "node scripts/increment-version.mjs auto",
     "preview": "vite preview",
     "test": "node --test",
     "api": "node --env-file=.env src/server/server.js",
@@ -21,7 +20,7 @@
     "migrate:products-physical-state-fk": "node --env-file=.env scripts/migrations/migrate-products-physical-state-fk.mjs",
     "create:operator": "node --env-file=.env scripts/create-operator.mjs",
     "release:client": "node scripts/build-client-release.mjs",
-    "prerelease:client": "node scripts/increment-version.mjs auto",
+    "prerelease:client": "node scripts/increment-version.mjs hold",
     "version:increment": "node scripts/increment-version.mjs patch",
     "version:auto": "node scripts/increment-version.mjs auto",
     "version:patch": "node scripts/increment-version.mjs patch",

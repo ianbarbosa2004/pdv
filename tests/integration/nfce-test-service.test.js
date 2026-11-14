@@ -341,6 +341,136 @@ test("associa tabelas detalhadas do painel ao item resumido correspondente", () 
   assert.equal(result.items[0].taxSituation, "60");
 });
 
+test("prioriza o valor total real do item no detalhe da SEFAZ", () => {
+  const result = parseFiscalDocumentHtml(`
+    <h2>Chave de acesso</h2>
+    <h5>31-26/10-04.641.376/0301-24-65-008-000.048.277-149.651.7110</h5>
+    <table><tr><th>Modelo</th><th>Série</th><th>Número</th><th>Data Emissão</th></tr>
+      <tr><td>65</td><td>8</td><td>48277</td><td>25/10/2026 11:30:41</td></tr></table>
+    <table><tr><th>Valor total do serviço</th><th>Base de Cálculo ICMS</th><th>Valor ICMS</th></tr>
+      <tr><td>R$ 17,88</td><td>R$ 0,00</td><td>R$ 0,00</td></tr></table>
+    <table><tr><th>CNPJ</th><th>Nome / Razão Social</th><th>Inscrição Estadual</th><th>UF</th></tr>
+      <tr><td>04641376030124</td><td>Fornecedor</td><td>1</td><td>MG</td></tr></table>
+    <table><tr><th>Número</th><th>Descrição</th><th>Unidade Comercial</th><th>Quantidade</th><th>Valor</th></tr>
+      <tr><td>21</td><td>REFRIG COCA COLA 310ML LT SLEEK</td><td>FD</td><td>1</td><td>R$ 4,64</td></tr></table>
+    <div class="panel panel-default">
+      <div class="panel-heading"><div class="col-md-1">21</div><div>REFRIG COCA COLA 310ML LT SLEEK</div></div>
+      <div class="panel-body">
+        <table><tr><th>Código do produto</th></tr><tr><td>123</td></tr></table>
+        <table><tr><th>Valor Total</th></tr><tr><td>R$ 17,88</td></tr></table>
+      </div>
+    </div>
+    <div>Situação atual: AUTORIZADA</div>
+    <table><tr><th>Eventos da NFC-e</th><th>Protocolo</th><th>Data Autorização</th><th>Data Inclusão BD</th></tr>
+      <tr><td>Autorização de Uso</td><td>1</td><td>25/10/2026 11:30:41</td><td>25/10/2026 11:31:00</td></tr></table>
+  `);
+
+  assert.equal(result.items[0].total, "17.88");
+});
+
+test("usa o valor unitário de comercialização e ignora a base de ICMS ST retido", () => {
+  const result = parseFiscalDocumentHtml(`
+    <h2>Chave de acesso</h2>
+    <h5>31-26/10-04.641.376/0301-24-65-008-000.048.277-149.651.7110</h5>
+    <table><tr><th>Modelo</th><th>Série</th><th>Número</th><th>Data Emissão</th></tr>
+      <tr><td>65</td><td>8</td><td>48277</td><td>25/10/2026 11:30:41</td></tr></table>
+    <table><tr><th>Valor total do serviço</th><th>Base de Cálculo ICMS</th><th>Valor ICMS</th></tr>
+      <tr><td>R$ 17,88</td><td>R$ 0,00</td><td>R$ 0,00</td></tr></table>
+    <table><tr><th>CNPJ</th><th>Nome / Razão Social</th><th>Inscrição Estadual</th><th>UF</th></tr>
+      <tr><td>04641376030124</td><td>Fornecedor</td><td>1</td><td>MG</td></tr></table>
+    <table><tr><th>Número</th><th>Descrição</th><th>Unidade Comercial</th><th>Quantidade</th><th>Valor</th></tr>
+      <tr><td>21</td><td>Produto</td><td>UN</td><td>1</td><td>R$ 4,64</td></tr></table>
+    <div class="panel panel-default">
+      <div class="panel-heading"><div class="col-md-1">21</div><div>Produto</div></div>
+      <div class="panel-body">
+        <table><tr><th>Código do produto</th></tr><tr><td>123</td></tr></table>
+        <table><tr><th>Valor da BC do ICMS ST retido</th><th>Valor unitário de comercialização (R$)</th></tr>
+          <tr><td>R$ 4,64</td><td>R$ 17,88</td></tr></table>
+      </div>
+    </div>
+    <div>Situação atual: AUTORIZADA</div>
+    <table><tr><th>Eventos da NFC-e</th><th>Protocolo</th><th>Data Autorização</th><th>Data Inclusão BD</th></tr>
+      <tr><td>Autorização de Uso</td><td>1</td><td>25/10/2026 11:30:41</td><td>25/10/2026 11:31:00</td></tr></table>
+  `);
+
+  assert.equal(result.items[0].unitPrice, "17.88");
+  assert.equal(result.items[0].total, "17.88");
+});
+
+test("lê produtos nos painéis colapse da consulta completa", () => {
+  const result = parseFiscalDocumentHtml(`
+    <h2>Chave de acesso</h2>
+    <h5>31-26/10-04.641.376/0301-24-65-008-000.048.277-149.651.7110</h5>
+    <table><tr><th>Modelo</th><th>Série</th><th>Número</th><th>Data Emissão</th></tr>
+      <tr><td>65</td><td>8</td><td>48277</td><td>25/10/2026 11:30:41</td></tr></table>
+    <table><tr><th>Valor total do serviço</th><th>Base de Cálculo ICMS</th><th>Valor ICMS</th></tr>
+      <tr><td>R$ 17,88</td><td>R$ 0,00</td><td>R$ 0,00</td></tr></table>
+    <table><tr><th>CNPJ</th><th>Nome / Razão Social</th><th>Inscrição Estadual</th><th>UF</th></tr>
+      <tr><td>04641376030124</td><td>Fornecedor</td><td>1</td><td>MG</td></tr></table>
+    <div class="panel panel-default">
+      <div class="panel-heading panel-collapse collapsed" data-target="#collapseListMaster20">
+        <h4 class="panel-title"><div class="row">
+          <div class="col-md-1 panel-plus"></div>
+          <div class="col-md-1">21</div>
+          <div class="col-md-4">Produto</div>
+          <div class="col-md-1">1.0000</div>
+          <div class="col-sm-3">FD</div>
+          <div class="col-md-2">R$ 17,88</div>
+        </div></h4>
+      </div>
+      <div class="panel-body collapse">
+        <table><tr><th>Código do produto</th></tr><tr><td>123</td></tr></table>
+        <table><tr><th>Valor unitário de comercialização</th></tr><tr><td>R$ 17,88</td></tr></table>
+      </div>
+    </div>
+    <div>Situação atual: AUTORIZADA</div>
+    <table><tr><th>Eventos da NFC-e</th><th>Protocolo</th><th>Data Autorização</th><th>Data Inclusão BD</th></tr>
+      <tr><td>Autorização de Uso</td><td>1</td><td>25/10/2026 11:30:41</td><td>25/10/2026 11:31:00</td></tr></table>
+  `);
+
+  assert.equal(result.items.length, 1);
+  assert.equal(result.items[0].lineNumber, 21);
+  assert.equal(result.items[0].unitPrice, "17.88");
+  assert.equal(result.items[0].total, "17.88");
+});
+
+test("calcula o total do item quando o detalhe informa total zero", () => {
+  const result = parseFiscalDocumentHtml(`
+    <h2>Chave de acesso</h2>
+    <h5>31-26/10-04.641.376/0301-24-65-008-000.048.277-149.651.7110</h5>
+    <table><tr><th>Modelo</th><th>Série</th><th>Número</th><th>Data Emissão</th></tr>
+      <tr><td>65</td><td>8</td><td>48277</td><td>25/10/2026 11:30:41</td></tr></table>
+    <table><tr><th>Valor total do serviço</th><th>Base de Cálculo ICMS</th><th>Valor ICMS</th></tr>
+      <tr><td>R$ 17,88</td><td>R$ 0,00</td><td>R$ 0,00</td></tr></table>
+    <table><tr><th>CNPJ</th><th>Nome / Razão Social</th><th>Inscrição Estadual</th><th>UF</th></tr>
+      <tr><td>04641376030124</td><td>Fornecedor</td><td>1</td><td>MG</td></tr></table>
+    <div class="panel panel-default">
+      <div class="panel-heading panel-collapse collapsed" data-target="#collapseListMaster20">
+        <h4 class="panel-title"><div class="row">
+          <div class="col-md-1 panel-plus"></div>
+          <div class="col-md-1">21</div>
+          <div class="col-md-4">Produto</div>
+          <div class="col-md-1">1.0000</div>
+          <div class="col-sm-3">FD</div>
+          <div class="col-md-2">R$ 17,88</div>
+        </div></h4>
+      </div>
+      <div class="panel-body collapse">
+        <table><tr><th>Código do produto</th><th>Quantidade Comercial</th></tr>
+          <tr><td>166738</td><td>1,0000</td></tr></table>
+        <table><tr><th>Valor unitário de comercialização</th><th>Valor Total</th></tr>
+          <tr><td>R$ 17,88</td><td>R$ 0,00</td></tr></table>
+      </div>
+    </div>
+    <div>Situação atual: AUTORIZADA</div>
+    <table><tr><th>Eventos da NFC-e</th><th>Protocolo</th><th>Data Autorização</th><th>Data Inclusão BD</th></tr>
+      <tr><td>Autorização de Uso</td><td>1</td><td>25/10/2026 11:30:41</td><td>25/10/2026 11:31:00</td></tr></table>
+  `);
+
+  assert.equal(result.items[0].unitPrice, "17.88");
+  assert.equal(result.items[0].total, "17.88");
+});
+
 test("rejeita XML autorizado de outra chave", () => {
   assert.throws(
     () => parseFiscalDocumentXml(

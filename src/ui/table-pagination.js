@@ -30,6 +30,7 @@ const bindWrapper = (wrapper, state) => {
   wrapper.dataset.paginationBound = "true";
 
   const update = () => {
+    const defaultPageSize = Number(wrapper.dataset.defaultPageSize) || DEFAULT_PAGE_SIZE;
     const table = wrapper.querySelector("table");
     const rows = [...(table?.tBodies[0]?.rows || [])];
     const total = rows.length;
@@ -37,7 +38,7 @@ const bindWrapper = (wrapper, state) => {
       ? wrapper.nextElementSibling
       : null;
 
-    if (total <= DEFAULT_PAGE_SIZE) {
+    if (total <= defaultPageSize) {
       rows.forEach((row) => {
         row.hidden = false;
       });
@@ -93,7 +94,10 @@ export const installTablePagination = (root) => {
   const bindTables = () => {
     root.querySelectorAll(".classic-grid-wrapper, .ncm-lookup-table-wrapper").forEach((wrapper, index) => {
       const key = `${wrapper.className}:${index}`;
-      const tableState = state.get(key) || { page: 1, pageSize: DEFAULT_PAGE_SIZE };
+      const tableState = state.get(key) || {
+        page: 1,
+        pageSize: Number(wrapper.dataset.defaultPageSize) || DEFAULT_PAGE_SIZE
+      };
       state.set(key, tableState);
       bindWrapper(wrapper, tableState);
     });

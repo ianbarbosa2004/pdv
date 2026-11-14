@@ -163,10 +163,36 @@ const extractHtmlDivBlocksByClass = (html, className) => {
 };
 
 const readHtmlPanelLineNumber = (block) => {
-  const match = String(block).match(
-    /<div\b[^>]*class=["'][^"']*\bcol-md-1\b[^"']*["'][^>]*>\s*(\d+)\s*<\/div>/i
+  const matches = String(block).matchAll(
+    /<div\b[^>]*class=["'][^"']*\bcol-md-1\b[^"']*["'][^>]*>([\s\S]*?)<\/div>/gi
   );
-  return match ? Number(match[1]) : 0;
+  for (const match of matches) {
+    const value = decodeHtmlEntities(match[1]).replace(/<[^>]+>/g, " ").trim();
+    if (/^\d+$/.test(value)) return Number(value);
+  }
+  return 0;
+};
+
+const parseHtmlProductSummaryRows = (html) => {
+  const rows = [];
+  for (const block of extractHtmlDivBlocksByClass(html, "panel panel-default")) {
+    if (!/data-target=["']#collapseListMaster[^"']*["']/i.test(block)) continue;
+    const heading = block.match(
+      /<div\b[^>]*class=["'][^"']*\bpanel-heading\b[^"']*["'][^>]*>([\s\S]*?)<\/h4>/i
+    )?.[1] || "";
+    const cells = [...heading.matchAll(
+      /<div\b[^>]*class=["'][^"']*\b(?:col-md-1|col-sm-3|col-md-2|col-md-4)\b[^"']*["'][^>]*>([\s\S]*?)<\/div>/gi
+    )]
+      .map((match) => decodeHtmlEntities(match[1]).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+    if (cells.length < 5 || !/^\d+$/.test(cells[0])) continue;
+    rows.push({
+      row: [cells[0], cells[1], cells[2], cells[3], cells[4]],
+      headers: ["numero", "descricao", "quantidade comercial", "unidade comercial", "valor total"],
+      score: 0
+    });
+  }
+  return rows;
 };
 
 const parseHtmlItemDetails = (block) => {
@@ -175,6 +201,8 @@ const parseHtmlItemDetails = (block) => {
     const headerIndex = table.findIndex((row) => row.some((cell) =>
       ["Código do produto", "Código CEST", "CFOP", "Código EAN Comercial", "Origem da Mercadoria"]
         .some((header) => normalizeHtmlHeader(cell) === normalizeHtmlHeader(header))
+      || normalizeHtmlHeader(cell).includes("valor total")
+      || normalizeHtmlHeader(cell).includes("valor unitario de comercializacao")
     ));
     if (headerIndex < 0) continue;
     const headers = table[headerIndex].map(normalizeHtmlHeader);
@@ -195,7 +223,7 @@ const parseHtmlItemDetails = (block) => {
     assign("taxableQuantity", ["Quantidade Tributável"]);
     assign("unitPrice", ["Valor unitário de comercialização", "Valor Unitário Comercial"]);
     assign("taxableUnitPrice", ["Valor unitário de tributação", "Valor Unitário Tributável"]);
-    assign("total", ["Valor Total", "Valor(R$)", "Valor"]);
+    assign("total", ["Valor Total", "Valor(R$)", "Valor do Produto"]);
     assign("freight", ["Valor do Frete", "Frete"]);
     assign("insurance", ["Valor do Seguro", "Seguro"]);
     assign("otherExpenses", ["Outras Despesas Acessórias", "Outras Despesas", "Outros"]);
@@ -250,6 +278,23 @@ const findHtmlTableRow = (tables, requiredHeaders, predicate = () => true) => {
     if (row) return { headers, row };
   }
   return null;
+};
+
+const findHtmlFieldValue = (tables, aliases, predicate = (value) => Boolean(value)) => {
+  for (const table of tables) {
+    const headerRow = table.find((row) => row.some((cell) =>
+      aliases.some((alias) => normalizeHtmlHeader(cell).includes(normalizeHtmlHeader(alias)))
+    ));
+    if (!headerRow) continue;
+    const headerIndex = table.indexOf(headerRow);
+    const headers = headerRow.map(normalizeHtmlHeader);
+    const row = table.slice(headerIndex + 1).find((candidate) => {
+      const value = htmlCell(candidate, headers, aliases);
+      return predicate(value);
+    });
+    if (row) return htmlCell(row, headers, aliases);
+  }
+  return "";
 };
 
 const parseHtmlNumber = (value, currency = false) => {
@@ -332,6 +377,9 @@ export const parseFiscalDocumentHtml = (html, expectedAccessKey = "") => {
   const operationTable = findHtmlTable(tables, "Natureza da Operação");
   const operation = operationTable?.find((row) => row.length >= 2 && row[0].toLocaleLowerCase("pt-BR") !== "natureza da operação") || [];
   const productRowsByLine = new Map();
+  for (const product of parseHtmlProductSummaryRows(source)) {
+    productRowsByLine.set(Number(product.row[0]), product);
+  }
   for (const table of tables) {
     const productHeaderRow = table.find((row) => {
       const headers = row.map(normalizeHtmlHeader);
@@ -372,19 +420,53 @@ export const parseFiscalDocumentHtml = (html, expectedAccessKey = "") => {
     detailedAddress?.headers || [],
     ["Endereço"]
   );
-  const issuerAddressMatch = issuerAddressText.match(/^(.*?)(?:,\s*(\d+[\w/-]*))?$/);
   const issuerCityText = htmlCell(
     detailedAddress?.row || [],
     detailedAddress?.headers || [],
     ["Município"]
   );
-  const issuerCityMatch = issuerCityText.match(/^(.*?)(?:,\s*([A-Z]{2}))?$/i);
+  const issuerLegalName = detailedIssuer
+    ? htmlCell(detailedIssuer.row, detailedIssuer.headers, ["Nome / Razão Social"])
+    : findHtmlFieldValue(tables, ["Nome / Razão Social"]);
+  const issuerTradeName = detailedIssuer
+    ? htmlCell(detailedIssuer.row, detailedIssuer.headers, ["Nome Fantasia"])
+    : findHtmlFieldValue(tables, ["Nome Fantasia"]);
+  const issuerStateRegistration = detailedIssuer
+    ? htmlCell(detailedIssuer.row, detailedIssuer.headers, ["Inscrição Estadual"])
+    : findHtmlFieldValue(tables, ["Inscrição Estadual"]);
+  const issuerAddressValue = issuerAddressText || findHtmlFieldValue(tables, ["Endereço"]);
+  const issuerNeighborhood = htmlCell(
+    detailedAddress?.row || [],
+    detailedAddress?.headers || [],
+    ["Bairro / Distrito"]
+  ) || findHtmlFieldValue(tables, ["Bairro / Distrito"]);
+  const issuerCityValue = issuerCityText || findHtmlFieldValue(tables, ["Município"]);
+  const issuerPostalCode = onlyDigits(htmlCell(
+    detailedContact?.row || [],
+    detailedContact?.headers || [],
+    ["CEP"]
+  ) || findHtmlFieldValue(tables, ["CEP"]));
+  const normalizedIssuerAddressMatch = issuerAddressValue.match(/^(.*?)(?:,\s*(\d+[\w/-]*))?$/);
+  const normalizedIssuerCityMatch = issuerCityValue.match(/^(.*?)(?:,\s*([A-Z]{2}))?$/i);
   const issuedAt = parseHtmlDateTime(identification[3]);
   const total = parseHtmlNumber(values[0], true);
   const items = productRows.map(({ row, headers }) => {
     const lineNumber = Number(htmlCell(row, headers, ["Número", "Nº", "Item"]));
     const details = detailRowsByLine.get(lineNumber) || {};
     const value = (key, aliases) => details[key] || htmlCell(row, headers, aliases);
+    const unitPriceValue = value("unitPrice", ["Valor Unitário Comercial", "Valor unitário de comercialização"]);
+    const quantityNumber = Number.parseFloat(
+      parseHtmlNumber(value("quantity", ["Quantidade Comercial", "Quantidade"]))
+    );
+    const unitPriceNumber = Number.parseFloat(parseHtmlNumber(unitPriceValue, true));
+    const computedTotal = unitPriceValue && quantityNumber > 0 && unitPriceNumber > 0
+      ? String(Number((quantityNumber * unitPriceNumber).toFixed(2)))
+      : null;
+    const detailTotal = details.total ? parseHtmlNumber(details.total, true) : "0";
+    const summaryTotalValue = htmlCell(row, headers, ["Valor Total", "Valor(R$)", "Valor"]);
+    const totalValue = Number(detailTotal) > 0
+      ? detailTotal
+      : computedTotal || parseHtmlNumber(summaryTotalValue, true);
     return {
     lineNumber,
     supplierCode: value("supplierCode", ["Código do Produto", "Código"]),
@@ -395,8 +477,8 @@ export const parseFiscalDocumentHtml = (html, expectedAccessKey = "") => {
     cfop: value("cfop", ["CFOP"]),
     fiscalUnit: value("fiscalUnit", ["Unidade Comercial", "Unidade"]),
     quantity: parseHtmlNumber(value("quantity", ["Quantidade Comercial", "Quantidade"])),
-    unitPrice: parseHtmlNumber(value("unitPrice", ["Valor Unitário Comercial", "Valor Unitário"]), true),
-    total: parseHtmlNumber(value("total", ["Valor Total", "Valor(R$)", "Valor"]), true),
+    unitPrice: parseHtmlNumber(unitPriceValue, true),
+    total: totalValue,
     taxableUnit: value("taxableUnit", ["Unidade Tributável"]),
     taxableQuantity: parseHtmlOptionalNumber(value("taxableQuantity", ["Quantidade Tributável"])),
     taxableUnitPrice: parseHtmlOptionalNumber(value("taxableUnitPrice", ["Valor Unitário Tributável"]), true),
@@ -420,31 +502,17 @@ export const parseFiscalDocumentHtml = (html, expectedAccessKey = "") => {
     model: 65,
     issuerDocument: onlyDigits(issuer[0]),
     issuer: {
-      legalName: detailedIssuer
-        ? htmlCell(detailedIssuer.row, detailedIssuer.headers, ["Nome / Razão Social"])
-        : issuer[1] || "",
-      tradeName: detailedIssuer
-        ? htmlCell(detailedIssuer.row, detailedIssuer.headers, ["Nome Fantasia"])
-        : "",
-      stateRegistration: detailedIssuer
-        ? htmlCell(detailedIssuer.row, detailedIssuer.headers, ["Inscrição Estadual"])
-        : issuer[2] || "",
+      legalName: issuerLegalName || issuer[1] || "",
+      tradeName: issuerTradeName,
+      stateRegistration: issuerStateRegistration || issuer[2] || "",
       address: {
-        street: issuerAddressMatch?.[1]?.trim() || "",
-        number: issuerAddressMatch?.[2] || "",
+        street: normalizedIssuerAddressMatch?.[1]?.trim() || "",
+        number: normalizedIssuerAddressMatch?.[2] || "",
         complement: "",
-        neighborhood: htmlCell(
-          detailedAddress?.row || [],
-          detailedAddress?.headers || [],
-          ["Bairro / Distrito"]
-        ),
-        city: issuerCityMatch?.[1]?.trim() || "",
-        state: issuerCityMatch?.[2]?.toLocaleUpperCase("pt-BR") || issuer[3] || "",
-        postalCode: onlyDigits(htmlCell(
-          detailedContact?.row || [],
-          detailedContact?.headers || [],
-          ["CEP"]
-        ))
+        neighborhood: issuerNeighborhood,
+        city: normalizedIssuerCityMatch?.[1]?.trim() || "",
+        state: normalizedIssuerCityMatch?.[2]?.toLocaleUpperCase("pt-BR") || issuer[3] || "",
+        postalCode: issuerPostalCode
       }
     },
     taxTotals: {

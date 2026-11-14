@@ -1,7 +1,7 @@
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::Deserialize;
 use serde_json::{Map, Value};
-use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use windows::Win32::Foundation::{HLOCAL, LocalFree};
 use windows::Win32::Security::Cryptography::{
     CRYPT_INTEGER_BLOB, CryptProtectData, CryptUnprotectData,
@@ -124,6 +124,7 @@ const FISCAL_CONSULTATION_URL: &str =
     "https://portalsped.fazenda.mg.gov.br/portalnfce/sistema/consultaarg.xhtml";
 const FISCAL_DOM_EVENT: &str = "fiscal-dom-read";
 const FISCAL_DOM_ERROR_EVENT: &str = "fiscal-dom-error";
+const FISCAL_CONSULTATION_CLOSED_EVENT: &str = "fiscal-consultation-closed";
 const FISCAL_CONTROLS_SCRIPT: &str = r#"
 (() => {
   const toolbarId = "pdv-fiscal-toolbar";
@@ -154,6 +155,8 @@ const FISCAL_CONTROLS_SCRIPT: &str = r#"
       status.style.color = success ? '#d9f99d' : '#ffd6d6';
       readButton.disabled = false;
       readButton.textContent = "Ler consulta completa";
+      copyButton.disabled = false;
+      copyButton.textContent = "Copiar DOM";
     };
     const buttonStyle = "border:1px solid #d5e2ef;border-radius:3px;padding:7px 10px;background:#fff;color:#16324f;cursor:pointer;font:600 13px Arial,sans-serif";
     const readButton = document.createElement("button");
@@ -166,6 +169,46 @@ const FISCAL_CONTROLS_SCRIPT: &str = r#"
       status.textContent = "Aguarde";
       window.location.href = "pdv://read-fiscal-dom";
     });
+    const copyButton = document.createElement("button");
+    copyButton.type = "button";
+    copyButton.textContent = "Copiar DOM";
+    copyButton.style.cssText = buttonStyle;
+    copyButton.addEventListener("click", async () => {
+      copyButton.disabled = true;
+      copyButton.textContent = "Copiando DOM...";
+      status.textContent = "Copiando DOM";
+      try {
+        const html = document.documentElement?.outerHTML || "";
+        const sanitizedHtml = html
+          .replace(/[\r\n]+/g, "")
+          .replace(/[ \t]+/g, " ")
+          .replace(/>\s+</g, "><")
+          .trim();
+        if (!sanitizedHtml) throw new Error("A página fiscal não possui DOM para copiar.");
+        try {
+          await navigator.clipboard.writeText(sanitizedHtml);
+        } catch (clipboardError) {
+          const textarea = document.createElement("textarea");
+          textarea.value = sanitizedHtml;
+          textarea.style.cssText = "position:fixed;left:-9999px;top:-9999px";
+          document.body.appendChild(textarea);
+          textarea.focus();
+          textarea.select();
+          const copied = document.execCommand("copy");
+          textarea.remove();
+          if (!copied) throw clipboardError;
+        }
+        status.textContent = "DOM copiado para a área de transferência";
+        status.style.color = '#d9f99d';
+        copyButton.disabled = false;
+        copyButton.textContent = "Copiar DOM";
+      } catch (error) {
+        status.textContent = `Erro ao copiar DOM: ${error?.message || "operação recusada"}`;
+        status.style.color = '#ffd6d6';
+        copyButton.disabled = false;
+        copyButton.textContent = "Copiar DOM";
+      }
+    });
     const closeButton = document.createElement("button");
     closeButton.type = "button";
     closeButton.textContent = "Fechar consulta";
@@ -173,7 +216,7 @@ const FISCAL_CONTROLS_SCRIPT: &str = r#"
     closeButton.addEventListener("click", () => {
       window.location.href = "pdv://close-fiscal-consultation";
     });
-    toolbar.append(status, readButton, closeButton);
+    toolbar.append(status, readButton, copyButton, closeButton);
     document.body.appendChild(toolbar);
   };
   if (document.readyState === "loading") {
@@ -212,7 +255,8 @@ async fn open_fiscal_consultation(app: tauri::AppHandle) -> Result<(), String> {
         .parse()
         .map_err(|error| format!("A URL oficial da consulta fiscal é inválida: {error}"))?;
     let navigation_app = app.clone();
-    WebviewWindowBuilder::new(&app, FISCAL_WEBVIEW_LABEL, WebviewUrl::External(url))
+    let close_event_app = app.clone();
+    let window = WebviewWindowBuilder::new(&app, FISCAL_WEBVIEW_LABEL, WebviewUrl::External(url))
         .title("Consulta fiscal SEF/MG")
         .inner_size(1200.0, 820.0)
         .min_inner_size(900.0, 640.0)
@@ -241,6 +285,13 @@ async fn open_fiscal_consultation(app: tauri::AppHandle) -> Result<(), String> {
         })
         .build()
         .map_err(|error| format!("Não foi possível abrir a consulta fiscal: {error}"))?;
+    window.on_window_event(move |event| {
+        if matches!(event, WindowEvent::CloseRequested { .. } | WindowEvent::Destroyed) {
+            if let Some(main_window) = close_event_app.get_webview_window("main") {
+                let _ = main_window.emit(FISCAL_CONSULTATION_CLOSED_EVENT, ());
+            }
+        }
+    });
     Ok(())
 }
 
