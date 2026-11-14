@@ -1,6 +1,7 @@
 import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { bindFormRowPreview } from "../ui/form-row-preview.js";
+import { rerenderPreservingInputSelection } from "../ui/input-selection.js";
 import { renderPreservingFormDraft } from "../ui/form-draft.js";
 import { bindFiscalNavigation, renderFiscalNavigation } from "./fiscal-navigation.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
@@ -217,7 +218,10 @@ export function createFiscalOperationScreen({
       "base-modes": () => onCatalog("base-modes"),
       "exemption-reasons": () => onCatalog("exemption-reasons")
     });
-    root.querySelector("[data-search]")?.addEventListener("input", (event) => { searchTerm = event.target.value; render(); root.querySelector("[data-search]")?.focus(); });
+    root.querySelector("[data-search]")?.addEventListener("input", (event) => {
+      searchTerm = event.target.value;
+      rerenderPreservingInputSelection(event.currentTarget, render, () => root.querySelector("[data-search]"));
+    });
     root.querySelector('select[name="cfopFiscalOperation"]')?.addEventListener("change", (event) => {
       const natureInput = root.querySelector('input[name="operationNatureFiscalOperation"]');
       if (natureInput) natureInput.value = getCfopDescription(event.currentTarget.value);

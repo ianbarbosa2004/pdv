@@ -63,6 +63,11 @@ if (process.env.PDV_SKIP_VERSION_BUMP === "1") {
 
 const packageJson = await readJson(packagePath);
 const requestedLevel = process.argv[2] || "patch";
+if (requestedLevel === "hold") {
+  await syncCargoVersion(packageJson.version);
+  console.log(`Incremento de versão suspenso; versão atual: ${packageJson.version}.`);
+  process.exit(0);
+}
 let level = requestedLevel;
 if (requestedLevel === "auto") {
   const changes = await readGitChanges();

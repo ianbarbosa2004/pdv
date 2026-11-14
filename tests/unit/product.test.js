@@ -6,6 +6,7 @@ import {
   getDuplicatedProductName,
   normalizeProductPackageQuantity
 } from "../../src/shared/product.js";
+import { formatMaskedNumber, normalizeMaskedNumber } from "../../src/ui/number-mask.js";
 import { readFile } from "node:fs/promises";
 
 test("gera nomes identificáveis e únicos para duplicação de produto", () => {
@@ -68,6 +69,11 @@ test("normaliza conteúdo por unidade e estoque de forma idêntica nos modais", 
   assert.equal(formatProductStockForInput("1.250", true), "1.250");
 });
 
+test("conteúdo por unidade usa máscara de milésimos", () => {
+  assert.equal(formatMaskedNumber("1.25", 3), "1,250");
+  assert.equal(normalizeMaskedNumber("1,250", 3), "1.250");
+});
+
 test("mantém os controles de catálogo compartilhados para edição e duplicação", async () => {
   const source = await readFile(new URL("../../src/catalog/catalog-screen.js", import.meta.url), "utf8");
   const viewsSource = await readFile(new URL("../../src/tools/views-screen.js", import.meta.url), "utf8");
@@ -83,13 +89,15 @@ test("mantém os controles de catálogo compartilhados para edição e duplicaç
   assert.match(source, /packageQuantityProduct: "1"/);
   assert.match(
     source,
-    /value="\$\{escapeHtml\(formatMaskedNumber\(normalizeProductPackageQuantity\(newProductDraft\.packageQuantityProduct\)\)\)\}"/
+    /value="\$\{escapeHtml\(formatMaskedNumber\(normalizeProductPackageQuantity\(newProductDraft\.packageQuantityProduct\), 3\)\)\}"/
   );
   assert.match(
     source,
-    /value="\$\{escapeHtml\(formatMaskedNumber\(normalizeProductPackageQuantity\(editingProduct\.packageQuantityProduct\)\)\)\}"/
+    /value="\$\{escapeHtml\(formatMaskedNumber\(normalizeProductPackageQuantity\(editingProduct\.packageQuantityProduct\), 3\)\)\}"/
   );
-  assert.doesNotMatch(source, /packageQuantityProduct: normalizeMaskedNumber/u);
+  assert.match(source, /packageQuantityProduct: normalizeMaskedNumber\(formData\.get\("packageQuantityProduct"\), 3\)/u);
+  assert.match(source, /name="packageQuantityProduct" data-number-mask="fractional-3"/u);
+  assert.match(viewsSource, /name="packageQuantityProduct" data-number-mask="fractional-3"/u);
   assert.match(viewsSource, /normalizeProductPackageQuantity\(product\.packageQuantityProduct\)/u);
   assert.match(viewsSource, /formatProductStockForInput\(product\.stockQuantityProduct, product\.isFractionalProduct\)/u);
   assert.doesNotMatch(viewsSource, /normalizeMaskedNumber\(product\.packageQuantityProduct/u);
@@ -128,6 +136,42 @@ test("mantém o rascunho editado antes de renderizar o estado de salvamento", as
   const submitStart = source.indexOf("const createProduct = async");
   const submitBody = source.slice(submitStart, source.indexOf("const updateProductStatus", submitStart));
   assert.match(submitBody, /if \(!productId\) captureNewProductDraft\(formData\);\s*submitting = true;/);
+});
+
+test("exibe a descrição do NCM carregada sob demanda e abre a consulta pelo input ou pela lupa", async () => {
+  const source = await readFile(new URL("../../src/catalog/catalog-screen.js", import.meta.url), "utf8");
+
+  assert.match(source, /ncmDescriptions\.set\(code, ncm\?\.descriptionNcm \|\| "Descrição não encontrada"\)/u);
+  assert.match(source, /\/api\/ncm-cest\/ncms\?page=1&pageSize=1&search=/u);
+  assert.match(source, /<input name="ncmProduct"[\s\S]*data-open-ncm/u);
+  assert.match(source, /root\.querySelectorAll\("\[data-open-ncm\]"\)/u);
+});
+
+test("mantém NCM e CEST em linhas fiscais de largura total no cadastro e em Views", async () => {
+  const catalogSource = await readFile(new URL("../../src/catalog/catalog-screen.js", import.meta.url), "utf8");
+  const viewsSource = await readFile(new URL("../../src/tools/views-screen.js", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../../src/styles.css", import.meta.url), "utf8");
+
+  assert.match(catalogSource, /class="form-field catalog-fiscal-field"><span>NCM/u);
+  assert.match(catalogSource, /class="form-field catalog-fiscal-field"><span>CEST/u);
+  assert.match(viewsSource, /class="form-field catalog-fiscal-field"><span>NCM/u);
+  assert.match(viewsSource, /class="form-field catalog-fiscal-field"><span>CEST/u);
+  assert.match(viewsSource, /loadNcmDescription\(editingProduct\?\.ncmProduct\)/u);
+  assert.match(viewsSource, /ncmDescriptions\.get\(String\(product\.ncmProduct/u);
+  assert.match(styles, /\.classic-form-grid \.catalog-fiscal-field\s*\{[\s\S]*grid-column: 1 \/ -1;/u);
+  assert.match(styles, /\.catalog-fiscal-field \.catalog-lookup-field\s*\{[\s\S]*width: 100%;/u);
+});
+
+test("exibe a descrição completa do NCM com quebra de linha", async () => {
+  const styles = await readFile(new URL("../../src/styles.css", import.meta.url), "utf8");
+
+  assert.match(styles, /\.catalog-lookup-description\s*\{[\s\S]*overflow-wrap: anywhere;/u);
+  assert.match(styles, /\.catalog-lookup-description\s*\{[\s\S]*white-space: normal;/u);
+  assert.match(styles, /\.catalog-lookup-description\s*\{[\s\S]*word-break: break-word;/u);
+  assert.doesNotMatch(styles, /\.catalog-lookup-description\s*\{[\s\S]*text-overflow: ellipsis;/u);
+  assert.doesNotMatch(styles, /\.catalog-lookup-description\s*\{[^}]*white-space: nowrap;/u);
+  assert.match(styles, /\.catalog-fiscal-field \.catalog-lookup-field\s*\{[\s\S]*min-width: 0;/u);
+  assert.match(styles, /\.catalog-lookup-description\s*\{[\s\S]*max-width: 100%;/u);
 });
 
 test("mantém a mesma quantidade de colunas e parâmetros nos INSERTs de produtos", async () => {

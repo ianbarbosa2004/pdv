@@ -3,6 +3,7 @@ import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { renderScreenContextBar } from "../ui/screen-context.js";
 import { renderNavigationIntro } from "../ui/navigation-intro.js";
 import { bindFormRowPreview } from "../ui/form-row-preview.js";
+import { rerenderPreservingInputSelection } from "../ui/input-selection.js";
 import { renderPreservingFormDraft } from "../ui/form-draft.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { apiFetch, getApiUrl } from "../shared/api.js";
@@ -14,6 +15,7 @@ import {
   formatSupplierDocument as formatDocument,
   formatSupplierEmail as formatEmail,
   formatSupplierPhone as formatPhone,
+  formatSupplierTitle,
   renderSupplierFormFields
 } from "./supplier-form.js";
 
@@ -21,7 +23,10 @@ const displayName = (supplier) =>
   supplier.tradeNameSupplier || supplier.companyNameSupplier || supplier.contactNameSupplier || supplier.documentSupplier;
 
 const normalizeSupplierText = (field, value) =>
-  String(value ?? "").trim().replace(/\s+/g, " ");
+  ["companyNameSupplier", "tradeNameSupplier", "contactNameSupplier", "addressSupplier",
+    "addressComplementSupplier", "neighborhoodSupplier", "citySupplier"].includes(field)
+    ? formatSupplierTitle(value)
+    : String(value ?? "").trim().replace(/\s+/g, " ");
 
 export function createSupplierScreen({
   onBack,
@@ -48,9 +53,9 @@ export function createSupplierScreen({
   let lookingUpCep = false;
   const scheduleMessageClear = createFeedbackTimer();
 
-  const load = async () => {
+  const load = async ({ renderState = true } = {}) => {
     loading = true;
-    render();
+    if (renderState) render();
     try {
       const response = await apiFetch(`${getApiUrl()}/api/suppliers?includeInactive=1`);
       const payload = await response.json();
@@ -61,7 +66,7 @@ export function createSupplierScreen({
       error = loadError instanceof Error ? loadError.message : "Falha ao carregar os fornecedores.";
     } finally {
       loading = false;
-      renderPreservingFormDraft(root, render);
+      if (renderState) renderPreservingFormDraft(root, render);
     }
   };
 
@@ -148,7 +153,10 @@ export function createSupplierScreen({
     root.querySelectorAll("[data-lookup-cep]").forEach((button) => {
       button.addEventListener("click", () => void lookupCep(button.closest("form")));
     });
-    root.querySelector("[data-search]")?.addEventListener("input", (event) => { searchTerm = event.currentTarget.value; render(); root.querySelector("[data-search]")?.focus(); });
+    root.querySelector("[data-search]")?.addEventListener("input", (event) => {
+      searchTerm = event.currentTarget.value;
+      rerenderPreservingInputSelection(event.currentTarget, render, () => root.querySelector("[data-search]"));
+    });
     root.querySelector("[data-supplier-form]")?.addEventListener("submit", (event) => { event.preventDefault(); void submit(Object.fromEntries(new FormData(event.currentTarget)), null); });
     root.querySelector("[data-edit-form]")?.addEventListener("submit", (event) => { event.preventDefault(); const id = editingSupplier?.idSupplier; void submit(Object.fromEntries(new FormData(event.currentTarget)), id); });
     root.querySelector("[data-clear]")?.addEventListener("click", () => { error = ""; message = ""; render(); });
@@ -302,7 +310,7 @@ export function createSupplierScreen({
       if (!response.ok) throw new Error(payload.error || "Não foi possível salvar o fornecedor.");
       message = idSupplier ? "Fornecedor alterado com sucesso." : "Fornecedor cadastrado com sucesso.";
       if (!idSupplier) searchTerm = "";
-      await load();
+      await load({ renderState: false });
       if (idSupplier) root.__PDV_FORM_PREVIEW_PENDING__ = suppliers.find((supplier) => String(supplier.idSupplier) === String(idSupplier));
       editingSupplier = null;
       scheduleMessageClear(() => { message = ""; clearRenderedFeedback(root); });

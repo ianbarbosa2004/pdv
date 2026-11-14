@@ -19,7 +19,6 @@ test("mantém o foco no campo de busca do modal de componentes após apagar com 
   const handler = handlerStart >= 0 ? source.slice(handlerStart, source.indexOf("\n    });", handlerStart) + 7) : "";
 
   assert.ok(handler, "handler de busca do modal não encontrado");
-  assert.match(handler, /render\(\);/u);
-  assert.match(handler, /const searchInput = root\.querySelector\("\[data-component-search\]"\)/u);
-  assert.match(handler, /searchInput\?\.focus\(\)/u);
+  assert.match(handler, /rerenderPreservingInputSelection/u);
+  assert.match(handler, /root\.querySelector\("\[data-component-search\]"\)/u);
 });

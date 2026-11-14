@@ -61,11 +61,10 @@ compile com `npm.cmd run tauri -- build --no-bundle`.
 - Documente automaticamente alterações de código nos Markdown diretamente
   relacionados quando mudarem contrato, operação, arquitetura, validação,
   segurança ou comportamento visível.
-- Siga SemVer: o hook `prebuild` e o fluxo `prerelease:client` podem acionar o
-  versionamento automático quando o build é executado; use
-  `npm.cmd run version:minor` para funcionalidades compatíveis e
-  `npm.cmd run version:major` para mudanças incompatíveis ou a primeira versão
-  estável.
+- Siga SemVer somente após pedido explícito de versionamento; builds e releases
+  não devem alterar a versão automaticamente. Use `npm.cmd run version:minor`
+  para funcionalidades compatíveis e `npm.cmd run version:major` para mudanças
+  incompatíveis ou a primeira versão estável quando solicitado.
 
 ## Segurança e operação
 

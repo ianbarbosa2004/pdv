@@ -1,6 +1,7 @@
 import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { bindFormRowPreview } from "../ui/form-row-preview.js";
+import { rerenderPreservingInputSelection } from "../ui/input-selection.js";
 import { renderPreservingFormDraft } from "../ui/form-draft.js";
 import {
   bindFinancialNavigation,
@@ -232,10 +233,7 @@ export function createPaymentMethodScreen({
   const bind = () => {
     root.querySelector("[data-search]")?.addEventListener("input", (event) => {
       searchTerm = event.currentTarget.value;
-      render();
-      const input = root.querySelector("[data-search]");
-      input?.focus();
-      input?.setSelectionRange(searchTerm.length, searchTerm.length);
+      rerenderPreservingInputSelection(event.currentTarget, render, () => root.querySelector("[data-search]"));
     });
     root.querySelector("[data-clear]")?.addEventListener("click", () => {
       error = "";

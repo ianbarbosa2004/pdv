@@ -1,9 +1,29 @@
 # Histórico de versões
 
 Este documento registra as mudanças funcionais e técnicas agrupadas por versão.
-O número da versão deve ser incrementado antes da compilação quando a alteração
-for distribuível. O hook `prebuild` e o fluxo `prerelease:client` podem acionar
-o versionamento automático quando o build é executado.
+O número da versão só deve ser incrementado após pedido explícito. Builds e
+releases não alteram a versão automaticamente.
+
+## 0.16.1 - 2026-11-13
+
+- Corrigido o feedback duplicado ao salvar Clientes, Consumidores e
+  Fornecedores, mantendo somente a confirmação final da operação.
+- Otimizado o carregamento da Fila de documentos fiscais com consultas
+  independentes executadas em paralelo e preparação de schema reutilizada
+  durante a vida do processo da API.
+- Normalizados em capitalização de títulos os dados preenchidos
+  automaticamente no cadastro de Fornecedores por CNPJ e CEP, sem alterar a
+  digitação manual.
+- Corrigida a posição do cursor em todos os campos **Pesquisar** que recriam
+  a listagem durante a digitação, preservando foco, seleção e direção do
+  cursor.
+- Adicionados testes de regressão para feedback, busca, foco e carregamento da
+  fila. Alterações em `src/server/` exigem reinício da API publicada; não foi
+  executado build completo.
+- Corrigida a limpeza do feedback após excluir um documento da Fila fiscal,
+  evitando que a mensagem reapareça em cliques posteriores.
+- A pré-entrada atualmente editada é posicionada na primeira linha e recebe
+  destaque visual verde-claro com faixa lateral.
 
 ## 0.16.0 - 2026-11-13
 

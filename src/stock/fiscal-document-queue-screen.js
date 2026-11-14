@@ -3,6 +3,8 @@ import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { renderScreenContextBar } from "../ui/screen-context.js";
 import { renderNavigationIntro } from "../ui/navigation-intro.js";
 import { renderPreservingFormDraft } from "../ui/form-draft.js";
+import { rerenderPreservingInputSelection } from "../ui/input-selection.js";
+import { installComboboxDismissal } from "../ui/combobox.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { apiFetch, getApiUrl } from "../shared/api.js";
 import { fetchWithTimeout } from "../shared/request-timeout.js";
@@ -38,8 +40,41 @@ const formatDocument = (value) => {
 const formatMoney = (value) =>
   Number(value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
+const parseFiscalNumber = (value) => {
+  const text = String(value ?? "").trim();
+  if (!text) return 0;
+  const normalized = text.includes(",")
+    ? text.replace(/\./g, "").replace(",", ".")
+    : text;
+  const numeric = Number(normalized);
+  return Number.isFinite(numeric) ? numeric : 0;
+};
+
+const formatBrazilianNumber = (value) =>
+  parseFiscalNumber(value).toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+
 const formatQuantity = (value) =>
   Number(value || 0).toLocaleString("pt-BR", { maximumFractionDigits: 4 });
+
+const copyTextToClipboard = async (value) => {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(String(value));
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = String(value);
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.append(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  if (!copied) throw new Error("A área de transferência não está disponível.");
+};
 
 const normalizeUnit = (value) => String(value || "").trim().toLocaleUpperCase("pt-BR");
 
@@ -59,6 +94,54 @@ const formatDateOnly = (value) => {
   return Number.isNaN(date.getTime())
     ? String(value ?? "")
     : date.toLocaleDateString("pt-BR");
+};
+
+const formatDateTime = (value) => {
+  if (value === null || value === undefined || String(value).trim() === "") return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? String(value ?? "")
+    : date.toLocaleString("pt-BR");
+};
+
+const formatFiscalHeaderValue = (value) => {
+  const text = String(value ?? "").trim();
+  return text || "Não informado";
+};
+
+const renderFiscalEntryHeader = (entry) => {
+  const fields = [
+    ["Modelo", Number(entry.modelFiscalDocument) === 65
+      ? "NFC-e"
+      : Number(entry.modelFiscalDocument) === 55
+        ? "NF-e"
+        : entry.modelFiscalDocument],
+    ["Série", entry.seriesFiscalDocument],
+    ["Número", entry.numberFiscalDocument],
+    ["CNPJ", formatDocument(entry.issuerDocumentFiscalDocument)],
+    ["Razão Social", entry.issuerLegalNameFiscalDocument],
+    ["Nome Fantasia", entry.issuerTradeNameFiscalDocument],
+    ["Inscrição Estadual", entry.issuerStateRegistrationFiscalDocument],
+    ["Data da Emissão", formatDateTime(entry.issuedAtFiscalDocument)],
+    ["Endereço", entry.issuerAddressFiscalDocument && entry.issuerAddressNumberFiscalDocument
+      ? `${entry.issuerAddressFiscalDocument}, ${entry.issuerAddressNumberFiscalDocument}`
+      : entry.issuerAddressFiscalDocument],
+    ["Bairro", entry.issuerNeighborhoodFiscalDocument],
+    ["CEP", entry.issuerZipCodeFiscalDocument],
+    ["Município", entry.issuerCityFiscalDocument && entry.issuerStateFiscalDocument
+      ? `${entry.issuerCityFiscalDocument}, ${entry.issuerStateFiscalDocument}`
+      : entry.issuerCityFiscalDocument]
+  ];
+  return `<div class="fiscal-entry-header-grid">${fields.map(([label, value]) => `
+    <div class="fiscal-entry-header-field">
+      <span class="fiscal-entry-header-label">${escapeHtml(label)}</span>
+      <strong>${escapeHtml(formatFiscalHeaderValue(value))}</strong>
+    </div>`).join("")}
+    <div class="fiscal-entry-header-field fiscal-entry-header-access-key">
+      <span class="fiscal-entry-header-label">Chave de Acesso</span>
+      <strong><button class="fiscal-access-key-button" type="button" data-copy-access-key="${escapeHtml(entry.accessKeyFiscalDocument)}" title="Copiar chave de acesso">${escapeHtml(formatFiscalHeaderValue(entry.accessKeyFiscalDocument))}</button></strong>
+    </div>
+  </div>`;
 };
 
 const fiscalEntryStatusLabel = (status) => ({
@@ -82,7 +165,9 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
   let xmlError = "";
   let fiscalBrowserBusy = false;
   let fiscalBrowserError = "";
+  let reconcileEntryId = null;
   let entrySaving = false;
+  let entryReconciling = false;
   let entryError = "";
   let currentEntry = null;
   let fiscalEntries = [];
@@ -92,6 +177,10 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
   let paymentMethods = [];
   let selectedPaymentMethod = "";
   let editingItem = null;
+  const productPicker = {
+    searchTerm: "",
+    isOpen: false
+  };
   let entryPayments = [];
   let message = "";
   let supplierModal = null;
@@ -100,15 +189,45 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
   let fiscalEntrySort = { key: "issuedAtFiscalDocument", direction: "asc" };
   let fiscalEntrySearch = "";
   let fiscalEntryStatusFilter = "draft";
+  let activeEntryId = initialEntryId ? Number(initialEntryId) : null;
   const scheduleMessageClear = createFeedbackTimer();
 
   const selectedEntryTotal = () => (currentEntry?.items || [])
     .filter((item) => item.selected)
-    .reduce((total, item) => total + Number(item.totalFiscalDocumentItem || 0), 0);
+    .reduce((total, item) => total + parseFiscalNumber(item.totalFiscalDocumentItem), 0);
 
   const selectedProduct = (item) => products.find((product) => Number(product.idProduct) === Number(item?.idProduct));
 
+  const selectedProductLabel = () => {
+    const product = selectedProduct(editingItem);
+    if (!product) return "Selecione";
+    return `${product.nameProduct} (${product.pdvCodeProduct || product.skuProduct || "Sem código"})`;
+  };
+
+  const productOptions = () => {
+    const query = productPicker.searchTerm.trim().toLocaleLowerCase("pt-BR");
+    return products.filter((product) =>
+      `${product.nameProduct || ""} ${product.pdvCodeProduct || ""} ${product.skuProduct || ""}`
+        .toLocaleLowerCase("pt-BR")
+        .includes(query)
+    );
+  };
+
+  const isCurrentFiscalEntry = (entry) =>
+    Number(entry?.idFiscalEntry) === activeEntryId;
+
+  installComboboxDismissal(root, {
+    isOpen: () => productPicker.isOpen,
+    close: () => {
+      productPicker.isOpen = false;
+      render();
+    }
+  });
+
   const sortedFiscalEntries = () => [...fiscalEntries].sort((left, right) => {
+    const currentComparison = Number(isCurrentFiscalEntry(right)) - Number(isCurrentFiscalEntry(left));
+    if (currentComparison !== 0) return currentComparison;
+
     const key = fiscalEntrySort.key;
     let comparison;
     if (key === "issuedAtFiscalDocument") {
@@ -204,6 +323,7 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
       item.idProduct = Number(product.idProduct);
       item.idStockUnit = product.idUnitProduct || null;
       item.conversionFactor = conversionFactor;
+      item.selected = 1;
       item.status = "linked";
     });
   };
@@ -295,18 +415,18 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
             </div>
             <section class="classic-grid-panel fiscal-entry-list-panel">
               ${renderFiscalEntryListHeader("Documentos na Fila")}
-              <div class="classic-grid-wrapper">${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : entriesLoading ? `<p class="classic-empty">Carregando documentos...</p>` : visibleFiscalEntries().length ? `
+              <div class="classic-grid-wrapper" data-default-page-size="50">${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : entriesLoading ? `<p class="classic-empty">Carregando documentos...</p>` : visibleFiscalEntries().length ? `
                 <table class="classic-table">
                   <thead><tr>${sortableHeader("modelFiscalDocument", "Tipo")}${sortableHeader("numberFiscalDocument", "Doc")}${sortableHeader("issuerLegalNameFiscalDocument", "Fornecedor", "supplier-column product-name-column")}${sortableHeader("issuedAtFiscalDocument", "Emissão")}${sortableHeader("totalFiscalDocument", "Valor", "value-column")}${sortableHeader("statusFiscalEntry", "Status")}<th class="actions-column">Ações</th></tr></thead>
                   <tbody>${visibleFiscalEntries().map((entry) => `
-                    <tr>
+                    <tr class="${isCurrentFiscalEntry(entry) ? "fiscal-entry-current" : ""}">
                       <td>${Number(entry.modelFiscalDocument) === 65 ? "NFC-e" : "NF-e"}</td>
-                      <td>${escapeHtml(entry.numberFiscalDocument ? `${entry.seriesFiscalDocument || ""}/${entry.numberFiscalDocument}` : entry.accessKeyFiscalDocument)}</td>
+                      <td>${escapeHtml(entry.numberFiscalDocument ? `${entry.seriesFiscalDocument || ""}/${entry.numberFiscalDocument}` : "Documento fiscal")}</td>
                       <td class="supplier-column product-name-column">${escapeHtml(entry.issuerLegalNameFiscalDocument || formatDocument(entry.issuerDocumentFiscalDocument))}</td>
                       <td>${escapeHtml(formatDateOnly(entry.issuedAtFiscalDocument))}</td>
                       <td class="value-column">${escapeHtml(formatMoney(entry.totalFiscalDocument))}</td>
                       <td><span class="fiscal-entry-status fiscal-entry-status-${fiscalEntryStatusClass(entry.statusFiscalEntry)}">${escapeHtml(fiscalEntryStatusLabel(entry.statusFiscalEntry))}</span></td>
-                      <td class="actions-column"><button class="icon-button" type="button" data-open-entry="${entry.idFiscalEntry}" aria-label="Continuar revisão" title="Continuar revisão"><i data-lucide="arrow-right-circle"></i></button><button class="icon-button delete" type="button" data-delete-entry="${entry.idFiscalEntry}" aria-label="Excluir documento" title="Excluir documento"><i data-lucide="trash-2"></i></button></td>
+                      <td class="actions-column"><button class="icon-button" type="button" data-copy-access-key="${escapeHtml(entry.accessKeyFiscalDocument)}" aria-label="Copiar chave de acesso" title="Copiar chave de acesso"><i data-lucide="notebook-tabs"></i></button><button class="icon-button" type="button" data-open-entry="${entry.idFiscalEntry}" aria-label="Continuar revisão" title="Continuar revisão"><i data-lucide="arrow-right-circle"></i></button><button class="icon-button delete" type="button" data-delete-entry="${entry.idFiscalEntry}" aria-label="Excluir documento" title="Excluir documento"><i data-lucide="trash-2"></i></button></td>
                     </tr>`).join("")}</tbody>
                 </table>` : `<p class="classic-empty">Nenhum documento na fila.</p>`}</div>
             </section>
@@ -315,28 +435,29 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
         ${entryOnly ? `
           <section class="classic-grid-panel fiscal-entry-list-panel">
             ${renderFiscalEntryListHeader("Pré-entradas iniciadas")}
-            <div class="classic-grid-wrapper">${entriesLoading ? `<p class="classic-empty">Carregando pré-entradas...</p>` : visibleFiscalEntries().length ? `
+            <div class="classic-grid-wrapper" data-default-page-size="50">${entriesLoading ? `<p class="classic-empty">Carregando pré-entradas...</p>` : visibleFiscalEntries().length ? `
               <table class="classic-table">
                 <thead><tr>${sortableHeader("modelFiscalDocument", "Tipo")}${sortableHeader("numberFiscalDocument", "Doc")}${sortableHeader("issuerLegalNameFiscalDocument", "Fornecedor", "supplier-column product-name-column")}${sortableHeader("issuedAtFiscalDocument", "Emissão")}${sortableHeader("totalFiscalDocument", "Valor", "value-column")}${sortableHeader("statusFiscalEntry", "Status")}<th class="actions-column">Ações</th></tr></thead>
                 <tbody>${visibleFiscalEntries().map((entry) => `
-                  <tr>
+                  <tr class="${isCurrentFiscalEntry(entry) ? "fiscal-entry-current" : ""}">
                     <td>${Number(entry.modelFiscalDocument) === 65 ? "NFC-e" : "NF-e"}</td>
-                    <td>${escapeHtml(entry.numberFiscalDocument ? `${entry.seriesFiscalDocument || ""}/${entry.numberFiscalDocument}` : entry.accessKeyFiscalDocument)}</td>
+                    <td>${escapeHtml(entry.numberFiscalDocument ? `${entry.seriesFiscalDocument || ""}/${entry.numberFiscalDocument}` : "Documento fiscal")}</td>
                     <td class="supplier-column product-name-column">${escapeHtml(entry.issuerLegalNameFiscalDocument || formatDocument(entry.issuerDocumentFiscalDocument))}</td>
                     <td>${escapeHtml(formatDateOnly(entry.issuedAtFiscalDocument))}</td>
                     <td class="value-column">${escapeHtml(formatMoney(entry.totalFiscalDocument))}</td>
                     <td><span class="fiscal-entry-status fiscal-entry-status-${fiscalEntryStatusClass(entry.statusFiscalEntry)}">${escapeHtml(fiscalEntryStatusLabel(entry.statusFiscalEntry))}</span></td>
-                    <td class="actions-column"><button class="icon-button" type="button" data-open-entry="${entry.idFiscalEntry}" aria-label="Continuar revisão" title="Continuar revisão"><i data-lucide="arrow-right-circle"></i></button><button class="icon-button delete" type="button" data-delete-entry="${entry.idFiscalEntry}" aria-label="Excluir pré-entrada" title="Excluir pré-entrada"><i data-lucide="trash-2"></i></button></td>
+                    <td class="actions-column"><button class="icon-button" type="button" data-copy-access-key="${escapeHtml(entry.accessKeyFiscalDocument)}" aria-label="Copiar chave de acesso" title="Copiar chave de acesso"><i data-lucide="notebook-tabs"></i></button><button class="icon-button" type="button" data-open-entry="${entry.idFiscalEntry}" aria-label="Continuar revisão" title="Continuar revisão"><i data-lucide="arrow-right-circle"></i></button><button class="icon-button delete" type="button" data-delete-entry="${entry.idFiscalEntry}" aria-label="Excluir pré-entrada" title="Excluir pré-entrada"><i data-lucide="trash-2"></i></button></td>
                   </tr>`).join("")}</tbody>
               </table>` : `<p class="classic-empty">Nenhuma pré-entrada iniciada.</p>`}</div>
           </section>
         ` : ""}
         ${currentEntry ? `
           <section class="classic-grid-panel fiscal-entry-workspace-panel">
-            <div class="classic-panel-header">Pré-entrada ${escapeHtml(currentEntry.fiscalEntry.idFiscalEntry)} - <span class="fiscal-entry-status fiscal-entry-status-${fiscalEntryStatusClass(currentEntry.fiscalEntry.statusFiscalEntry)}">${escapeHtml(fiscalEntryStatusLabel(currentEntry.fiscalEntry.statusFiscalEntry))}</span></div>
+            <div class="classic-panel-header">Pré-entrada ${escapeHtml(currentEntry.fiscalEntry.idFiscalEntry)} - <span class="fiscal-entry-title-status">${escapeHtml(fiscalEntryStatusLabel(currentEntry.fiscalEntry.statusFiscalEntry))}</span></div>
             <div class="classic-form-body">
-              <p class="form-help">Documento ${escapeHtml(currentEntry.fiscalEntry.accessKeyFiscalDocument)} · ${escapeHtml(currentEntry.fiscalEntry.issuerLegalNameFiscalDocument || currentEntry.fiscalEntry.issuerDocumentFiscalDocument)}</p>
+              ${renderFiscalEntryHeader(currentEntry.fiscalEntry)}
               <p class="form-help">Esta revisão ainda não movimenta, reserva ou baixa estoque. Clique em um item para vincular o produto e informar a conversão. Quando todos os itens e o pagamento estiverem válidos, gravar promoverá o estado para <strong>Em Aberto</strong>.</p>
+              <p class="form-help">Reconsultar valores atualiza somente os valores fiscais dos itens e preserva os vínculos já criados.</p>
             </div>
             <div class="classic-grid-wrapper">
               <table class="classic-table">
@@ -358,12 +479,12 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
               <div class="classic-form-body">
                 <div class="classic-form-grid">
                   <label class="form-field"><span>Forma</span><select name="paymentMethod" required><option value="">Selecione</option>${paymentMethods.map((method) => `<option value="${escapeHtml(method.namePaymentMethod)}" ${selectedPaymentMethod === method.namePaymentMethod ? "selected" : ""}>${escapeHtml(method.namePaymentMethod)}</option>`).join("")}</select></label>
-                  <label class="form-field"><span>Valor dos produtos marcados</span><input name="amount" value="${escapeHtml(selectedEntryTotal().toFixed(2))}" inputmode="decimal" readonly /></label>
+                  <label class="form-field"><span>Valor dos produtos marcados</span><input name="amount" value="${escapeHtml(formatBrazilianNumber(selectedEntryTotal()))}" inputmode="decimal" readonly /></label>
                 </div>
                 <p class="form-help">O valor é recalculado pela soma das linhas marcadas. Itens desmarcados não entram no pagamento.</p>
                 ${entryError ? `<p class="payment-error">${escapeHtml(entryError)}</p>` : ""}
               </div>
-              <div class="classic-form-actions"><button class="classic-button primary" data-save-entry type="button" ${entrySaving ? "disabled" : ""}>${entrySaving ? "Gravando..." : "Gravar pré-entrada"}</button></div>
+              <div class="classic-form-actions"><button class="classic-button" data-reconcile-entry type="button" ${entryReconciling || entrySaving ? "disabled" : ""}>${entryReconciling ? "Atualizando..." : "Atualizar consulta"}</button><button class="classic-button primary" data-save-entry type="button" ${entrySaving || entryReconciling ? "disabled" : ""}>${entrySaving ? "Gravando..." : "Gravar pré-entrada"}</button></div>
             </form>
           </section>
         ` : ""}
@@ -379,7 +500,19 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
               <div class="classic-panel-header modal-panel-header"><span id="entry-item-title">Vínculo do produto</span><button class="modal-close-button" data-cancel-entry-item type="button" aria-label="Fechar">×</button></div>
               <form class="classic-form-body" data-entry-item-form>
                 <p class="form-help">${escapeHtml(editingItem.descriptionFiscalDocumentItem)} · ${escapeHtml(formatQuantity(editingItem.quantityFiscalDocumentItem))} ${escapeHtml(editingItem.fiscalUnitFiscalDocumentItem)}</p>
-                <label class="form-field"><span>Produto comercial</span><select name="idProduct" required><option value="">Selecione</option>${products.map((product) => `<option value="${product.idProduct}" ${Number(editingItem.idProduct) === Number(product.idProduct) ? "selected" : ""}>${escapeHtml(product.nameProduct)} (${escapeHtml(product.pdvCodeProduct || product.skuProduct)})</option>`).join("")}</select></label>
+                <div class="form-field fiscal-product-picker classic-combobox">
+                  <span>Produto comercial</span>
+                  <input type="hidden" name="idProduct" value="${escapeHtml(editingItem.idProduct || "")}" />
+                  <button type="button" class="classic-select-trigger" data-product-toggle aria-haspopup="listbox" aria-expanded="${productPicker.isOpen ? "true" : "false"}">${escapeHtml(selectedProductLabel())}</button>
+                  ${productPicker.isOpen ? `<div class="fiscal-product-options" role="listbox" aria-label="Produtos comerciais">
+                    <input data-product-search type="search" autocomplete="off" value="${escapeHtml(productPicker.searchTerm)}" placeholder="Pesquisar por descrição ou código PDV..." aria-label="Pesquisar produto comercial" />
+                    ${productOptions().map((product) => `
+                      <button class="fiscal-product-option ${Number(editingItem.idProduct) === Number(product.idProduct) ? "is-selected" : ""}" type="button" data-product-option="${escapeHtml(product.idProduct)}">
+                        ${escapeHtml(product.nameProduct)} (${escapeHtml(product.pdvCodeProduct || product.skuProduct || "Sem código")})
+                      </button>
+                    `).join("") || '<span class="classic-empty">Nenhum produto encontrado.</span>'}
+                  </div>` : ""}
+                </div>
                 <div class="classic-form-grid">
                   <label class="form-field"><span>Unidade fiscal</span><input value="${escapeHtml(editingItem.fiscalUnitFiscalDocumentItem)}" readonly /></label>
                   <label class="form-field"><span>Unidade de estoque</span><input data-stock-unit value="${escapeHtml(selectedProduct(editingItem)?.codeUnit || "-")}" readonly /></label>
@@ -497,10 +630,31 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
       supplierModal = null;
       message = "Fornecedor cadastrado com sucesso.";
       await loadFiscalEntries();
+      scheduleMessageClear(() => {
+        message = "";
+        clearRenderedFeedback(root);
+      });
     } catch (submitError) {
       supplierError = submitError instanceof Error ? submitError.message : "Falha ao cadastrar o fornecedor.";
     } finally {
       supplierSubmitting = false;
+      render();
+    }
+  };
+
+  const copyAccessKey = async (accessKey) => {
+    try {
+      await copyTextToClipboard(accessKey);
+      message = "Chave de acesso copiada para a área de transferência.";
+      render();
+      scheduleMessageClear(() => {
+        message = "";
+        clearRenderedFeedback(root);
+      });
+    } catch (copyError) {
+      error = copyError instanceof Error
+        ? copyError.message
+        : "Não foi possível copiar a chave de acesso.";
       render();
     }
   };
@@ -563,6 +717,12 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
     root.querySelectorAll("[data-delete-entry]").forEach((button) => {
       button.addEventListener("click", () => void removeEntry(Number(button.dataset.deleteEntry)));
     });
+    root.querySelectorAll("[data-copy-access-key]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        void copyAccessKey(button.dataset.copyAccessKey);
+      });
+    });
     root.querySelectorAll("[data-fiscal-entry-sort]").forEach((button) => {
       button.addEventListener("click", () => {
         const key = button.dataset.fiscalEntrySort;
@@ -583,20 +743,20 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
     root.querySelectorAll("[data-fiscal-entry-search]").forEach((input) => {
       input.addEventListener("input", (event) => {
         fiscalEntrySearch = event.currentTarget.value;
-        render();
-        const searchInput = root.querySelector("[data-fiscal-entry-search]");
-        searchInput?.focus();
-        searchInput?.setSelectionRange(fiscalEntrySearch.length, fiscalEntrySearch.length);
+        rerenderPreservingInputSelection(event.currentTarget, render, () => root.querySelector("[data-fiscal-entry-search]"));
       });
     });
     root.querySelector("[data-entry-payment-form] select[name='paymentMethod']")?.addEventListener("change", (event) => {
       selectedPaymentMethod = event.currentTarget.value;
     });
+    root.querySelector("[data-reconcile-entry]")?.addEventListener("click", () => void openFiscalReconciliation());
     root.querySelector("[data-save-entry]")?.addEventListener("click", () => void saveEntry());
     root.querySelectorAll("[data-edit-item]").forEach((row) => {
       row.addEventListener("click", (event) => {
         if (event.target.closest("[data-select-item]")) return;
         editingItem = currentEntry.items.find((item) => Number(item.idFiscalEntryItem) === Number(row.dataset.editItem)) || null;
+      productPicker.searchTerm = "";
+      productPicker.isOpen = false;
         render();
       });
     });
@@ -625,7 +785,30 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
         }
       }
       editingItem = null;
+      productPicker.searchTerm = "";
+      productPicker.isOpen = false;
       render();
+    });
+    root.querySelector("[data-product-toggle]")?.addEventListener("click", () => {
+      productPicker.isOpen = !productPicker.isOpen;
+      render();
+      if (productPicker.isOpen) root.querySelector("[data-product-search]")?.focus();
+    });
+    root.querySelector("[data-product-search]")?.addEventListener("input", (event) => {
+      productPicker.searchTerm = event.currentTarget.value;
+      rerenderPreservingInputSelection(
+        event.currentTarget,
+        render,
+        () => root.querySelector("[data-product-search]")
+      );
+    });
+    root.querySelectorAll("[data-product-option]").forEach((button) => {
+      button.addEventListener("click", () => {
+        if (editingItem) editingItem.idProduct = Number(button.dataset.productOption);
+        productPicker.searchTerm = "";
+        productPicker.isOpen = false;
+        render();
+      });
     });
     const updateConversionPreview = () => {
       const factor = Number(String(root.querySelector("[data-entry-item-form] [name='conversionFactor']")?.value || "0").replace(",", "."));
@@ -649,6 +832,8 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
     root.querySelectorAll("[data-cancel-entry-item]").forEach((button) => {
       button.addEventListener("click", () => {
         editingItem = null;
+        productPicker.searchTerm = "";
+        productPicker.isOpen = false;
         render();
       });
     });
@@ -689,12 +874,97 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
     }
   };
 
+  const openFiscalReconciliation = async () => {
+    if (!currentEntry || !["draft", "open"].includes(currentEntry.fiscalEntry.statusFiscalEntry)) return;
+    const entryId = Number(currentEntry.fiscalEntry.idFiscalEntry);
+    const confirmed = await confirmAction({
+      title: "Reler documento fiscal",
+      message: `Deseja reler os dados fiscais da chave ${currentEntry.fiscalEntry.accessKeyFiscalDocument}?`,
+      detail: "A releitura usa o conteúdo original já salvo e preserva vínculos, produtos selecionados, conversões e pagamentos.",
+      confirmLabel: "Reler documento"
+    });
+    if (!confirmed) return;
+    entryReconciling = true;
+    fiscalBrowserBusy = true;
+    fiscalBrowserError = "";
+    render();
+    try {
+      const response = await fetchWithTimeout(
+        (signal) => apiFetch(`${getApiUrl()}/api/stock/fiscal-entries/${entryId}/reconcile-values`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+          signal
+        }),
+        30000
+      );
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Não foi possível reler os dados fiscais.");
+      currentEntry = await loadEntry(entryId);
+      await loadFiscalEntries();
+      message = `${result.updatedItemCount} valor(es) fiscal(is) relido(s).`;
+      render();
+      scheduleMessageClear(() => {
+        message = "";
+        clearRenderedFeedback(root);
+      });
+    } catch (readError) {
+      fiscalBrowserError = readError instanceof Error
+        ? readError.message
+        : "Falha ao reler os dados fiscais.";
+      render();
+    } finally {
+      entryReconciling = false;
+      fiscalBrowserBusy = false;
+      render();
+    }
+  };
+
   const importFiscalDom = async (html) => {
     fiscalBrowserBusy = true;
     fiscalBrowserError = "";
     render();
     try {
       if (!html.trim()) throw new Error("A consulta fiscal não retornou conteúdo.");
+      const currentReconcileEntryId = reconcileEntryId;
+      reconcileEntryId = null;
+      await invoke("close_fiscal_consultation");
+      if (currentReconcileEntryId) {
+        const targetEntry = currentEntry?.fiscalEntry?.idFiscalEntry === currentReconcileEntryId
+          ? currentEntry.fiscalEntry
+          : fiscalEntries.find((entry) => Number(entry.idFiscalEntry) === currentReconcileEntryId);
+        const accessKey = html.match(/\d(?:[\s./-]*\d){43}/)?.[0]?.replace(/\D/g, "") || "";
+        if (!targetEntry || accessKey !== String(targetEntry.accessKeyFiscalDocument)) {
+          throw new Error("A consulta lida não corresponde à chave da pré-entrada selecionada.");
+        }
+        const confirmed = await confirmAction({
+          title: "Entrada já existente",
+          message: `A chave ${targetEntry.accessKeyFiscalDocument} já existe nesta entrada. Deseja reconciliar os valores?`,
+          detail: "Os vínculos, produtos selecionados, conversões e pagamentos serão preservados.",
+          confirmLabel: "Reconciliar valores"
+        });
+        if (!confirmed) return;
+        const response = await fetchWithTimeout(
+          (signal) => apiFetch(`${getApiUrl()}/api/stock/fiscal-entries/${currentReconcileEntryId}/reconcile-values`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ html }),
+            signal
+          }),
+          30000
+        );
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Não foi possível reconciliar os valores.");
+        currentEntry = await loadEntry(currentReconcileEntryId);
+        await loadFiscalEntries();
+        message = `${result.updatedItemCount} valor(es) fiscal(is) reconciliado(s).`;
+        render();
+        scheduleMessageClear(() => {
+          message = "";
+          clearRenderedFeedback(root);
+        });
+        return;
+      }
       const response = await fetchWithTimeout(
         (signal) => apiFetch(`${getApiUrl()}/api/stock/fiscal-document-queue/import`, {
           method: "POST",
@@ -707,29 +977,13 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Não foi possível importar a consulta fiscal.");
       await finishImportedEntry(result, null);
-      try {
-        await invoke("set_fiscal_consultation_status", {
-          message: "Importação concluída com sucesso",
-          success: true
-        });
-      } catch (statusError) {
-        fiscalBrowserError = statusError instanceof Error
-          ? `Importação concluída, mas o navegador não foi atualizado: ${statusError.message}`
-          : "Importação concluída, mas o navegador não foi atualizado.";
-      }
     } catch (readError) {
       fiscalBrowserError = readError instanceof Error
         ? readError.message
         : "Falha ao ler a consulta fiscal.";
-      try {
-        await invoke("set_fiscal_consultation_status", {
-          message: fiscalBrowserError,
-          success: false
-        });
-      } catch {
-        // O erro principal já é exibido na tela da fila.
-      }
     } finally {
+      reconcileEntryId = null;
+      entryReconciling = false;
       fiscalBrowserBusy = false;
       render();
     }
@@ -801,10 +1055,11 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
   };
 
   const openEntry = async (idFiscalEntry) => {
+    activeEntryId = Number(idFiscalEntry);
     try {
       currentEntry = await loadEntry(idFiscalEntry);
       entryPayments = currentEntry.entryPayments || [];
-      selectedPaymentMethod = entryPayments[0]?.description || "";
+      selectedPaymentMethod = entryPayments[0]?.paymentDescriptionFiscalEntryPayment || "";
       await loadProducts();
       await loadPaymentMethods();
       render();
@@ -841,10 +1096,14 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
       if (!response.ok) throw new Error(result.error || "Não foi possível gravar a pré-entrada.");
       currentEntry = await loadEntry(currentEntry.fiscalEntry.idFiscalEntry);
       entryPayments = currentEntry.entryPayments || [];
-      selectedPaymentMethod = entryPayments[0]?.description || "";
+      selectedPaymentMethod = entryPayments[0]?.paymentDescriptionFiscalEntryPayment || "";
       await loadFiscalEntries();
       message = `Pré-entrada ${currentEntry.fiscalEntry.idFiscalEntry} gravada como ${fiscalEntryStatusLabel(result.statusFiscalEntry)}.`;
       render();
+      scheduleMessageClear(() => {
+        message = "";
+        clearRenderedFeedback(root);
+      });
     } catch (saveError) {
       entryError = saveError instanceof Error ? saveError.message : "Falha ao gravar a pré-entrada.";
       render();
@@ -870,11 +1129,16 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
       if (!response.ok) throw new Error(result.error || "Não foi possível excluir a pré-entrada.");
       if (Number(currentEntry?.fiscalEntry?.idFiscalEntry) === idFiscalEntry) {
         currentEntry = null;
+        activeEntryId = null;
         editingItem = null;
       }
       await loadFiscalEntries();
       message = "Documento excluído da fila.";
       render();
+      scheduleMessageClear(() => {
+        message = "";
+        clearRenderedFeedback(root);
+      });
     } catch (removeError) {
       error = removeError instanceof Error ? removeError.message : "Falha ao excluir a pré-entrada.";
       render();
@@ -890,6 +1154,14 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
     void listen("fiscal-dom-error", (event) => {
       fiscalBrowserBusy = false;
       fiscalBrowserError = String(event.payload || "Falha ao ler a consulta fiscal.");
+      render();
+    });
+    void listen("fiscal-consultation-closed", () => {
+      if (reconcileEntryId === null) return;
+      reconcileEntryId = null;
+      entryReconciling = false;
+      fiscalBrowserBusy = false;
+      fiscalBrowserError = "";
       render();
     });
   }

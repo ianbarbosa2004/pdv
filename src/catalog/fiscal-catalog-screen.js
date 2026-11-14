@@ -1,5 +1,6 @@
 import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
+import { rerenderPreservingInputSelection } from "../ui/input-selection.js";
 import { bindFormRowPreview } from "../ui/form-row-preview.js";
 import { renderPreservingFormDraft } from "../ui/form-draft.js";
 import { bindFiscalNavigation, renderFiscalNavigation } from "./fiscal-navigation.js";
@@ -144,8 +145,7 @@ export function createFiscalCatalogScreen({
     });
     root.querySelector("[data-search]")?.addEventListener("input", (event) => {
       searchTerm = event.currentTarget.value;
-      render();
-      root.querySelector("[data-search]")?.focus();
+      rerenderPreservingInputSelection(event.currentTarget, render, () => root.querySelector("[data-search]"));
     });
     root.querySelector('input[name="codeFiscalCatalogItem"]')?.addEventListener("input", (event) => {
       if (presentation.code !== "cfop") return;

@@ -3,6 +3,7 @@ import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { apiFetch, getApiUrl } from "../shared/api.js";
 import { getContextualNavigationItems, renderContextualNavigationItems } from "../ui/contextual-navigation.js";
 import { resolveNavigationHandler } from "../ui/navigation-routing.js";
+import { rerenderPreservingInputSelection } from "../ui/input-selection.js";
 
 const escapeHtml = (value) => String(value ?? "")
   .replaceAll("&", "&amp;")
@@ -77,8 +78,7 @@ export function createRecipeReviewScreen({ onBack, onGroupsProducts, onNoCost, o
     }));
     root.querySelector("[data-review-search]")?.addEventListener("input", (event) => {
       searchTerm = event.currentTarget.value;
-      render();
-      root.querySelector("[data-review-search]")?.focus();
+      rerenderPreservingInputSelection(event.currentTarget, render, () => root.querySelector("[data-review-search]"));
     });
   };
 

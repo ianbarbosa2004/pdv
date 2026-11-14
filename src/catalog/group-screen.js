@@ -1,6 +1,7 @@
 import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { bindFormRowPreview } from "../ui/form-row-preview.js";
+import { rerenderPreservingInputSelection } from "../ui/input-selection.js";
 import { renderPreservingFormDraft } from "../ui/form-draft.js";
 import { bindProductNavigation, renderProductNavigation } from "./product-navigation.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
@@ -180,10 +181,7 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onP
     bindFormRowPreview(root, { formSelector: "[data-group-form]" });
     root.querySelector("[data-search]")?.addEventListener("input", (event) => {
       searchTerm = event.currentTarget.value;
-      render();
-      const searchInput = root.querySelector("[data-search]");
-      searchInput?.focus();
-      searchInput?.setSelectionRange(searchTerm.length, searchTerm.length);
+      rerenderPreservingInputSelection(event.currentTarget, render, () => root.querySelector("[data-search]"));
     });
     root.querySelectorAll("[data-sort]").forEach((button) => {
       button.addEventListener("click", () => {

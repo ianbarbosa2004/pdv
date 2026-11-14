@@ -8,7 +8,8 @@ import { resolveNavigationHandler } from "../ui/navigation-routing.js";
 import { getNavigationPresentation } from "../ui/navigation-intro.js";
 import { buildViewsGroupTree } from "./views-model.js";
 import { bindProductList, filterProductList, renderProductList, sortProductList } from "./product-list-view.js";
-import { bindNumberMasks, formatMaskedNumber } from "../ui/number-mask.js";
+import { bindNumberMasks, formatMaskedNumber, normalizeMaskedNumber } from "../ui/number-mask.js";
+import { rerenderPreservingInputSelection } from "../ui/input-selection.js";
 import {
   formatProductStockForInput,
   normalizeProductPackageQuantity
@@ -57,8 +58,11 @@ const bindViewsNavigation = (root, handlers) => {
   });
 };
 
-const renderEditor = (product, groups, physicalStates, fiscalOperations, units, productTypes, cestOptions, submitting, error, ncms = []) => {
+const renderEditor = (product, groups, physicalStates, fiscalOperations, units, productTypes, cestOptions, submitting, error, ncms = [], ncmDescriptions = new Map()) => {
   const selectedNcm = ncms.find((ncm) => String(ncm.codeNcm) === String(product.ncmProduct || ""));
+  const ncmDescription = selectedNcm?.descriptionNcm
+    || ncmDescriptions.get(String(product.ncmProduct || ""))
+    || (product.ncmProduct ? "Consultando descrição..." : "Nenhum NCM selecionado");
   return `
   <div class="classic-modal-backdrop" data-product-editor-backdrop>
     <section class="classic-modal product-edit-modal" role="dialog" aria-modal="true" aria-labelledby="views-product-editor-title">
@@ -89,21 +93,21 @@ const renderEditor = (product, groups, physicalStates, fiscalOperations, units, 
             </select></label>
           </div>
           <div class="classic-form-grid">
-            <label class="form-field"><span class="field-label-with-help">Conteúdo por unidade <button class="field-help-trigger" type="button" aria-label="Ajuda sobre conteúdo por unidade" aria-describedby="views-package-quantity-help">?<span class="field-help-tooltip" id="views-package-quantity-help" role="tooltip">Quantidade da unidade tributável contida em uma embalagem deste produto. Ex.: uma garrafa com 750 ml informa 750.</span></button></span><input name="packageQuantityProduct" data-number-mask="decimal" inputmode="decimal" min="0.001" required value="${escapeHtml(formatMaskedNumber(normalizeProductPackageQuantity(product.packageQuantityProduct)))}" /></label>
+            <label class="form-field"><span class="field-label-with-help">Conteúdo por unidade <button class="field-help-trigger" type="button" aria-label="Ajuda sobre conteúdo por unidade" aria-describedby="views-package-quantity-help">?<span class="field-help-tooltip" id="views-package-quantity-help" role="tooltip">Quantidade da unidade tributável contida em uma embalagem deste produto. Ex.: uma garrafa com 750 ml informa 750.</span></button></span><input name="packageQuantityProduct" data-number-mask="fractional-3" inputmode="decimal" min="0.001" required value="${escapeHtml(formatMaskedNumber(normalizeProductPackageQuantity(product.packageQuantityProduct), 3))}" /></label>
             <label class="form-field"><span>Unidade tributável</span><select name="idUnitProduct" required>${units.filter((unit) => Number(unit.isTaxableUnit) === 1).map((unit) =>
               `<option value="${unit.idUnit}" ${String(unit.idUnit) === String(product.idUnitProduct) ? "selected" : ""}>${escapeHtml(unit.codeUnit)} - ${escapeHtml(unit.descriptionUnit)}</option>`
             ).join("")}</select></label>
           </div>
           ${physicalStates ? `<label class="form-field"><span>Estado físico</span><select name="idPhysicalStateProduct" required>${renderPhysicalStateOptions(physicalStates, product.idPhysicalStateProduct)}</select></label>` : ""}
           <div class="classic-form-grid">
-            <label class="form-field"><span>NCM</span>
+            <label class="form-field catalog-fiscal-field"><span>NCM</span>
               <div class="catalog-lookup-field">
-                <input name="ncmProduct" value="${escapeHtml(product.ncmProduct || "")}" placeholder="Não informado" readonly />
+                <input name="ncmProduct" value="${escapeHtml(product.ncmProduct || "")}" placeholder="Não informado" readonly data-open-ncm />
                 <button class="catalog-lookup-button" type="button" data-open-ncm title="Consultar NCM" aria-label="Consultar NCM"><i data-lucide="search"></i></button>
-                <span class="catalog-lookup-description">${escapeHtml(selectedNcm?.descriptionNcm || "Nenhum NCM selecionado")}</span>
+                <span class="catalog-lookup-description">${escapeHtml(ncmDescription)}</span>
               </div>
             </label>
-            <label class="form-field"><span>CEST</span><select name="cestProduct" ${cestOptions.length ? "" : "disabled"}>
+            <label class="form-field catalog-fiscal-field"><span>CEST</span><select name="cestProduct" ${cestOptions.length ? "" : "disabled"}>
               <option value="">${cestOptions.length ? "Não informado" : "Nenhum CEST relacionado"}</option>${cestOptions.map((cest) =>
                 `<option value="${cest.codeCest}" ${String(cest.codeCest) === String(product.cestProduct) ? "selected" : ""}>${escapeHtml(cest.codeCest)} - ${escapeHtml(cest.descriptionCest)}</option>`
               ).join("")}
@@ -174,6 +178,7 @@ export function createProductViewsScreen({
   let productTypes = [];
   let cestOptions = [];
   let ncms = [];
+  const ncmDescriptions = new Map();
   let ncmsLoading = false;
   let ncmLoadError = "";
   let ncmLoadPromise = null;
@@ -264,7 +269,7 @@ export function createProductViewsScreen({
           idProductTypeProduct: editingProduct.idProductTypeProduct || null,
           idPhysicalStateProduct: formData.get("idPhysicalStateProduct") || editingProduct.idPhysicalStateProduct || null,
           idUnitProduct: formData.get("idUnitProduct") || null,
-          packageQuantityProduct: formData.get("packageQuantityProduct") || "1",
+          packageQuantityProduct: normalizeMaskedNumber(formData.get("packageQuantityProduct"), 3) || "1.000",
           ncmProduct: formData.get("ncmProduct") || null,
           cestProduct: formData.get("cestProduct") || null,
           priceProduct: parseMoney(formData.get("priceProduct") || editingProduct.priceProduct),
@@ -358,7 +363,7 @@ export function createProductViewsScreen({
           </section>
         </section>
       </section>
-      ${editingProduct ? renderEditor(editingProduct, groups, physicalStates, fiscalOperations, units, productTypes, cestOptions, submitting, editorError, ncms) : ""}
+      ${editingProduct ? renderEditor(editingProduct, groups, physicalStates, fiscalOperations, units, productTypes, cestOptions, submitting, editorError, ncms, ncmDescriptions) : ""}
       ${ncmLookupOpen ? `
         <div class="classic-modal-backdrop" data-ncm-modal-backdrop>
           <section class="classic-modal ncm-lookup-modal" role="dialog" aria-modal="true" aria-labelledby="ncm-lookup-title">
@@ -405,6 +410,7 @@ export function createProductViewsScreen({
         cestOptions = [];
         render();
         void loadCestOptions(editingProduct?.ncmProduct);
+        void loadNcmDescription(editingProduct?.ncmProduct);
         root.querySelector("[name='nameProduct']")?.focus();
       },
       onDelete: deleteProduct,
@@ -413,10 +419,7 @@ export function createProductViewsScreen({
     });
     root.querySelector("[data-product-search]")?.addEventListener("input", (event) => {
       searchTerm = event.currentTarget.value;
-      render();
-      const input = root.querySelector("[data-product-search]");
-      input?.focus();
-      input?.setSelectionRange(searchTerm.length, searchTerm.length);
+      rerenderPreservingInputSelection(event.currentTarget, render, () => root.querySelector("[data-product-search]"));
     });
     root.querySelectorAll("[data-group-id]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -455,8 +458,7 @@ export function createProductViewsScreen({
       });
       root.querySelector("[data-ncm-lookup-search]")?.addEventListener("input", (event) => {
         ncmLookupTerm = event.currentTarget.value;
-        render();
-        root.querySelector("[data-ncm-lookup-search]")?.focus();
+        rerenderPreservingInputSelection(event.currentTarget, render, () => root.querySelector("[data-ncm-lookup-search]"));
       });
       root.querySelectorAll("[data-select-ncm]").forEach((button) => {
         button.addEventListener("click", () => {
@@ -544,6 +546,28 @@ export function createProductViewsScreen({
       if (editingProduct) render();
     } catch (loadError) {
       editorError = loadError instanceof Error ? loadError.message : "Falha ao carregar os CESTs.";
+      render();
+    }
+  };
+
+  const loadNcmDescription = async (ncmCode) => {
+    const code = String(ncmCode || "").trim();
+    if (!code || ncmDescriptions.has(code)) return;
+    try {
+      const response = await apiFetch(
+        `${getApiUrl()}/api/ncm-cest/ncms?page=1&pageSize=1&search=${encodeURIComponent(code)}`
+      );
+      const payload = await response.json();
+      if (!response.ok || !Array.isArray(payload.ncms)) {
+        ncmDescriptions.set(code, payload.error || "Não foi possível carregar a descrição");
+        render();
+        return;
+      }
+      const ncm = payload.ncms.find((item) => String(item.codeNcm) === code);
+      ncmDescriptions.set(code, ncm?.descriptionNcm || "Descrição não encontrada");
+      render();
+    } catch {
+      ncmDescriptions.set(code, "Não foi possível carregar a descrição");
       render();
     }
   };

@@ -8,6 +8,7 @@ import { bindNumberMasks, formatMaskedNumber } from "../ui/number-mask.js";
 import { installComboboxDismissal } from "../ui/combobox.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { rerenderPreservingInputSelection } from "../ui/input-selection.js";
 import { calculateComponentCost, calculateCostPerYieldUnit } from "../shared/recipe.js";
 import {
   filterRecipeComponentOptions,
@@ -576,16 +577,8 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
     bindNavigation(root, { back: onBack, recipes: onRecipes });
     root.querySelector("[data-recipe-search]")?.addEventListener("input", (event) => {
       const input = event.currentTarget;
-      const selectionStart = input.selectionStart;
-      const selectionEnd = input.selectionEnd;
-      const selectionDirection = input.selectionDirection;
       searchTerm = input.value;
-      render();
-      const nextInput = root.querySelector("[data-recipe-search]");
-      nextInput?.focus();
-      if (selectionStart !== null && selectionEnd !== null) {
-        nextInput?.setSelectionRange(selectionStart, selectionEnd, selectionDirection || "none");
-      }
+      rerenderPreservingInputSelection(input, render, () => root.querySelector("[data-recipe-search]"));
     });
     root.querySelectorAll("[data-recipe-status-filter]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -618,11 +611,7 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
     });
     componentEditorRoot.querySelector("[data-component-search]")?.addEventListener("input", (event) => {
       componentDraft.searchTerm = event.currentTarget.value;
-      render();
-      const searchInput = root.querySelector("[data-component-search]");
-      searchInput?.focus();
-      const cursorPosition = componentDraft.searchTerm.length;
-      searchInput?.setSelectionRange(cursorPosition, cursorPosition);
+      rerenderPreservingInputSelection(event.currentTarget, render, () => root.querySelector("[data-component-search]"));
     });
     root.querySelectorAll("[data-component-option]").forEach((button) => button.addEventListener("click", () => {
       componentDraft.target = button.dataset.componentOption || "";

@@ -2510,7 +2510,9 @@ const server = createServer(async (request, response) => {
       await ensureFiscalEntrySchema();
       const [products] = await pool.query(
         `SELECT products.idProduct, products.nameProduct, products.skuProduct,
-                products.pdvCodeProduct, products.ncmProduct, products.cestProduct,
+                products.pdvCodeProduct, products.ncmProduct AS ncmProduct,
+                ncm_catalog.descriptionNcm AS descriptionNcm,
+                products.cestProduct AS cestProduct,
                 products.idFiscalOperationSaleProduct, products.idUnitProduct,
                 product_types.descriptionProductType,
                 groups.descriptionGroup,
@@ -2521,6 +2523,9 @@ const server = createServer(async (request, response) => {
          INNER JOIN \`groups\` groups ON groups.idGroup = products.idGroup
          LEFT JOIN product_types ON product_types.idProductType = products.idProductTypeProduct
          LEFT JOIN units ON units.idUnit = products.idUnitProduct
+         LEFT JOIN ncm_catalog
+           ON ncm_catalog.codeNcm = products.ncmProduct
+          AND ncm_catalog.isActiveNcm = 1
          LEFT JOIN fiscal_operations
            ON fiscal_operations.idFiscalOperation = products.idFiscalOperationSaleProduct
          WHERE EXISTS (
@@ -3561,6 +3566,9 @@ const server = createServer(async (request, response) => {
           (idFiscalDocumentQueue, accessKeyFiscalDocument, modelFiscalDocument,
            issuerDocumentFiscalDocument, issuerLegalNameFiscalDocument,
            issuerTradeNameFiscalDocument, issuerStateRegistrationFiscalDocument,
+           issuerAddressFiscalDocument, issuerAddressNumberFiscalDocument,
+           issuerNeighborhoodFiscalDocument, issuerCityFiscalDocument,
+           issuerStateFiscalDocument, issuerZipCodeFiscalDocument,
            issuedAtFiscalDocument, seriesFiscalDocument, numberFiscalDocument,
            operationNatureFiscalDocument, totalFiscalDocument,
            icmsBaseFiscalDocument, icmsAmountFiscalDocument,
@@ -3573,7 +3581,7 @@ const server = createServer(async (request, response) => {
            authorizationStatusFiscalDocument, protocolFiscalDocument,
            authorizedAtFiscalDocument, includedAtFiscalDocument,
            originalXmlFiscalDocument)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
         [
           queueResult.insertId,
           accessKey,
@@ -3582,6 +3590,12 @@ const server = createServer(async (request, response) => {
           result.issuer.legalName,
           result.issuer.tradeName,
           result.issuer.stateRegistration,
+          result.issuer.address.street,
+          result.issuer.address.number,
+          result.issuer.address.neighborhood,
+          result.issuer.address.city,
+          result.issuer.address.state,
+          result.issuer.address.postalCode,
           issuedAt,
           result.series,
           result.number,
@@ -3652,31 +3666,6 @@ const server = createServer(async (request, response) => {
         );
         itemIds.push(itemResult.insertId);
       }
-      for (const payment of result.payments) {
-        await connection.query(
-          `INSERT INTO fiscal_document_payments
-            (idFiscalDocument, amountFiscalDocumentPayment,
-             paymentTypeFiscalDocumentPayment, paymentDescriptionFiscalDocumentPayment,
-             cardBrandFiscalDocumentPayment)
-           VALUES (?, ?, ?, ?, ?)`,
-          [
-            documentId,
-            decimal(payment.amount, 2),
-            payment.type,
-            payment.description,
-            payment.cardBrand
-          ]
-        );
-      }
-      for (const installment of result.installments) {
-        await connection.query(
-          `INSERT INTO fiscal_document_payments
-            (idFiscalDocument, installmentNumberFiscalDocumentPayment,
-             dueDateFiscalDocumentPayment, amountFiscalDocumentPayment)
-           VALUES (?, ?, ?, ?)`,
-          [documentId, installment.number, installment.dueDate || null, decimal(installment.amount, 2)]
-        );
-      }
       const [entryResult] = await connection.query(
         "INSERT INTO fiscal_entries (idFiscalDocument, statusFiscalEntry) VALUES (?, 'draft')",
         [documentId]
@@ -3725,34 +3714,36 @@ const server = createServer(async (request, response) => {
       requireOperatorSession(request);
       await ensureSupplierSchema();
       await ensureFiscalEntrySchema();
-      const [fiscalEntries] = await pool.query(
-        `SELECT e.idFiscalEntry, e.statusFiscalEntry, e.createdAtFiscalEntry,
-                e.updatedAtFiscalEntry, d.accessKeyFiscalDocument,
-                d.modelFiscalDocument, d.issuerLegalNameFiscalDocument,
-                d.issuerDocumentFiscalDocument, d.issuedAtFiscalDocument,
-                d.numberFiscalDocument, d.seriesFiscalDocument,
-                d.totalFiscalDocument
-         FROM fiscal_entries e
-         JOIN fiscal_documents d ON d.idFiscalDocument = e.idFiscalDocument
-         WHERE e.statusFiscalEntry IN ('draft', 'open')
-         ORDER BY e.updatedAtFiscalEntry DESC, e.idFiscalEntry DESC`
-      );
-      const [missingSupplierRows] = await pool.query(
-        `SELECT d.issuerDocumentFiscalDocument AS documentSupplier,
-                MAX(d.issuerLegalNameFiscalDocument) AS companyNameSupplier,
-                MAX(d.issuerTradeNameFiscalDocument) AS tradeNameSupplier,
-                MAX(d.originalXmlFiscalDocument) AS originalXmlFiscalDocument
-         FROM fiscal_entries e
-         JOIN fiscal_documents d ON d.idFiscalDocument = e.idFiscalDocument
-         LEFT JOIN suppliers s
-           ON s.documentSupplier COLLATE utf8mb4_unicode_ci =
-              d.issuerDocumentFiscalDocument COLLATE utf8mb4_unicode_ci
-          AND s.typeSupplier = IF(CHAR_LENGTH(TRIM(d.issuerDocumentFiscalDocument)) = 11, 'fisica', 'juridica')
-         WHERE e.statusFiscalEntry IN ('draft', 'open')
-           AND s.idSupplier IS NULL
-         GROUP BY d.issuerDocumentFiscalDocument
-         ORDER BY companyNameSupplier, documentSupplier`
-      );
+      const [[fiscalEntries], [missingSupplierRows]] = await Promise.all([
+        pool.query(
+          `SELECT e.idFiscalEntry, e.statusFiscalEntry, e.createdAtFiscalEntry,
+                  e.updatedAtFiscalEntry, d.accessKeyFiscalDocument,
+                  d.modelFiscalDocument, d.issuerLegalNameFiscalDocument,
+                  d.issuerDocumentFiscalDocument, d.issuedAtFiscalDocument,
+                  d.numberFiscalDocument, d.seriesFiscalDocument,
+                  d.totalFiscalDocument
+           FROM fiscal_entries e
+           JOIN fiscal_documents d ON d.idFiscalDocument = e.idFiscalDocument
+           WHERE e.statusFiscalEntry IN ('draft', 'open')
+           ORDER BY e.updatedAtFiscalEntry DESC, e.idFiscalEntry DESC`
+        ),
+        pool.query(
+          `SELECT d.issuerDocumentFiscalDocument AS documentSupplier,
+                  MAX(d.issuerLegalNameFiscalDocument) AS companyNameSupplier,
+                  MAX(d.issuerTradeNameFiscalDocument) AS tradeNameSupplier,
+                  MAX(d.originalXmlFiscalDocument) AS originalXmlFiscalDocument
+           FROM fiscal_entries e
+           JOIN fiscal_documents d ON d.idFiscalDocument = e.idFiscalDocument
+           LEFT JOIN suppliers s
+             ON s.documentSupplier COLLATE utf8mb4_unicode_ci =
+                d.issuerDocumentFiscalDocument COLLATE utf8mb4_unicode_ci
+            AND s.typeSupplier = IF(CHAR_LENGTH(TRIM(d.issuerDocumentFiscalDocument)) = 11, 'fisica', 'juridica')
+           WHERE e.statusFiscalEntry IN ('draft', 'open')
+             AND s.idSupplier IS NULL
+           GROUP BY d.issuerDocumentFiscalDocument
+           ORDER BY companyNameSupplier, documentSupplier`
+        )
+      ]);
       const missingSuppliers = missingSupplierRows.map((supplier) => {
         const extracted = {
           zipCodeSupplier: "",
@@ -3810,6 +3801,10 @@ const server = createServer(async (request, response) => {
                 d.modelFiscalDocument, d.issuerDocumentFiscalDocument,
                 d.issuerLegalNameFiscalDocument, d.issuerTradeNameFiscalDocument,
                 d.issuedAtFiscalDocument, d.totalFiscalDocument,
+                d.issuerStateRegistrationFiscalDocument,
+                d.issuerAddressFiscalDocument, d.issuerAddressNumberFiscalDocument,
+                d.issuerNeighborhoodFiscalDocument, d.issuerCityFiscalDocument,
+                d.issuerStateFiscalDocument, d.issuerZipCodeFiscalDocument,
                 d.seriesFiscalDocument, d.numberFiscalDocument,
                 d.operationNatureFiscalDocument, d.authorizationStatusFiscalDocument,
                 d.icmsBaseFiscalDocument, d.icmsAmountFiscalDocument,
@@ -3839,13 +3834,6 @@ const server = createServer(async (request, response) => {
          ORDER BY i.lineNumberFiscalDocumentItem`,
         [idFiscalEntry]
       );
-      const [payments] = await pool.query(
-        `SELECT *
-         FROM fiscal_document_payments
-         WHERE idFiscalDocument = ?
-         ORDER BY idFiscalDocumentPayment`,
-        [entries[0].idFiscalDocument]
-      );
       const [entryPayments] = await pool.query(
         `SELECT idFiscalEntryPayment, paymentDescriptionFiscalEntryPayment,
                 amountFiscalEntryPayment
@@ -3865,7 +3853,6 @@ const server = createServer(async (request, response) => {
       json(response, 200, {
         fiscalEntry: entries[0],
         items,
-        payments,
         entryPayments,
         productFiscalReferences
       });
@@ -3935,6 +3922,160 @@ const server = createServer(async (request, response) => {
       handleError(response, error, {
         log: "Falha ao excluir pré-entrada fiscal:",
         message: "Não foi possível excluir a pré-entrada fiscal.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
+  const fiscalEntryReconcileMatch = request.method === "POST"
+    ? request.url.match(/^\/api\/stock\/fiscal-entries\/(\d+)\/reconcile-values$/)
+    : null;
+  if (fiscalEntryReconcileMatch) {
+    let connection = null;
+    try {
+      requireOperatorSession(request);
+      await ensureFiscalEntrySchema();
+      const idFiscalEntry = parsePositiveId(fiscalEntryReconcileMatch[1]);
+      if (!idFiscalEntry) throw new SaleValidationError("Pré-entrada inválida.");
+      const payload = await readJsonBody(request, 15 * 1024 * 1024);
+      const [entryRows] = await pool.query(
+        `SELECT e.statusFiscalEntry, d.idFiscalDocument,
+                d.idFiscalDocumentQueue, d.accessKeyFiscalDocument,
+                d.originalXmlFiscalDocument
+         FROM fiscal_entries e
+         JOIN fiscal_documents d ON d.idFiscalDocument = e.idFiscalDocument
+         WHERE e.idFiscalEntry = ?`,
+        [idFiscalEntry]
+      );
+      if (!entryRows.length) throw new SaleValidationError("Pré-entrada fiscal não encontrada.", 404);
+      if (!["draft", "open"].includes(entryRows[0].statusFiscalEntry)) {
+        throw new SaleValidationError("Somente pré-entradas em aberto podem ter os valores atualizados.", 409);
+      }
+      const source = String(
+        entryRows[0].originalXmlFiscalDocument || payload?.html || ""
+      ).trim();
+      if (!source) throw new SaleValidationError("O documento não possui conteúdo original para releitura.");
+      const isHtml = source.trimStart().startsWith("<")
+        && /<html\b|<table\b/i.test(source);
+      const result = isHtml
+        ? parseFiscalDocumentHtml(source, entryRows[0].accessKeyFiscalDocument)
+        : parseFiscalDocumentXml(source, entryRows[0].accessKeyFiscalDocument);
+      if (result.accessKey !== entryRows[0].accessKeyFiscalDocument) {
+        throw new SaleValidationError("A consulta lida não corresponde à chave desta pré-entrada.", 409);
+      }
+      const sourceItems = new Map(
+        result.items.map((item) => [Number(item.lineNumber), item])
+      );
+      const parsedTotal = Number(String(result.total ?? "").replace(",", "."));
+      if (!Number.isFinite(parsedTotal) || parsedTotal < 0) {
+        throw new SaleValidationError("A consulta não retornou um valor total válido.", 502);
+      }
+      connection = await pool.getConnection();
+      await connection.beginTransaction();
+      const [lockedEntries] = await connection.query(
+        `SELECT e.statusFiscalEntry, d.idFiscalDocument,
+                d.idFiscalDocumentQueue
+         FROM fiscal_entries e
+         JOIN fiscal_documents d ON d.idFiscalDocument = e.idFiscalDocument
+         WHERE e.idFiscalEntry = ?
+         FOR UPDATE`,
+        [idFiscalEntry]
+      );
+      if (!lockedEntries.length) throw new SaleValidationError("Pré-entrada fiscal não encontrada.", 404);
+      if (!["draft", "open"].includes(lockedEntries[0].statusFiscalEntry)) {
+        throw new SaleValidationError("A pré-entrada deixou de estar editável durante a consulta.", 409);
+      }
+      const [documentItems] = await connection.query(
+        `SELECT i.idFiscalDocumentItem, i.lineNumberFiscalDocumentItem,
+                i.unitPriceFiscalDocumentItem, i.totalFiscalDocumentItem
+         FROM fiscal_entry_items ei
+         JOIN fiscal_document_items i ON i.idFiscalDocumentItem = ei.idFiscalDocumentItem
+         WHERE ei.idFiscalEntry = ?
+         FOR UPDATE`,
+        [idFiscalEntry]
+      );
+      if (documentItems.length !== sourceItems.size
+        || documentItems.some((item) => !sourceItems.has(Number(item.lineNumberFiscalDocumentItem)))) {
+        throw new SaleValidationError("A consulta retornou itens diferentes dos itens já extraídos; nada foi alterado.", 409);
+      }
+      const invalidSourceItem = documentItems.find((item) => {
+        const source = sourceItems.get(Number(item.lineNumberFiscalDocumentItem));
+        const unitPrice = Number(String(source.unitPrice ?? "").replace(",", "."));
+        const total = Number(String(source.total ?? "").replace(",", "."));
+        const existingUnitPrice = Number(item.unitPriceFiscalDocumentItem);
+        const existingTotal = Number(item.totalFiscalDocumentItem);
+        return (!Number.isFinite(unitPrice) || !Number.isFinite(total))
+          || (existingUnitPrice > 0 && unitPrice <= 0)
+          || (existingTotal > 0 && total <= 0);
+      });
+      if (invalidSourceItem) {
+        throw new SaleValidationError(
+          `A consulta não retornou valores fiscais válidos para a linha ${invalidSourceItem.lineNumberFiscalDocumentItem}; nada foi alterado.`,
+          409
+        );
+      }
+      const decimal = (value, scale) => {
+        const parsed = Number(String(value ?? "").replace(",", "."));
+        return Number.isFinite(parsed) ? parsed.toFixed(scale) : "0";
+      };
+      for (const item of documentItems) {
+        const source = sourceItems.get(Number(item.lineNumberFiscalDocumentItem));
+        await connection.query(
+          `UPDATE fiscal_document_items
+           SET unitPriceFiscalDocumentItem = ?,
+               totalFiscalDocumentItem = ?
+           WHERE idFiscalDocumentItem = ?`,
+          [decimal(source.unitPrice, 6), decimal(source.total, 2), item.idFiscalDocumentItem]
+        );
+      }
+      await connection.query(
+        `UPDATE fiscal_documents
+         SET totalFiscalDocument = ?,
+             issuerAddressFiscalDocument = COALESCE(NULLIF(?, ''), issuerAddressFiscalDocument),
+             issuerAddressNumberFiscalDocument = COALESCE(NULLIF(?, ''), issuerAddressNumberFiscalDocument),
+             issuerNeighborhoodFiscalDocument = COALESCE(NULLIF(?, ''), issuerNeighborhoodFiscalDocument),
+             issuerCityFiscalDocument = COALESCE(NULLIF(?, ''), issuerCityFiscalDocument),
+             issuerStateFiscalDocument = COALESCE(NULLIF(?, ''), issuerStateFiscalDocument),
+             issuerZipCodeFiscalDocument = COALESCE(NULLIF(?, ''), issuerZipCodeFiscalDocument)
+         WHERE idFiscalDocument = ?`,
+        [
+          parsedTotal.toFixed(2),
+          result.issuer?.address?.street || "",
+          result.issuer?.address?.number || "",
+          result.issuer?.address?.neighborhood || "",
+          result.issuer?.address?.city || "",
+          result.issuer?.address?.state || "",
+          result.issuer?.address?.postalCode || "",
+          lockedEntries[0].idFiscalDocument
+        ]
+      );
+      if (lockedEntries[0].idFiscalDocumentQueue) {
+        await connection.query(
+          "UPDATE fiscal_document_queue SET totalFiscalDocumentQueue = ? WHERE idFiscalDocumentQueue = ?",
+          [parsedTotal.toFixed(2), lockedEntries[0].idFiscalDocumentQueue]
+        );
+      }
+      await connection.commit();
+      connection.release();
+      connection = null;
+      json(response, 200, {
+        idFiscalEntry,
+        updatedItemCount: documentItems.length,
+        totalFiscalDocument: parsedTotal.toFixed(2)
+      });
+    } catch (error) {
+      if (connection) {
+        await connection.rollback().catch(() => {});
+        connection.release();
+      }
+      if (error instanceof FiscalQueryError) {
+        json(response, error.status, { error: error.message });
+        return;
+      }
+      handleError(response, error, {
+        log: "Falha ao reconciliar valores da pré-entrada fiscal:",
+        message: "Não foi possível atualizar os valores fiscais da pré-entrada.",
         duplicate: ""
       });
     }

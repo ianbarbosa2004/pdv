@@ -598,7 +598,7 @@ const ensureFiscalDocumentQueueSchema = async () => {
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
 };
 
-const ensureFiscalEntrySchema = async () => {
+const initializeFiscalEntrySchema = async () => {
   await pool.query(`CREATE TABLE IF NOT EXISTS fiscal_documents (
     idFiscalDocument BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     idFiscalDocumentQueue BIGINT UNSIGNED NULL,
@@ -608,6 +608,12 @@ const ensureFiscalEntrySchema = async () => {
     issuerLegalNameFiscalDocument VARCHAR(180) NOT NULL DEFAULT '',
     issuerTradeNameFiscalDocument VARCHAR(180) NOT NULL DEFAULT '',
     issuerStateRegistrationFiscalDocument VARCHAR(30) NOT NULL DEFAULT '',
+    issuerAddressFiscalDocument VARCHAR(180) NOT NULL DEFAULT '',
+    issuerAddressNumberFiscalDocument VARCHAR(20) NOT NULL DEFAULT '',
+    issuerNeighborhoodFiscalDocument VARCHAR(100) NOT NULL DEFAULT '',
+    issuerCityFiscalDocument VARCHAR(100) NOT NULL DEFAULT '',
+    issuerStateFiscalDocument CHAR(2) NOT NULL DEFAULT '',
+    issuerZipCodeFiscalDocument VARCHAR(9) NOT NULL DEFAULT '',
     issuedAtFiscalDocument DATETIME NOT NULL,
     seriesFiscalDocument VARCHAR(20) NOT NULL DEFAULT '',
     numberFiscalDocument VARCHAR(30) NOT NULL DEFAULT '',
@@ -645,6 +651,12 @@ const ensureFiscalEntrySchema = async () => {
   const fiscalDocumentColumns = [
     ["icmsBaseFiscalDocument", "DECIMAL(12,2) NOT NULL DEFAULT 0"],
     ["icmsAmountFiscalDocument", "DECIMAL(12,2) NOT NULL DEFAULT 0"],
+    ["issuerAddressFiscalDocument", "VARCHAR(180) NOT NULL DEFAULT ''"],
+    ["issuerAddressNumberFiscalDocument", "VARCHAR(20) NOT NULL DEFAULT ''"],
+    ["issuerNeighborhoodFiscalDocument", "VARCHAR(100) NOT NULL DEFAULT ''"],
+    ["issuerCityFiscalDocument", "VARCHAR(100) NOT NULL DEFAULT ''"],
+    ["issuerStateFiscalDocument", "CHAR(2) NOT NULL DEFAULT ''"],
+    ["issuerZipCodeFiscalDocument", "VARCHAR(9) NOT NULL DEFAULT ''"],
     ["recipientDocumentFiscalDocument", "VARCHAR(20) NOT NULL DEFAULT ''"],
     ["recipientLegalNameFiscalDocument", "VARCHAR(180) NOT NULL DEFAULT ''"],
     ["recipientStateFiscalDocument", "CHAR(2) NOT NULL DEFAULT ''"],
@@ -718,22 +730,6 @@ const ensureFiscalEntrySchema = async () => {
       "ALTER TABLE fiscal_document_items ADD COLUMN cestFiscalDocumentItem VARCHAR(20) NOT NULL DEFAULT '' AFTER ncmFiscalDocumentItem"
     );
   }
-  await pool.query(`CREATE TABLE IF NOT EXISTS fiscal_document_payments (
-    idFiscalDocumentPayment BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    idFiscalDocument BIGINT UNSIGNED NOT NULL,
-    installmentNumberFiscalDocumentPayment VARCHAR(30) NOT NULL DEFAULT '',
-    dueDateFiscalDocumentPayment DATE NULL,
-    amountFiscalDocumentPayment DECIMAL(14,2) NOT NULL DEFAULT 0,
-    paymentTypeFiscalDocumentPayment VARCHAR(10) NOT NULL DEFAULT '',
-    paymentDescriptionFiscalDocumentPayment VARCHAR(120) NOT NULL DEFAULT '',
-    cardBrandFiscalDocumentPayment VARCHAR(20) NOT NULL DEFAULT '',
-    createdAtFiscalDocumentPayment TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (idFiscalDocumentPayment),
-    KEY idxFiscalDocumentPaymentsDocument (idFiscalDocument, installmentNumberFiscalDocumentPayment),
-    CONSTRAINT fkFiscalDocumentPaymentsDocument
-      FOREIGN KEY (idFiscalDocument) REFERENCES fiscal_documents (idFiscalDocument)
-      ON DELETE CASCADE
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
   await pool.query(`CREATE TABLE IF NOT EXISTS fiscal_entries (
     idFiscalEntry BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     idFiscalDocument BIGINT UNSIGNED NOT NULL,
@@ -979,6 +975,18 @@ const ensureFiscalEntrySchema = async () => {
       FOREIGN KEY (idFiscalEntry) REFERENCES fiscal_entries (idFiscalEntry)
       ON DELETE CASCADE
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+};
+
+let fiscalEntrySchemaPromise = null;
+
+const ensureFiscalEntrySchema = () => {
+  if (fiscalEntrySchemaPromise) return fiscalEntrySchemaPromise;
+  fiscalEntrySchemaPromise = initializeFiscalEntrySchema()
+    .catch((error) => {
+      fiscalEntrySchemaPromise = null;
+      throw error;
+    });
+  return fiscalEntrySchemaPromise;
 };
 
 let fiscalOperationSchemaPromise = null;

@@ -1,19 +1,19 @@
-export const formatMaskedNumber = (value) => {
+export const formatMaskedNumber = (value, fractionDigits = 2) => {
   const numeric = Number(String(value ?? "").replace(",", "."));
   if (!Number.isFinite(numeric)) return "";
   return numeric.toLocaleString("pt-BR", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits
   });
 };
 
-export const normalizeMaskedNumber = (value) => {
+export const normalizeMaskedNumber = (value, fractionDigits = 2) => {
   const text = String(value ?? "").trim();
   if (!text) return "";
   const digits = text.replace(/\D/g, "");
   if (!digits) return "";
-  const cents = Number(digits) / 100;
-  return cents.toFixed(2);
+  const divisor = 10 ** fractionDigits;
+  return (Number(digits) / divisor).toFixed(fractionDigits);
 };
 
 export const normalizeDecimalInput = (value) => {
@@ -54,6 +54,16 @@ export const bindNumberMasks = (root) => {
     input.addEventListener("input", () => {
       if (input.dataset.numberMask === "decimal") {
         input.value = formatDecimalInput(input.value);
+        return;
+      }
+      if (input.dataset.numberMask === "fractional-3") {
+        const digits = input.value.replace(/\D/g, "");
+        input.value = digits
+          ? (Number(digits) / 1000).toLocaleString("pt-BR", {
+              minimumFractionDigits: 3,
+              maximumFractionDigits: 3
+            })
+          : "";
         return;
       }
       const digits = input.value.replace(/\D/g, "");

@@ -1,6 +1,7 @@
 import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { bindFormRowPreview } from "../ui/form-row-preview.js";
+import { rerenderPreservingInputSelection } from "../ui/input-selection.js";
 import { renderPreservingFormDraft } from "../ui/form-draft.js";
 import { bindProductNavigation, renderProductNavigation } from "./product-navigation.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
@@ -303,8 +304,7 @@ export function createProductReferenceScreen({
     bindFormRowPreview(root, { formSelector: "[data-reference-form]" });
     root.querySelector("[data-search]")?.addEventListener("input", (event) => {
       searchTerm = event.currentTarget.value;
-      render();
-      root.querySelector("[data-search]")?.focus();
+      rerenderPreservingInputSelection(event.currentTarget, render, () => root.querySelector("[data-search]"));
     });
     root.querySelector("[data-reference-form]")?.addEventListener("submit", (event) => {
       event.preventDefault();

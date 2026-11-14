@@ -18,6 +18,7 @@ test("Produtos Vinculados expõe consulta fiscal e edição local do produto", a
     "descriptionGroup",
     "operationNatureFiscalOperation",
     "codeUnit",
+    "descriptionNcm",
     "descriptionFiscalProductReference",
     "cfopProductFiscalReference",
     "fiscalUnitProductReference",
@@ -41,6 +42,8 @@ test("Produtos Vinculados expõe consulta fiscal e edição local do produto", a
   assert.doesNotMatch(source, /<div class="feedback success">/u);
   assert.match(server, /request\.method === "PUT" && request\.url === "\/api\/products\/fiscal"/u);
   assert.match(server, /UPDATE products SET ncmProduct = \?, cestProduct = \?/u);
+  assert.match(server, /ncm_catalog\.descriptionNcm AS descriptionNcm/u);
+  assert.match(source, /valueOrDash\(product\.cestProduct\)/u);
   assert.doesNotMatch(source, /data-back/u);
   assert.match(
     styles,
@@ -81,6 +84,15 @@ test("vínculos fiscais são migrados e sincronizados apenas para itens concluí
   assert.doesNotMatch(server, /COALESCE\(pfr\.idProduct, ei\.idProduct\)/u);
   assert.ok((server.match(/DELETE references_for_product/g) || []).length >= 2);
   assert.match(navigation, /"product-fiscal-references"/u);
+});
+
+test("Produtos Vinculados fica Ok quando existe uma referência com NCM e CEST correspondentes", async () => {
+  const source = await readFile("src/stock/product-fiscal-reference-screen.js", "utf8");
+
+  assert.match(
+    source,
+    /references\.some\(\(reference\) =>[\s\S]*?ncmMismatch[\s\S]*?cestMismatch/u
+  );
 });
 
 test("Pré-entrada reutiliza conversão quando há um único vínculo fiscal correspondente", async () => {

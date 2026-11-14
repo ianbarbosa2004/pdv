@@ -7,6 +7,45 @@ inicial do produto até o estado atual do workspace. Ele complementa o
 
 ## 0. Estado mais recente
 
+### Destaque da pré-entrada em edição — 2026-11-13
+
+A listagem de Pré-entradas agora promove o documento aberto no workspace para
+o primeiro lugar. A linha ativa recebe fundo verde-claro, faixa lateral e
+ênfase tipográfica, permitindo localizar rapidamente o documento que está
+sendo revisado sem alterar a ordenação dos demais registros.
+
+Esta melhoria permanece agrupada na versão **0.16.1**. A alteração é somente
+de frontend; não é necessário reiniciar a API.
+
+### Limpeza do feedback da exclusão fiscal — 2026-11-13
+
+Após excluir um documento da Fila fiscal, a mensagem de sucesso agora usa o
+mesmo temporizador dos demais feedbacks da tela e é removida sem exigir nova
+ação do operador. Isso impede que qualquer clique ou nova renderização pareça
+ter concluído a exclusão novamente.
+
+Esta correção permanece agrupada na versão **0.16.1**. Não houve alteração em
+`src/server/`; não é necessário reiniciar a API.
+
+### Correções de feedback, fila e pesquisa — 2026-11-13
+
+Os cadastros de Clientes, Consumidores e Fornecedores passaram a renderizar
+somente o feedback final após o salvamento, evitando mensagens de sucesso
+duplicadas. A Fila de documentos fiscais passou a consultar em paralelo os
+dados principais e os fornecedores ausentes, enquanto a preparação idempotente
+do schema é reutilizada durante a vida do processo da API.
+
+O preenchimento automático de Fornecedores por CNPJ e CEP aplica capitalização
+de títulos apenas aos dados recebidos da consulta externa. A digitação manual
+continua preservada. Também foi criado um helper compartilhado para que todos
+os campos **Pesquisar** mantenham foco, posição e direção da seleção quando a
+listagem é reconstruída durante a digitação.
+
+Esta etapa foi versionada como **0.16.1**. A suíte completa foi executada com
+202 testes aprovados, além de `node --check` e `git diff --check`. Como houve
+alterações em `src/server/`, a API publicada deve ser reiniciada antes da
+validação operacional; não foi necessário executar build completo.
+
 ### Pré-entrada em digitação e revisão de itens — 2026-11-12
 
 As importações fiscais passaram a criar a pré-entrada em **Em Digitação**.
@@ -328,11 +367,10 @@ incluindo logo e ícone, durante o carregamento. O painel introdutório de
 Operações Fiscais foi removido para deixar o formulário da empresa diretamente
 acessível.
 
-O versionamento automático continua ligado ao hook `prebuild` e ao fluxo
-`prerelease:client`: `npm.cmd run build` e `npm.cmd run release:client`
-classificam e incrementam a versão quando há alteração pendente. Incrementos
-manuais continuam disponíveis com `version:patch`, `version:minor` ou
-`version:major`. Os instaladores finais
+O versionamento automático está suspenso: `npm.cmd run build` e
+`npm.cmd run release:client` não alteram a versão. Incrementos manuais
+continuam disponíveis com `version:patch`, `version:minor` ou `version:major`,
+somente após pedido explícito. Os instaladores finais
 usam os nomes fixos `pdv-zanzibar.msi`, `pdv-zanzibar.exe` e
 `pdv-zanzibar-metadata.json`, sem versão no nome do arquivo. O script de
 release seleciona somente os artefatos da versão corrente e só regenera ícones

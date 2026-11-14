@@ -36,8 +36,12 @@ const getFiscalConsistency = (product) => {
 };
 
 const isFiscalConsistent = (product) => {
-  const consistency = getFiscalConsistency(product);
-  return !consistency.ncmMismatch && !consistency.cestMismatch;
+  const productNcm = normalizeFiscalCode(product.ncmProduct);
+  const productCest = normalizeFiscalCode(product.cestProduct);
+  return product.references.some((reference) =>
+    productNcm === normalizeFiscalCode(reference.ncmProductFiscalReference)
+    && productCest === normalizeFiscalCode(reference.cestProductFiscalReference)
+  );
 };
 
 const fiscalCodeFieldClass = (isMismatch) => isMismatch ? " fiscal-code-mismatch" : "";
@@ -72,7 +76,7 @@ export function createProductFiscalReferenceScreen(menuActions) {
           <label class="form-field"><span>Grupo</span><input readonly value="${valueOrDash(product.descriptionGroup)}" /></label>
           <label class="form-field"><span>Operação Fiscal de Venda</span><input readonly value="${valueOrDash(formatFiscalOperation(product))}" /></label>
           <label class="form-field"><span>Unidade Tributável</span><input readonly value="${valueOrDash(product.codeUnit || product.descriptionUnit)}" /></label>
-          <label class="form-field${fiscalCodeFieldClass(consistency.ncmMismatch)}"><span>NCM</span><input readonly value="${valueOrDash(product.ncmProduct)}" /></label>
+          <label class="form-field${fiscalCodeFieldClass(consistency.ncmMismatch)}"><span>NCM</span><input readonly value="${valueOrDash(product.ncmProduct)}" /><small class="catalog-lookup-description">${valueOrDash(product.descriptionNcm)}</small></label>
           <label class="form-field${fiscalCodeFieldClass(consistency.cestMismatch)}"><span>CEST</span><input readonly value="${valueOrDash(product.cestProduct)}" /></label>
         </div>
         ${consistency.ncmMismatch || consistency.cestMismatch

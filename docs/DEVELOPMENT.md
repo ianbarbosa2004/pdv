@@ -141,10 +141,16 @@ fiscais do Produto comercial e valida a relação NCM/CEST no servidor. Após o
 salvamento, a listagem e a visualização do produto selecionado são
 recarregadas. A listagem apresenta `# PDV`, Produto, Grupo e
 Vínculos, com ordenação por cabeçalho e pesquisa com preservação do cursor.
+O indicador **Ok** fica confirmado quando existe ao menos um vínculo do produto
+comercial cuja combinação de NCM e CEST coincide com a do produto vinculado;
+outras referências divergentes não invalidam essa confirmação.
 Quando a descrição e a unidade fiscal possuem exatamente um vínculo global,
 a tela de Pré-entrada reaplica automaticamente Produto, unidade de estoque e
 fator de conversão. Com mais de um vínculo possível, nenhum é escolhido
 automaticamente.
+As listas de documentos e Pré-entradas usam 50 itens por página por padrão para
+que a revisão de documentos com muitos itens não oculte linhas além da primeira
+página. O controle permite reduzir para 25 ou ampliar para 100 quando necessário.
 
 Ao editar um Produto, a API também oferece como opção o CEST encontrado em
 vínculos fiscais importados para o mesmo NCM, mesmo quando a relação ainda não
@@ -179,6 +185,12 @@ protocolo com a importação fiscal. A tela de fornecedores ausentes reutiliza o
 mesmo modal da importação XML e aplica a capitalização de títulos antes de
 exibir os campos. Conteúdo HTML armazenado na fila é reconhecido na leitura
 posterior para que o cadastro continue disponível.
+
+Ao reler uma Pré-entrada existente, a API usa o conteúdo bruto persistido da
+Consulta Completa e atualiza na mesma transação os valores dos itens, o total
+do documento e os seis campos de endereço do emitente. Assim, o cabeçalho da
+Pré-entrada passa a mostrar o endereço extraído mesmo quando a importação
+inicial havia sido feita antes da persistência desses campos.
 
 Alterações no parser ou na rota de importação exigem reinício da API publicada.
 Alterações somente no fluxo visual da fila exigem recarregar ou republicar o
@@ -1019,16 +1031,16 @@ depois da execução.
 
 ### Versionamento dos builds
 
-O hook `prebuild` de `package.json` e o script `prerelease:client` acionam
-automaticamente `npm.cmd run version:auto` antes de executar seus builds. O
-script mantém a mesma versão em:
+O incremento automático de versão está suspenso. O hook `prebuild` foi removido
+e `prerelease:client` preserva a versão atual antes de executar o fluxo do
+cliente. O script mantém a mesma versão em:
 
 - `package.json`;
 - `package-lock.json`;
 - `src-tauri/tauri.conf.json`.
 
-Quando uma alteração funcional exigir nova versão, faça um incremento explícito
-e único com `version:patch`, `version:minor` ou `version:major`. Alterações
+Quando o usuário solicitar explicitamente uma nova versão, faça um incremento
+único com `version:patch`, `version:minor` ou `version:major`. Alterações
 pontuais e correções compatíveis normalmente usam `patch`; `minor` fica
 reservado para uma nova capacidade compatível identificada explicitamente;
 `major` exige quebra incompatível. No versionamento automático, alterações de
@@ -1037,17 +1049,10 @@ Para solicitar `minor`, inclua no diff a marca `MINOR CHANGE:` ou
 `MINOR_CHANGE:`. Alterações somente documentais ou testes isolados não exigem
 incremento.
 
-**Diretriz:** o versionamento automático é acionado quando existe alteração
-pendente no build ou na geração do cliente. A primeira execução classifica o
-diff pendente: `patch` para correções e
-expansões compatíveis, `minor` somente com `MINOR CHANGE:` ou
-`MINOR_CHANGE:`, `major` somente com `BREAKING CHANGE:` ou
-`BREAKING_CHANGE:`. Se houver apenas documentação, testes isolados ou arquivos
-de versionamento, a versão não deve ser incrementada. Não use
-`npm.cmd run version:patch` automaticamente para substituir essa análise;
-reserve os comandos `version:minor` e `version:major` para uma decisão explícita.
-Depois que os arquivos de versão forem alterados, novas execuções antes do
-commit reconhecem que o conjunto já foi versionado e não incrementam novamente.
+**Diretriz:** nenhum build, release ou alteração funcional deve incrementar a
+versão automaticamente. O comando `version:auto` permanece disponível somente
+para execução manual após pedido explícito; `version:patch`, `version:minor` e
+`version:major` também exigem essa decisão explícita.
 
 Os comandos manuais são:
 
@@ -1058,9 +1063,8 @@ Os comandos manuais são:
 | `npm.cmd run version:major` | Mudança incompatível ou primeira versão estável | `0.9.9` → `1.0.0` |
 
 `npm.cmd run version:increment` permanece como alias compatível para
-`version:patch`. `npm.cmd run version:auto` analisa o diff pendente e aplica a
-classificação automática descrita acima. Ele é acionado pelos gatilhos
-`prebuild` e `prerelease:client`, além de poder ser executado manualmente.
+`version:patch`. `npm.cmd run version:auto` analisa o diff pendente, mas não é
+acionado por builds ou releases.
 
 A versão definida no `package.json` é injetada pelo Vite em
 `src/shared/build-info.js` e também é retornada pela API em
@@ -1438,10 +1442,12 @@ O país não é solicitado na tela e a API mantém `Brasil` como padrão. CNPJ/C
 telefone e CEP recebem máscara durante a digitação; e-mails são normalizados
 sem espaços e em minúsculas. O documento é armazenado sem máscara e possui
 unicidade por tipo de pessoa; a interface apresenta o valor formatado.
-Os campos textuais humanos preservam a capitalização informada, como em
-**Colher de Sopa** ou **COLHER DE SOPA**. No salvamento, a API aplica somente
-trim, normalização de espaços e validações de
-tamanho/obrigatoriedade; e-mails continuam em minúsculas por regra técnica.
+Os campos textuais humanos preservam a capitalização informada quando digitados
+manualmente, como em **Colher de Sopa** ou **COLHER DE SOPA**. Ao preencher
+dados por consulta de CNPJ ou CEP, a interface normaliza nomes e endereços para
+capitalização de títulos. No salvamento, a API aplica somente trim, normalização
+de espaços e validações de tamanho/obrigatoriedade; e-mails continuam em
+minúsculas por regra técnica.
 
 No formulário de novo fornecedor, o botão ao lado do CNPJ consulta a BrasilAPI
 e preenche razão social, nome fantasia, contato, telefone, e-mail e endereço
@@ -1473,6 +1479,10 @@ A tela apresenta os dois painéis de importação à esquerda e a listagem
 **Documentos na Fila** à direita. Cada linha identifica o tipo, documento,
 fornecedor, emissão, valor e status; o ícone de seta abre a mesma revisão
 detalhada anteriormente acessada pelo botão **Continuar**.
+A chave de acesso não é exibida na coluna **Documento**. O ícone de bloco de
+notas copia a chave para a área de transferência e informa o sucesso. Na
+revisão da pré-entrada, a chave exibida no texto **Documento** também é
+clicável e usa o mesmo comportamento.
 Logo abaixo de **Importar XML de entrada**, a tela também lista os
 **Fornecedores não cadastrados**, agrupados por CNPJ/CPF e comparados
 server-side com a tabela `suppliers`. O botão **Cadastrar** abre o mesmo
@@ -1481,16 +1491,24 @@ dados fiscais disponíveis na entrada; o salvamento usa `POST /api/suppliers`.
 Os cabeçalhos de Tipo, Documento, Fornecedor, Emissão, Valor e Status permitem
 ordenar a lista; a ordem inicial é por Emissão crescente (data mais antiga
 primeiro), e um novo clique alterna entre crescente e decrescente.
-O header também possui pesquisa textual e filtros por status, com contadores
+O carregamento da listagem mantém as consultas de documentos e fornecedores
+ausentes concorrentes e prepara o schema fiscal uma única vez por processo da
+API, evitando repetir migrações idempotentes a cada abertura da tela. O header
+também possui pesquisa textual e filtros por status, com contadores
 para Todos, Em Digitação, Em Aberto, Confirmadas e Canceladas. A tela inicia
 com o filtro **Em Digitação** selecionado; o filtro de status e a pesquisa são
 combinados antes da ordenação da lista.
 
-No Cadastro de Produtos, **Conteúdo por unidade** é exibido com a máscara
-brasileira de duas casas decimais também na abertura ou edição do formulário.
-Assim, o valor `1` persistido aparece como `1,00`, sem depender de o operador
-interagir com o campo. O formulário principal usa a mesma formatação numérica
-do modal de edição nos cinco cadastros de produtos.
+Na revisão da Pré-entrada, o valor dos produtos marcados é somado com
+conversão tolerante a valores decimais brasileiros e exibido no campo de
+pagamento com duas casas no formato numérico brasileiro (`1234,56`). O
+payload enviado à API permanece no formato canônico com ponto decimal.
+
+No Cadastro de Produtos, **Conteúdo por unidade** usa a máscara de dígitos do
+preço de custo, mas com três casas decimais. Assim, a digitação `1` aparece
+como `0,001` e o valor `1` persistido aparece como `1,000` na abertura ou
+edição do formulário. O formulário principal e o modal de edição usam a mesma
+máscara.
 
 Na **Nova Receita**, cada componente pode receber **Detalhes**, como “usar
 frio” ou “3 colheres”. O campo fica ao lado do seletor de componente e o valor
@@ -1518,9 +1536,16 @@ ficam centralizados; o conteúdo de `Quantidade` fica alinhado à direita. Na
 listagem de receitas, `Tipo`, `Status` e `Ações` ficam centralizados no header e
 no conteúdo.
 
-A pesquisa da listagem de receitas preserva foco, posição do cursor e direção
-da seleção ao rerenderizar a tabela, evitando inversão ou digitação em ordem
-visual incorreta.
+Os campos **Pesquisar** das listagens preservam foco, posição do cursor e
+direção da seleção ao atualizar os resultados, evitando inversão ou digitação
+em ordem visual incorreta. O comportamento é compartilhado por
+`src/ui/input-selection.js`; telas que atualizam somente o corpo da tabela não
+recriam o campo e mantêm o cursor naturalmente.
+
+Na listagem de Pré-entradas, o documento atualmente aberto no workspace é
+sempre exibido na primeira linha e recebe a classe visual
+`fiscal-entry-current`, com fundo verde-claro e faixa lateral. A prioridade
+visual não altera o filtro ou a ordenação aplicada aos demais documentos.
 
 O XML continua exigindo uma chave identificável no conteúdo e validação
 server-side. A consulta interativa preserva o DOM renderizado e mapeia as
@@ -1530,6 +1555,39 @@ os painéis expansíveis de cada item são agrupados antes da leitura, para
 combinar tabelas detalhadas sequenciais ao item resumido correto. Campos que
 não existem no DOM permanecem vazios; o parser não inventa pagamentos ou
 impostos ausentes.
+Quando a tabela resumida e o painel detalhado apresentarem valores diferentes,
+o `Valor Total` positivo do painel detalhado da SEFAZ prevalece sobre o valor
+resumido, que permanece somente como fallback. Se o painel não fornecer um
+total positivo, o parser usa o `Valor unitário de comercialização` da unidade
+fiscal (`FD`, por exemplo) e a quantidade comercial para calcular o total da
+linha; esse valor não deve ser confundido com a base de ICMS ST retido.
+Essa mesma regra é usada na primeira importação da pré-entrada e na
+reconciliação de uma pré-entrada existente.
+Na consulta completa atual, os itens são renderizados como painéis
+`collapseListMaster`, e não como uma tabela de resumo. O parser deve ler o
+número, descrição, quantidade, unidade e valor do cabeçalho desses painéis e
+combinar esses dados com as tabelas detalhadas internas. A primeira coluna
+`col-md-1` do cabeçalho é reservada ao ícone de expansão e fica vazia; o número
+do item está na coluna seguinte.
+Ao abrir uma pré-entrada, o cabeçalho da revisão exibe, com rótulos, os dados
+operacionais principais: chave de acesso, modelo, série, número, emitente,
+inscrição estadual, data da emissão, endereço, bairro, CEP e município. Esses
+dados são extraídos do DOM da consulta completa e persistidos junto do
+documento fiscal para permanecerem disponíveis ao reabrir a pré-entrada. O
+resumo não exibe dados tributários, destinatário, protocolo ou metadados
+técnicos que não são necessários para a revisão da pré-entrada.
+Pré-entradas em **Em Digitação** ou **Em Aberto** podem usar a ação de
+releitura de valores. Essa ação relê no servidor o conteúdo bruto salvo em
+`originalXmlFiscalDocument`, seja XML ou HTML da Consulta Completa, sem abrir
+novamente o portal Sefaz. Depois, atualiza os valores fiscais dos itens, o
+total do documento e os campos de endereço do emitente, sem executar
+importação duplicada nem substituir vínculos, produtos, conversões, seleções
+ou pagamentos. A reconciliação não grava a pré-entrada
+automaticamente: o operador deve revisar os valores e clicar em
+**Gravar pré-entrada** para persistir a alteração. Pré-entradas confirmadas não
+são alteradas por essa operação. Se qualquer valor retornado vier zerado para
+um campo que já possuía valor positivo, toda a reconciliação é recusada e os
+valores anteriores são preservados.
 Descrições fiscais no formato `código - descrição` são normalizadas para
 persistir somente o código em `taxOriginFiscalDocumentItem` e
 `taxSituationFiscalDocumentItem`, conforme o tamanho e o contrato dessas
@@ -1543,8 +1601,12 @@ Além dos itens, a consulta HTML resumida da SEF/MG fornece metadados de
 destinatário, destino da operação, consumidor final, presença do comprador,
 processo de emissão, finalidade, digest, base/valor do ICMS e datas de
 autorização/inclusão. Esses campos são persistidos em `fiscal_documents`.
-Como esse HTML não possui uma tabela de pagamentos, a importação mantém
-`payments` vazio.
+Os pagamentos declarados no XML não são usados para concluir a Pré-entrada.
+Somente a forma de pagamento informada e confirmada pelo operador é gravada
+em `fiscal_entry_payments`. A antiga `fiscal_document_payments` não é mais
+criada em instalações novas, nem recebe ou fornece dados no fluxo atual.
+Instalações existentes podem manter essa tabela histórica; ela não é apagada
+automaticamente.
 
 A consulta assistida com hCaptcha permanece disponível somente na tela
 **Ferramentas > Consulta de NFC-e**, fora do fluxo da fila de documentos.
@@ -1573,7 +1635,14 @@ A captura valida a origem oficial, exige conteúdo HTML e mantém o limite de
 15 MB da API. O DOM completo pode fornecer campos que não existem no HTML
 resumido, como código do produto, EAN, NCM, CEST e CFOP. Após a API concluir
 a importação, a barra da janela fiscal exibe o sucesso; falhas de leitura ou
-importação também são apresentadas nela.
+importação também são apresentadas nela. Se o operador fechar a janela pelo X
+antes de ler a consulta, o Tauri informa o fechamento à tela principal, que
+libera os botões sem alterar a pré-entrada. O fechamento solicitado após uma
+leitura continua sendo parte do fluxo de importação e não antecipa a liberação
+desses estados. O botão **Copiar DOM**, ao lado de **Ler consulta completa**,
+copia o DOM atual diretamente para a área de transferência, sem chamar a API
+nem gravar dados; falhas de permissão ou de leitura são mostradas no status da
+própria janela.
 
 Alterações em `src-tauri/src/lib.rs`, `src-tauri/capabilities/default.json`
 ou no fluxo de captura exigem recompilar o cliente com
@@ -1616,6 +1685,10 @@ obrigatoriamente para maiúsculas; a descrição da unidade preserva a capitaliz
 informada. NCM e CEST podem
 ser informados com pontuação, como `0201.30.00` e `0603.10.00`; a API remove a
 formatação antes de validar e persistir os códigos.
+Nos formulários de Produtos e de Views, NCM e CEST ocupam linhas independentes
+com largura total; o input de NCM e o ícone de consulta abrem a mesma pesquisa.
+A descrição completa do NCM é exibida com quebra de linha quando necessário,
+sem truncamento por reticências.
 
 ### Migração de capitalização existente
 
@@ -1691,10 +1764,9 @@ na mesma mudança. Para esta base, o fluxo recomendado é:
 10. publicar a API e os bundles do cliente usando somente o procedimento
    documentado em `docs/DEPLOYMENT.md`.
 
-O hook `prebuild` e o fluxo `prerelease:client` podem acionar o versionamento
-automático quando o build é executado. Um commit apenas documental ou uma
-correção pontual não deve gerar uma nova versão sem uma decisão explícita de
-SemVer. Alterações em `src/server/` exigem reiniciar ou
+O versionamento automático está suspenso; builds e releases não alteram a
+versão. Um commit apenas documental ou uma correção pontual não deve gerar uma
+nova versão sem uma decisão explícita de SemVer. Alterações em `src/server/` exigem reiniciar ou
 reinstalar o serviço `PDV-API` antes da validação; alterações somente em
 frontend, documentação ou scripts locais não exigem reinício da API.
 
