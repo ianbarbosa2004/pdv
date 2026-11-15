@@ -921,6 +921,7 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
   };
 
   const importFiscalDom = async (html) => {
+    if (fiscalBrowserBusy) return;
     fiscalBrowserBusy = true;
     fiscalBrowserError = "";
     render();
@@ -1146,17 +1147,46 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
   };
 
   render();
+  const unlisteners = [];
+  let disposed = false;
+  const cleanup = () => {
+    if (disposed) return;
+    disposed = true;
+    while (unlisteners.length) {
+      const unlisten = unlisteners.pop();
+      try {
+        unlisten?.();
+      } catch {}
+    }
+  };
+  root.cleanup = cleanup;
+
   if (isTauriWindow()) {
-    void listen("fiscal-dom-read", (event) => {
+    const registerTauriListener = async (eventName, handler) => {
+      const unlisten = await listen(eventName, (event) => {
+        if (disposed || !root.isConnected) {
+          cleanup();
+          return;
+        }
+        handler(event);
+      });
+      if (disposed) {
+        unlisten();
+        return;
+      }
+      unlisteners.push(unlisten);
+    };
+
+    void registerTauriListener("fiscal-dom-read", (event) => {
       const html = String(event.payload?.html || "");
       void importFiscalDom(html);
     });
-    void listen("fiscal-dom-error", (event) => {
+    void registerTauriListener("fiscal-dom-error", (event) => {
       fiscalBrowserBusy = false;
       fiscalBrowserError = String(event.payload || "Falha ao ler a consulta fiscal.");
       render();
     });
-    void listen("fiscal-consultation-closed", () => {
+    void registerTauriListener("fiscal-consultation-closed", () => {
       if (reconcileEntryId === null) return;
       reconcileEntryId = null;
       entryReconciling = false;

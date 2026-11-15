@@ -92,6 +92,11 @@ function requestExit() {
 }
 
 const mount = (screen) => {
+  for (const child of Array.from(app.children)) {
+    if (typeof child.cleanup === "function") {
+      child.cleanup();
+    }
+  }
   app.replaceChildren(screen);
   installTablePagination(screen);
   normalizeScreenChrome();

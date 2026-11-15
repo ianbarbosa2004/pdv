@@ -3404,6 +3404,7 @@ const server = createServer(async (request, response) => {
       requireOperatorSession(request);
       await ensureCompanySchema();
       await ensureFiscalDocumentQueueSchema();
+      await ensureFiscalEntrySchema();
       const payload = await readJsonBody(request);
       const accessKey = String(payload?.accessKeyFiscalDocumentQueue ?? "").replace(/\D/g, "");
       const queryMode = String(payload?.queryMode || "automatic");
@@ -3416,6 +3417,11 @@ const server = createServer(async (request, response) => {
         [accessKey]
       );
       if (existingRows.length) throw new SaleValidationError("Esta chave de acesso já está na fila.", 409);
+      const [existingDocuments] = await pool.query(
+        "SELECT idFiscalDocument FROM fiscal_documents WHERE accessKeyFiscalDocument = ? LIMIT 1",
+        [accessKey]
+      );
+      if (existingDocuments.length) throw new SaleValidationError("Esta chave de acesso já foi importada.", 409);
       const [companyRows] = await pool.query(
         `SELECT documentCompany, nfceEnvironmentCompany, nfceCertificateTypeCompany,
                 nfceCertificateDataCompany, nfceCertificatePasswordCompany
@@ -3880,7 +3886,7 @@ const server = createServer(async (request, response) => {
       await connection.beginTransaction();
       const [entries] = await connection.query(
         `SELECT e.idFiscalEntry, e.statusFiscalEntry, e.idFiscalDocument,
-                d.idFiscalDocumentQueue
+                d.idFiscalDocumentQueue, d.accessKeyFiscalDocument
          FROM fiscal_entries e
          JOIN fiscal_documents d ON d.idFiscalDocument = e.idFiscalDocument
          WHERE e.idFiscalEntry = ?
@@ -3903,11 +3909,24 @@ const server = createServer(async (request, response) => {
          )`
       );
       await connection.query("DELETE FROM fiscal_entries WHERE idFiscalEntry = ?", [idFiscalEntry]);
+      await connection.query("DELETE FROM fiscal_document_items WHERE idFiscalDocument = ?", [entries[0].idFiscalDocument]);
       await connection.query("DELETE FROM fiscal_documents WHERE idFiscalDocument = ?", [entries[0].idFiscalDocument]);
-      if (entries[0].idFiscalDocumentQueue) {
+      if (entries[0].idFiscalDocumentQueue && entries[0].accessKeyFiscalDocument) {
+        await connection.query(
+          `DELETE FROM fiscal_document_queue
+           WHERE idFiscalDocumentQueue = ?
+              OR accessKeyFiscalDocumentQueue = ?`,
+          [entries[0].idFiscalDocumentQueue, entries[0].accessKeyFiscalDocument]
+        );
+      } else if (entries[0].idFiscalDocumentQueue) {
         await connection.query(
           "DELETE FROM fiscal_document_queue WHERE idFiscalDocumentQueue = ?",
           [entries[0].idFiscalDocumentQueue]
+        );
+      } else if (entries[0].accessKeyFiscalDocument) {
+        await connection.query(
+          "DELETE FROM fiscal_document_queue WHERE accessKeyFiscalDocumentQueue = ?",
+          [entries[0].accessKeyFiscalDocument]
         );
       }
       await connection.commit();
@@ -4266,6 +4285,7 @@ const server = createServer(async (request, response) => {
     try {
       requireOperatorSession(request);
       await ensureFiscalDocumentQueueSchema();
+      await ensureFiscalEntrySchema();
       const payload = await readJsonBody(request);
       const { accessKey, model } = parseFiscalAccessKey(payload?.accessKeyFiscalDocumentQueue);
       const issuerDocument = String(payload?.issuerDocumentFiscalDocumentQueue || "").replace(/\D/g, "");
@@ -4285,6 +4305,11 @@ const server = createServer(async (request, response) => {
         [accessKey]
       );
       if (existingRows.length) throw new SaleValidationError("Esta chave de acesso já está na fila.", 409);
+      const [existingDocuments] = await pool.query(
+        "SELECT idFiscalDocument FROM fiscal_documents WHERE accessKeyFiscalDocument = ? LIMIT 1",
+        [accessKey]
+      );
+      if (existingDocuments.length) throw new SaleValidationError("Esta chave de acesso já foi importada.", 409);
       const [insertResult] = await pool.query(
         `INSERT INTO fiscal_document_queue
           (accessKeyFiscalDocumentQueue, modelFiscalDocumentQueue,
@@ -4321,16 +4346,77 @@ const server = createServer(async (request, response) => {
     ? request.url.match(/^\/api\/stock\/fiscal-document-queue\/(\d+)$/)
     : null;
   if (fiscalDocumentDeleteMatch) {
+    let connection = null;
     try {
       requireOperatorSession(request);
       await ensureFiscalDocumentQueueSchema();
-      const [result] = await pool.query(
-        "DELETE FROM fiscal_document_queue WHERE idFiscalDocumentQueue = ?",
-        [Number(fiscalDocumentDeleteMatch[1])]
+      await ensureFiscalEntrySchema();
+      const idFiscalDocumentQueue = parsePositiveId(fiscalDocumentDeleteMatch[1]);
+      if (!idFiscalDocumentQueue) throw new SaleValidationError("Documento fiscal inválido.");
+      connection = await pool.getConnection();
+      await connection.beginTransaction();
+      const [queueRows] = await connection.query(
+        `SELECT idFiscalDocumentQueue, accessKeyFiscalDocumentQueue
+         FROM fiscal_document_queue
+         WHERE idFiscalDocumentQueue = ?
+         FOR UPDATE`,
+        [idFiscalDocumentQueue]
       );
-      if (!result.affectedRows) throw new SaleValidationError("Documento fiscal não encontrado.", 404);
+      if (!queueRows.length) throw new SaleValidationError("Documento fiscal não encontrado.", 404);
+      const accessKey = queueRows[0].accessKeyFiscalDocumentQueue;
+      const [documents] = await connection.query(
+        `SELECT idFiscalDocument
+         FROM fiscal_documents
+         WHERE idFiscalDocumentQueue = ?
+            OR accessKeyFiscalDocument = ?
+         FOR UPDATE`,
+        [idFiscalDocumentQueue, accessKey]
+      );
+      const documentIds = documents.map((row) => Number(row.idFiscalDocument)).filter(Boolean);
+      if (documentIds.length) {
+        const [entries] = await connection.query(
+          `SELECT idFiscalEntry, statusFiscalEntry
+           FROM fiscal_entries
+           WHERE idFiscalDocument IN (?)
+           FOR UPDATE`,
+          [documentIds]
+        );
+        if (entries.some((entry) => !["draft", "open"].includes(entry.statusFiscalEntry))) {
+          throw new SaleValidationError("Somente pré-entradas em aberto podem ser excluídas.", 409);
+        }
+        const entryIds = entries.map((entry) => Number(entry.idFiscalEntry)).filter(Boolean);
+        if (entryIds.length) {
+          await connection.query("DELETE FROM fiscal_entry_payments WHERE idFiscalEntry IN (?)", [entryIds]);
+          await connection.query("DELETE FROM fiscal_entry_items WHERE idFiscalEntry IN (?)", [entryIds]);
+          await connection.query(
+            `DELETE references_for_product
+             FROM product_fiscal_references references_for_product
+             WHERE NOT EXISTS (
+               SELECT 1
+               FROM fiscal_entry_items ei
+               WHERE ei.idProductFiscalReference = references_for_product.idProductFiscalReference
+             )`
+          );
+          await connection.query("DELETE FROM fiscal_entries WHERE idFiscalEntry IN (?)", [entryIds]);
+        }
+        await connection.query("DELETE FROM fiscal_document_items WHERE idFiscalDocument IN (?)", [documentIds]);
+        await connection.query("DELETE FROM fiscal_documents WHERE idFiscalDocument IN (?)", [documentIds]);
+      }
+      await connection.query(
+        `DELETE FROM fiscal_document_queue
+         WHERE idFiscalDocumentQueue = ?
+            OR accessKeyFiscalDocumentQueue = ?`,
+        [idFiscalDocumentQueue, accessKey]
+      );
+      await connection.commit();
+      connection.release();
+      connection = null;
       json(response, 200, { ok: true });
     } catch (error) {
+      if (connection) {
+        await connection.rollback().catch(() => {});
+        connection.release();
+      }
       handleError(response, error, {
         log: "Falha ao excluir documento fiscal da fila:",
         message: "Não foi possível excluir o documento fiscal.",
