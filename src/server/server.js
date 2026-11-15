@@ -2524,7 +2524,7 @@ const server = createServer(async (request, response) => {
          LEFT JOIN product_types ON product_types.idProductType = products.idProductTypeProduct
          LEFT JOIN units ON units.idUnit = products.idUnitProduct
          LEFT JOIN ncm_catalog
-           ON ncm_catalog.codeNcm = products.ncmProduct
+           ON ncm_catalog.codeNcm COLLATE utf8mb4_unicode_ci = products.ncmProduct COLLATE utf8mb4_unicode_ci
           AND ncm_catalog.isActiveNcm = 1
          LEFT JOIN fiscal_operations
            ON fiscal_operations.idFiscalOperation = products.idFiscalOperationSaleProduct
