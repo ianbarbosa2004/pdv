@@ -1,4 +1,4 @@
-﻿param(
+param(
   [string]$ServiceName = 'PDV-API',
   [string]$ServiceAccount = 'PDVApiSvc',
   [string]$InstallDirectory = 'C:\ProgramData\PDV\app',
@@ -228,7 +228,7 @@ $publishedEnvLines = @(
     "PDV_DB_PASSWORD=$plainDatabasePassword"
   }
 )
-Set-Content -LiteralPath $publishedEnvPath -Value $publishedEnvLines -Encoding utf8
+[System.IO.File]::WriteAllLines($publishedEnvPath, [string[]]$publishedEnvLines, (New-Object System.Text.UTF8Encoding($false)))
 $bootstrapEnvPath = Join-Path $InstallDirectory ".pdv-bootstrap-$([guid]::NewGuid().ToString('N')).env"
 $bootstrapOut = "$bootstrapEnvPath.out"
 $bootstrapErr = "$bootstrapEnvPath.err"

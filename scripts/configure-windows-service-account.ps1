@@ -117,7 +117,7 @@ if (Test-Path -LiteralPath $publishedEnvPath -PathType Leaf) {
       "PDV_DB_PASSWORD=$plainDatabasePassword"
     }
   )
-  Set-Content -LiteralPath $publishedEnvPath -Value $publishedEnvLines -Encoding utf8
+  [System.IO.File]::WriteAllLines($publishedEnvPath, [string[]]$publishedEnvLines, (New-Object System.Text.UTF8Encoding($false)))
 }
 $servicePasswordText = -join (1..40 | ForEach-Object {
   $passwordAlphabet[(Get-Random -Maximum $passwordAlphabet.Length)]
