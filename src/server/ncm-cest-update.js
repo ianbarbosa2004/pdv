@@ -281,6 +281,11 @@ const ensureUpdateSchema = async (pool) => {
     completedAtNcmCestUpdate TIMESTAMP NULL,
     PRIMARY KEY (idNcmCestUpdate)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  for (const tableName of ["ncm_catalog", "cest_catalog", "ncm_cest_relations", "ncm_cest_updates"]) {
+    await pool.query(
+      `ALTER TABLE ${tableName} CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
+    );
+  }
 };
 
 const updateCatalog = async (pool, { ncmSourceUrl, cestSourceUrl }) => {
