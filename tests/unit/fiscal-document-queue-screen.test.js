@@ -9,8 +9,9 @@ test("a fila fiscal não registra eventos Tauri no navegador", async () => {
   );
 
   assert.match(source, /const isTauriWindow = \(\) => Boolean\(window\.__TAURI_INTERNALS__\);/);
-  assert.match(source, /if \(isTauriWindow\(\)\) \{\s+void listen\("fiscal-dom-read"/s);
-  assert.match(source, /void listen\("fiscal-consultation-closed"/s);
+  assert.match(source, /if \(isTauriWindow\(\)\) \{/);
+  assert.match(source, /registerTauriListener\("fiscal-dom-read"/);
+  assert.match(source, /registerTauriListener\("fiscal-consultation-closed"/);
   assert.match(source, /renderFiscalEntryHeader\(currentEntry\.fiscalEntry\)/);
   assert.match(source, /Data da Emissão/);
   assert.match(source, /Nome Fantasia/);
@@ -35,7 +36,10 @@ test("a listagem da fila consulta documentos e fornecedores ausentes em paralelo
     "utf8"
   );
   assert.match(serverSource, /const \[\[fiscalEntries\], \[missingSupplierRows\]\] = await Promise\.all\(\[/);
-  assert.match(source, /const response = await apiFetch\(`\$\{getApiUrl\(\)\}\/api\/stock\/fiscal-entries`\)/);
+  assert.match(source, /apiFetch\([\s\S]*\/api\/stock\/fiscal-entries\?includeCompleted=1/u);
+  assert.match(serverSource, /includeCompletedEntries/u);
+  assert.match(serverSource, /const nextStatus = readyForConfirmation \? "open" : "draft";/u);
+  assert.match(serverSource, /conversionFactor,\s+0,\s+documentItem\.descriptionFiscalDocumentItem/u);
 });
 
 test("a exclusão da fila limpa o feedback após a confirmação", async () => {
@@ -211,7 +215,7 @@ test("copia a chave sem exibi-la na coluna Documento", async () => {
   assert.match(source, /Chave de acesso copiada para a área de transferência/u);
 });
 
-test("prioriza e destaca a pré-entrada atualmente editada", async () => {
+test("destaca a pré-entrada atualmente editada sem alterar a ordenação", async () => {
   const source = await readFile(
     new URL("../../src/stock/fiscal-document-queue-screen.js", import.meta.url),
     "utf8"
@@ -224,7 +228,11 @@ test("prioriza e destaca a pré-entrada atualmente editada", async () => {
   assert.match(source, /const isCurrentFiscalEntry = \(entry\)/u);
   assert.match(source, /let activeEntryId = initialEntryId \? Number\(initialEntryId\) : null;/u);
   assert.match(source, /activeEntryId = Number\(idFiscalEntry\);/u);
-  assert.match(source, /currentComparison = Number\(isCurrentFiscalEntry\(right\)\) - Number\(isCurrentFiscalEntry\(left\)\)/u);
+  assert.match(source, /currentEntry = await loadEntry\(idFiscalEntry\);[\s\S]*?fiscalEntryStatusFilter = currentEntry\.fiscalEntry\.statusFiscalEntry;/u);
+  const sortStart = source.indexOf("const sortedFiscalEntries = () =>");
+  const sortEnd = source.indexOf("const visibleFiscalEntries", sortStart);
+  const sortBlock = source.slice(sortStart, sortEnd);
+  assert.doesNotMatch(sortBlock, /currentComparison/u);
   assert.match(source, /class="\$\{isCurrentFiscalEntry\(entry\) \? "fiscal-entry-current" : ""\}"/u);
   assert.match(styles, /\.classic-table tbody tr\.fiscal-entry-current > td[\s\S]*?background: #e3eef9 !important;/u);
 });

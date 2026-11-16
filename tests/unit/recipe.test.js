@@ -116,8 +116,15 @@ test("calculates gross quantity and cost including loss", () => {
       conversionFactor: 0.001,
       unitCost: 43.12
     }),
-    34.496
+    34.5
   );
+});
+
+test("arredonda valores monetários sempre para cima em duas casas", () => {
+  assert.equal(calculateComponentCost({ quantity: 1, unitCost: 5.001 }), 5.01);
+  assert.equal(calculateComponentCost({ quantity: 1, unitCost: 5.024 }), 5.03);
+  assert.equal(calculateComponentCost({ quantity: 1, unitCost: 5.02 }), 5.02);
+  assert.equal(calculateCostPerYieldUnit(5.001, 1), 5.01);
 });
 
 test("calcula o custo por unidade final pelo rendimento", () => {

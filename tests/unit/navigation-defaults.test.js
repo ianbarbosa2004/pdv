@@ -750,7 +750,8 @@ test("inclui Views no menu Ferramentas", () => {
       { keyNavigationItem: "groups-products", labelNavigationItem: "Grupos x Produtos", routeNavigationItem: "groups-products", orderNavigationItem: 1 },
       { keyNavigationItem: "no-cost", labelNavigationItem: "Sem Custo", routeNavigationItem: "no-cost", orderNavigationItem: 2 },
       { keyNavigationItem: "no-physical-state", labelNavigationItem: "Sem Estado Físico", routeNavigationItem: "no-physical-state", orderNavigationItem: 3 },
-      { keyNavigationItem: "recipe-revisions", labelNavigationItem: "Revisões de Fichas", routeNavigationItem: "recipe-revisions", orderNavigationItem: 4 }
+      { keyNavigationItem: "cost-divergences", labelNavigationItem: "Divergência entre Custos", routeNavigationItem: "cost-divergences", orderNavigationItem: 4 },
+      { keyNavigationItem: "recipe-revisions", labelNavigationItem: "Revisões de Fichas", routeNavigationItem: "recipe-revisions", orderNavigationItem: 5 }
     ]
   );
 });
@@ -809,13 +810,13 @@ test("renderiza Views como item direto e clicável", () => {
   assert.match(menu, /<button type="button" data-main-menu="views">Views<\/button>/);
 });
 
-test("renderiza Ficha Técnica como botão direto", () => {
+test("renderiza Formação de Produtos como botão direto", () => {
   global.window = {
     __PDV_NAVIGATION__: mergeNavigationDefaults({ menus: [], items: [] })
   };
 
   const menu = renderMainMenu();
-  assert.match(menu, /<button type="button" data-main-menu="technical-sheet">Ficha Técnica<\/button>/);
+  assert.match(menu, /<button type="button" data-main-menu="technical-sheet">Formação de Produtos<\/button>/);
 });
 
 test("navega ao clicar no botão direto da Ficha Técnica", () => {

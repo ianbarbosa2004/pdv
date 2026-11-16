@@ -4,6 +4,25 @@ Este documento registra as mudanças funcionais e técnicas agrupadas por versã
 O número da versão só deve ser incrementado após pedido explícito. Builds e
 releases não alteram a versão automaticamente.
 
+## 0.16.3 - 2026-11-15
+
+- Padronizado o arredondamento para cima em duas casas decimais para valores
+  monetários de custos, preços de venda, impostos, pagamentos, caixa e valores
+  fiscais importados.
+- Alteradas para duas casas as colunas monetárias de catálogo fiscal, itens
+  fiscais, Receitas e Formação de Produtos; quantidades, percentuais e fatores
+  de conversão preservam suas escalas.
+- Adicionada migração idempotente que normaliza valores existentes antes de
+  alterar a precisão das colunas.
+- Corrigida a apresentação de unidades na Formação de Produtos, exibindo
+  sigla e descrição de forma consistente, como `UN - Unidade` e
+  `KG - Quilograma`.
+- Adicionados testes para arredondamento monetário, caixa, vendas, receitas,
+  formação e apresentação de unidades.
+- Alterações em `src/server/`, `database/schema.sql` e
+  `src/server/schema-manager.js` exigem reinício da API publicada. Não foi
+  executado build Tauri.
+
 ## 0.16.1 - 2026-11-13
 
 - Corrigido o feedback duplicado ao salvar Clientes, Consumidores e

@@ -20,3 +20,11 @@ Produtos marcados como Buffet registram somente a venda com preço próprio, sem
 baixa de estoque e sem exigir Cardápio. O Cardápio referencia produções
 específicas para o buffet, pode ser encerrado com o caixa, mas nunca impede seu
 fechamento.
+
+Receitas e Formações de Produtos persistem snapshots de custo no salvamento.
+Os componentes usam `costRecipeComponent` ou `costFormationComponent`, conforme
+o tipo da estrutura, e os totais usam `totalCostRecipe`/`unitCostRecipe` ou
+`totalCostFormation`/`unitCostFormation`. O custo unitário é o custo total
+dividido pelo rendimento e é usado por estruturas superiores. Alterar o custo atual de um Produto não reescreve esses
+valores; um novo salvamento recalcula e atualiza o snapshot. O total da Formação
+é reservado como fonte futura para `products.costPriceProduct`.

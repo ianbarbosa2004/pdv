@@ -15,3 +15,9 @@ export const formatBrazilianDecimal = (value, fractionDigits = 3) => {
     maximumFractionDigits: fractionDigits
   });
 };
+
+export const roundCostUpToCents = (value) => {
+  const numeric = typeof value === "number" ? value : parseBrazilianDecimal(value);
+  if (!Number.isFinite(numeric) || numeric < 0) return NaN;
+  return Math.ceil((numeric - 1e-9) * 100) / 100;
+};

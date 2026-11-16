@@ -66,7 +66,10 @@ sessão:
 > na interface. Vendas canceladas não devem ser apagadas fisicamente sem uma
 > regra explícita de auditoria e reversão de estoque.
 >
-> Valores monetários devem ser validados e tratados com precisão adequada.
+> Valores monetários devem ser normalizados em duas casas decimais com
+arredondamento para cima, incluindo custos, preços de venda, impostos,
+pagamentos, caixa e valores monetários fiscais importados. Quantidades,
+percentuais e fatores de conversão mantêm suas escalas próprias.
 > Quantidades podem ser fracionadas somente quando o produto permitir essa
 > regra. Preço inválido, pagamento insuficiente e venda sem itens devem ser
 > rejeitados no servidor; estoque negativo depende da configuração

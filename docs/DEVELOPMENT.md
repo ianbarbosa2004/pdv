@@ -25,8 +25,8 @@ casos, use `baseUnitCulinaryUnit = common` (Comum) e
 escolhida pelo estado físico do componente.
 
 O cabeçalho também persiste `yieldQuantityRecipe` e
-`idCulinaryUnitYieldRecipe`. O rendimento deve ser maior que zero e a Unidade
-Culinária final deve estar ativa.
+`idUnitYieldRecipe`. O rendimento deve ser maior que zero e a unidade final
+tributável deve estar ativa.
 
 A tela de cadastro usa um workspace de três colunas: o editor ocupa duas
 colunas e a listagem de Receitas e Composições ocupa uma. No editor, nome,
@@ -97,6 +97,45 @@ auxiliares em paralelo; depois de salvar ou arquivar, a tela atualiza somente
 a listagem de Receitas e mantém esses catálogos em memória. A submissão também
 é protegida contra cliques repetidos para evitar feedback de sucesso duplicado.
 
+### Formação de Produtos
+
+**Cadastros > Formação de Produtos** é uma tela separada de Receitas e
+Composições. Ela lista somente Produtos comerciais dos tipos **Mercadoria para
+Revenda** e **Produtos Acabados**, com pesquisa e filtros Todos, Com Ficha e
+Sem Ficha. Uma linha com ficha persistida é exibida em negrito verde.
+
+O Produto comercial é o resultado da ficha e aparece somente como campo
+somente leitura no editor. A ficha pode ser visualizada ao clicar na linha, mas
+somente o botão **Editar** habilita alterações. Seus componentes registram
+produto, detalhes, unidade final e quantidade; a coluna Perda não faz parte
+desse formulário. Excluir remove a ficha e seus componentes, sem excluir o
+Produto comercial.
+
+A Formação de Produtos reaproveita `recipe_definitions` e
+`recipe_components`, usando uma definição `production` diretamente vinculada
+ao Produto comercial por `idResultProductRecipe`. A API valida o tipo do
+produto, os componentes, quantidades positivas e persiste a substituição dos
+componentes em uma única transação.
+Essas definições vinculadas a Produto não aparecem na listagem de Receitas e
+Composições; são exibidas somente em Formação de Produtos.
+
+A listagem reserva 70px para **# PDV** e mantém **Nome** como a coluna
+flexível. O editor permanece visível junto da listagem em telas largas,
+inclusive antes de selecionar um produto. O combobox e o modal de componente
+seguem o padrão visual de Receitas; quantidades e custos usam duas casas
+decimais no padrão numérico brasileiro (`1,25`) e o custo total usa o preço de
+custo vigente dos componentes durante a edição. Ao salvar, a API persiste um
+snapshot dos custos: `recipe_components.costRecipeComponent` e
+`recipe_definitions.totalCostRecipe` e `recipe_definitions.unitCostRecipe`
+para Receitas, e
+`recipe_components.costFormationComponent` e
+`recipe_definitions.totalCostFormation` e `recipe_definitions.unitCostFormation`
+para Formações. O custo unitário é o total dividido pelo rendimento e é o
+valor usado quando uma Receita é componente de outra estrutura. Alterações posteriores
+no preço de custo do Produto não alteram o snapshot até que a Receita ou
+Formação seja salva novamente. O total persistido da Formação será a fonte
+para a futura atualização de `products.costPriceProduct`.
+
 Alterações em `src/server/`, `database/schema.sql` ou
 `src/server/schema-manager.js` exigem reinício da API publicada para aplicar a
 migração idempotente. O identificador de caixa usa `SMALLINT UNSIGNED`; a
@@ -104,6 +143,13 @@ preparação do schema converte instalações antigas que ainda usam `TINYINT`
 antes de garantir o registro `Caixa principal`. Não execute build a cada alteração: ele só é necessário
 quando houver mudança no bundle, Vite/Tauri, versionamento ou validação de
 produção.
+
+Valores monetários operacionais e fiscais persistidos usam duas casas decimais.
+Quando a entrada tem mais precisão, a normalização usa arredondamento para
+cima (`5,001` torna-se `5,01`). Isso inclui custos, preços de venda, impostos,
+pagamentos e valores monetários importados de documentos fiscais; quantidades,
+percentuais e fatores de conversão mantêm suas escalas próprias. A migração é
+aplicada na inicialização da API e exige reinício da API após a publicação.
 
 A listagem de Receitas usa `recipe_components.idRecipeComponent` na ordenação
 da leitura, uma coluna presente também nas instalações legadas. A ordem
@@ -131,12 +177,19 @@ fiscal, unidade fiscal, CFOP, NCM e CEST. O registro também preserva
 `idStockUnit` e `conversionFactor`, usados para reaproveitar a conversão na
 reabertura de uma Pré-entrada.
 
-Ao salvar uma Pré-entrada, a API grava e remove vínculos dentro da mesma
-transação dos itens da entrada. Um vínculo só é removido quando nenhuma outra
-Pré-entrada concluída ainda o utiliza. A tela consulta
+Ao confirmar uma Pré-entrada, a API grava os vínculos fiscais definitivos dentro
+da mesma transação da entrada. Enquanto a Pré-entrada está em digitação, as
+referências usadas pelos itens permanecem inativas e não aparecem no catálogo.
+Ao excluir um vínculo ativo, as Pré-entradas Em Aberto que ainda o utilizam
+perdem a associação, ficam sem seleção do item e retornam para Em Digitação;
+Pré-entradas confirmadas não são alteradas.
+A tela consulta
 `GET /api/stock/product-fiscal-references`, agrupa os vínculos por produto e
 permite corrigir NCM e CEST divergentes em um modal próprio, sem trocar de
-tela. O modal usa `PUT /api/products/fiscal`, que altera somente os campos
+tela. Cada vínculo pode ser inativado na própria tela de Produtos Vinculados;
+a inativação usa `isActiveProductFiscalReference`, remove o vínculo do catálogo
+e de novas sugestões, mas preserva referências já usadas por Pré-entradas.
+O modal usa `PUT /api/products/fiscal`, que altera somente os campos
 fiscais do Produto comercial e valida a relação NCM/CEST no servidor. Após o
 salvamento, a listagem e a visualização do produto selecionado são
 recarregadas. A listagem apresenta `# PDV`, Produto, Grupo e
@@ -231,11 +284,10 @@ carregamento inicial e no Construtor de navegação. Esse módulo mescla os dado
 persistidos com os defaults atuais para que novos itens não desapareçam após
 trocar de tela.
 
-`Ficha Técnica` é um item direto e clicável dentro de Cadastros, seguindo o
-mesmo padrão de `Produtos`. Ele abre Receitas e Composições, cuja barra
-contextual apresenta Receitas, Estados Físicos e Conversões. Esses cadastros
-relacionados permanecem vinculados à Ficha Técnica na navegação persistida, mas
-não transformam o item principal em um submenu.
+`Formação de Produtos` é um item direto e clicável dentro de Cadastros,
+seguindo o mesmo padrão de `Produtos`. `Receitas e Composições`, `Estados
+Físicos` e `Conversões` permanecem como cadastros relacionados no menu, sem
+transformar o item principal em um submenu.
 
 - Testes automatizados devem ser criados dentro de `tests/`; testes de domínio,
   modelos e serviços isolados ficam em `tests/unit/`, enquanto testes de API,
@@ -285,20 +337,19 @@ Ao criar uma nova área de navegação, siga esta sequência:
 7. Crie testes para a definição persistida, a renderização como botão direto,
    a resolução do handler, a barra contextual e a migração de dados antigos.
 
-O caso de **Ficha Técnica** exemplifica essa regra. Ela mantém as telas
+O caso de **Formação de Produtos** exemplifica essa regra. Ela mantém as telas
 relacionadas **Receitas e Composições**, **Estados Físicos** e **Conversões**
-como filhos persistidos, mas o item principal é um item direto com a rota
-`recipes`, igual a **Produtos**. A correção removeu o `<summary>` clicável que
-dependia do comportamento nativo de `<details>`; esse elemento fechava o menu
-em vez de executar a navegação em alguns estados. O contrato correto é:
+como filhos persistidos, mas o item principal é um item direto com handler
+próprio. A correção removeu o `<summary>` clicável que dependia do
+comportamento nativo de `<details>`; esse elemento fechava o menu em vez de
+executar a navegação em alguns estados. O contrato correto é:
 
 ```html
-<button type="button" data-main-menu="technical-sheet">Ficha Técnica</button>
+<button type="button" data-main-menu="technical-sheet">Formação de Produtos</button>
 ```
 
-O handler `technical-sheet` abre **Receitas e Composições**, e a barra
-contextual apresenta os três cadastros relacionados. Dados antigos que tenham
-persistido `Ficha Técnica` como `submenu` devem ser normalizados para
+O handler `technical-sheet` abre **Formação de Produtos**. Dados antigos que
+tenham persistido `Ficha Técnica` como `submenu` devem ser normalizados para
 `typeNavigationItem: "item"` durante a reconciliação. Ao alterar a estrutura
 de um menu, valide também o clique real no navegador; testar somente a função
 de resolução ou acionar `element.click()` por script não comprova o fluxo do
@@ -1498,6 +1549,9 @@ também possui pesquisa textual e filtros por status, com contadores
 para Todos, Em Digitação, Em Aberto, Confirmadas e Canceladas. A tela inicia
 com o filtro **Em Digitação** selecionado; o filtro de status e a pesquisa são
 combinados antes da ordenação da lista.
+A consulta da listagem usa `includeCompleted=1` para incluir também entradas
+Confirmadas e Canceladas; os filtros visuais continuam separando esses status
+dos registros Em Digitação e Em Aberto.
 
 Na revisão da Pré-entrada, o valor dos produtos marcados é somado com
 conversão tolerante a valores decimais brasileiros e exibido no campo de

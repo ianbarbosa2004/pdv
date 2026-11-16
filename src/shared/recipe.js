@@ -1,5 +1,6 @@
-const RECIPE_KINDS = new Set(["production", "composition"]);
+import { roundCostUpToCents } from "./decimal.js";
 
+const RECIPE_KINDS = new Set(["production", "composition"]);
 const asPositiveNumber = (value) => {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? number : null;
@@ -35,14 +36,14 @@ export const calculateComponentCost = ({
     || !Number.isFinite(factor)
     || factor <= 0
   ) return null;
-  return grossQuantity * factor * cost;
+  return roundCostUpToCents(grossQuantity * factor * cost);
 };
 
 export const calculateCostPerYieldUnit = (totalCost, yieldQuantity) => {
   const cost = Number(totalCost);
   const yieldValue = Number(yieldQuantity);
   if (!Number.isFinite(cost) || cost < 0 || !Number.isFinite(yieldValue) || yieldValue <= 0) return null;
-  return cost / yieldValue;
+  return roundCostUpToCents(cost / yieldValue);
 };
 
 export const validateRecipeDefinition = (definition = {}) => {

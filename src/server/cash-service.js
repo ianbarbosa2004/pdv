@@ -1,13 +1,14 @@
 import { SaleValidationError } from "./sale-service.js";
+import { roundCostUpToCents } from "../shared/decimal.js";
 
 const toCents = (value, fieldName) => {
   if ((typeof value !== "number" && typeof value !== "string")
-    || !/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(String(value))) {
+    || !/^(?:0|[1-9]\d*)(?:[.,]\d+)?$/.test(String(value))) {
     throw new SaleValidationError(`${fieldName} inválido.`);
   }
-  const [whole, fraction = ""] = String(value).split(".");
-  return Number.parseInt(whole, 10) * 100
-    + Number.parseInt(fraction.padEnd(2, "0"), 10);
+  const rounded = roundCostUpToCents(String(value).replace(",", "."));
+  if (!Number.isFinite(rounded)) throw new SaleValidationError(`${fieldName} inválido.`);
+  return rounded === 0 ? 0 : Math.round(rounded * 100);
 };
 
 const money = (cents) => (cents / 100).toFixed(2);

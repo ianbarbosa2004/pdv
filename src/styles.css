@@ -2164,6 +2164,12 @@ h2 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.product-fiscal-reference-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
 .product-fiscal-reference-ncm-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -3092,6 +3098,134 @@ h2 {
 .recipe-content {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: start;
+}
+
+.product-formation-screen .formation-content {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+}
+
+.formation-editor-panel {
+  grid-column: span 2;
+  min-width: 0;
+}
+
+.formation-list-panel {
+  grid-column: span 1;
+  min-width: 0;
+}
+
+.formation-filters {
+  margin: 0;
+}
+
+.formation-has-sheet td {
+  color: #16733b;
+  font-weight: 700;
+}
+
+.formation-list-panel tbody tr[data-formation-product] {
+  cursor: pointer;
+}
+
+.formation-list-panel tbody tr[data-formation-product]:hover,
+.formation-list-panel tbody tr[data-formation-product]:focus-visible {
+  background: #e8f1fb;
+  outline: 1px solid #8fb0d1;
+}
+
+.formation-product-pdv-column {
+  width: 70px;
+  min-width: 70px;
+  max-width: 70px;
+  white-space: nowrap;
+}
+
+.formation-list-panel .classic-table th:nth-child(2),
+.formation-list-panel .classic-table td:nth-child(2) {
+  width: auto;
+  min-width: 0;
+}
+
+.formation-products-table {
+  table-layout: fixed;
+}
+
+.formation-products-table .formation-product-pdv-column,
+.formation-products-table col.formation-product-pdv-column {
+  width: 70px !important;
+  min-width: 70px;
+  max-width: 70px;
+  white-space: nowrap;
+}
+
+.formation-products-table .formation-product-name-column,
+.formation-products-table col.formation-product-name-column {
+  width: auto;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.formation-products-table .formation-product-actions-column,
+.formation-products-table col.formation-product-actions-column {
+  width: 70px !important;
+  min-width: 70px;
+  max-width: 70px;
+}
+
+.formation-products-table .formation-product-actions-column .icon-button {
+  width: 24px;
+  height: 26px;
+  margin: 0;
+}
+
+.formation-component-entry {
+  display: grid;
+  gap: 8px;
+  height: 178px;
+  padding: 10px;
+  border: 1px solid #d5dce5;
+  background: #f8fafc;
+}
+
+.formation-component-panel {
+  display: grid;
+  gap: 0;
+  border: 1px solid #d5dce5;
+  background: #fff;
+}
+
+.formation-component-panel .nested-panel-header {
+  margin-top: 0;
+}
+
+.formation-component-panel .formation-component-list {
+  padding: 10px;
+}
+
+.formation-component-picker {
+  position: relative;
+}
+
+.formation-components-table {
+  width: 100%;
+}
+
+.nested-panel-header {
+  margin-top: 12px;
+}
+
+@media (max-width: 760px) {
+  .product-formation-screen .formation-content {
+    grid-template-columns: 1fr;
+  }
+
+  .formation-editor-panel,
+  .formation-list-panel {
+    grid-column: 1;
+  }
 }
 
 .recipe-editor-panel {
@@ -4904,6 +5038,63 @@ h2 {
   padding-right: 5px;
 }
 
+.catalog-screen .culinary-reference-table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+.catalog-screen .culinary-reference-table .status-column {
+  box-sizing: border-box;
+  width: 120px;
+  min-width: 120px;
+  max-width: 120px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.catalog-screen .culinary-reference-table .actions-column {
+  width: 100px;
+  min-width: 100px;
+  max-width: 100px;
+}
+
+.catalog-screen .culinary-reference-table .status-column .status-toggle {
+  margin: 0 auto;
+}
+
+.cost-divergence-table th:nth-child(1),
+.cost-divergence-table td:nth-child(1) {
+  width: 90px;
+}
+
+.cost-divergence-table {
+  table-layout: fixed;
+}
+
+.cost-divergence-table th:nth-child(3),
+.cost-divergence-table td:nth-child(3),
+.cost-divergence-table th:nth-child(4),
+.cost-divergence-table td:nth-child(4) {
+  width: 150px;
+  white-space: nowrap;
+}
+
+.cost-divergence-table th:nth-child(5),
+.cost-divergence-table td:nth-child(5) {
+  width: 90px;
+  min-width: 90px;
+  max-width: 90px;
+}
+
+.cost-divergence-table .cost-divergence-action {
+  color: #2f9e5b;
+}
+
+.cost-divergence-table .cost-divergence-action:hover,
+.cost-divergence-table .cost-divergence-action:focus-visible {
+  color: #237a45;
+}
+
 .catalog-screen .classic-table .actions-column .icon-button {
   width: 24px;
   height: 26px;
@@ -5004,7 +5195,7 @@ h2 {
 .culinary-reference-table td:nth-child(1),
 .culinary-reference-table th:nth-child(2),
 .culinary-reference-table td:nth-child(2) {
-  width: 22%;
+  width: auto;
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -5012,10 +5203,19 @@ h2 {
 
 .culinary-reference-table th:nth-child(3),
 .culinary-reference-table td:nth-child(3) {
-  width: 18%;
+  width: 120px;
+  min-width: 120px;
+  max-width: 120px;
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.culinary-reference-table th:nth-child(4),
+.culinary-reference-table td:nth-child(4) {
+  width: 100px;
+  min-width: 100px;
+  max-width: 100px;
 }
 
 .catalog-screen .classic-form-panel,
@@ -5052,6 +5252,49 @@ h2 {
   width: 100px !important;
   min-width: 100px !important;
   max-width: 100px !important;
+}
+
+/* Formação de Produtos has a fixed identifier/action footprint and a flexible name column. */
+.catalog-screen.product-formation-screen .formation-component-entry {
+  height: 200px;
+}
+
+.catalog-screen.product-formation-screen .formation-component-entry .recipe-component-input-grid {
+  height: auto;
+}
+
+.catalog-screen.product-formation-screen .formation-component-entry > [data-add-component] {
+  margin-top: 12px;
+  margin-bottom: 0;
+}
+
+.catalog-screen.product-formation-screen .formation-list-panel .formation-products-table {
+  width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
+}
+
+.catalog-screen.product-formation-screen .formation-list-panel .formation-products-table th.formation-product-pdv-column,
+.catalog-screen.product-formation-screen .formation-list-panel .formation-products-table td.formation-product-pdv-column {
+  width: 70px !important;
+  min-width: 70px !important;
+  max-width: 70px !important;
+}
+
+.catalog-screen.product-formation-screen .formation-list-panel .formation-products-table th.formation-product-name-column,
+.catalog-screen.product-formation-screen .formation-list-panel .formation-products-table td.formation-product-name-column {
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.catalog-screen.product-formation-screen .formation-list-panel .formation-products-table th.formation-product-actions-column,
+.catalog-screen.product-formation-screen .formation-list-panel .formation-products-table td.formation-product-actions-column {
+  width: 70px !important;
+  min-width: 70px !important;
+  max-width: 70px !important;
 }
 
 .icon-button svg {

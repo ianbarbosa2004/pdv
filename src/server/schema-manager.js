@@ -50,7 +50,7 @@ const ensureFiscalCatalogSchema = async () => {
     catalogFiscalCatalogItem VARCHAR(50) NOT NULL,
     codeFiscalCatalogItem VARCHAR(30) NOT NULL,
     descriptionFiscalCatalogItem VARCHAR(255) NOT NULL,
-    valueFiscalCatalogItem DECIMAL(10,4) NULL,
+    valueFiscalCatalogItem DECIMAL(10,2) NULL,
     isActiveFiscalCatalogItem TINYINT(1) NOT NULL DEFAULT 1,
     createdAtFiscalCatalogItem TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updatedAtFiscalCatalogItem TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -250,18 +250,18 @@ const ensureRecipeSchemaOnce = async () => {
     nameRecipe VARCHAR(180) NOT NULL,
     kindRecipe ENUM('production', 'composition') NOT NULL,
     idResultProductRecipe BIGINT UNSIGNED NULL,
-    idCulinaryUnitYieldRecipe BIGINT UNSIGNED NULL,
     idUnitYieldRecipe BIGINT UNSIGNED NULL,
     statusRecipe ENUM('draft', 'active', 'review_required', 'archived') NOT NULL DEFAULT 'draft',
     versionRecipe INT UNSIGNED NOT NULL DEFAULT 1,
     yieldQuantityRecipe DECIMAL(12,3) NOT NULL DEFAULT 1,
     notesRecipe VARCHAR(500) NULL,
+    totalCostRecipe DECIMAL(12,2) NOT NULL DEFAULT 0,
+    totalCostFormation DECIMAL(12,2) NOT NULL DEFAULT 0,
     createdAtRecipe TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updatedAtRecipe TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (idRecipe),
     UNIQUE KEY uqRecipeNameKind (nameRecipe, kindRecipe),
     KEY idxRecipeStatus (statusRecipe, kindRecipe),
-    KEY idxRecipeYieldCulinaryUnit (idCulinaryUnitYieldRecipe),
     KEY idxRecipeYieldUnit (idUnitYieldRecipe),
     CONSTRAINT fkRecipeResultProduct
       FOREIGN KEY (idResultProductRecipe) REFERENCES products (idProduct)
@@ -285,11 +285,27 @@ const ensureRecipeSchemaOnce = async () => {
   if (recipeColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "idResultProductRecipe")) {
     await pool.query("ALTER TABLE recipe_definitions MODIFY COLUMN idResultProductRecipe BIGINT UNSIGNED NULL");
   }
-  if (!recipeColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "idCulinaryUnitYieldRecipe")) {
-    await pool.query("ALTER TABLE recipe_definitions ADD COLUMN idCulinaryUnitYieldRecipe BIGINT UNSIGNED NULL AFTER idResultProductRecipe");
-  }
   if (!recipeColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "idUnitYieldRecipe")) {
-    await pool.query("ALTER TABLE recipe_definitions ADD COLUMN idUnitYieldRecipe BIGINT UNSIGNED NULL AFTER idCulinaryUnitYieldRecipe");
+    await pool.query("ALTER TABLE recipe_definitions ADD COLUMN idUnitYieldRecipe BIGINT UNSIGNED NULL AFTER idResultProductRecipe");
+  }
+  if (recipeColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "idCulinaryUnitYieldRecipe")) {
+    const [legacyIndexes] = await pool.query("SHOW INDEX FROM recipe_definitions");
+    if (legacyIndexes.some(({ Key_name }) => Key_name === "idxRecipeYieldCulinaryUnit")) {
+      await pool.query("ALTER TABLE recipe_definitions DROP INDEX idxRecipeYieldCulinaryUnit");
+    }
+    await pool.query("ALTER TABLE recipe_definitions DROP COLUMN idCulinaryUnitYieldRecipe");
+  }
+  if (!recipeColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "totalCostRecipe")) {
+    await pool.query("ALTER TABLE recipe_definitions ADD COLUMN totalCostRecipe DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER notesRecipe");
+  }
+  if (!recipeColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "totalCostFormation")) {
+    await pool.query("ALTER TABLE recipe_definitions ADD COLUMN totalCostFormation DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER totalCostRecipe");
+  }
+  if (!recipeColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "unitCostRecipe")) {
+    await pool.query("ALTER TABLE recipe_definitions ADD COLUMN unitCostRecipe DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER totalCostFormation");
+  }
+  if (!recipeColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "unitCostFormation")) {
+    await pool.query("ALTER TABLE recipe_definitions ADD COLUMN unitCostFormation DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER unitCostRecipe");
   }
   const [recipeIndexes] = await pool.query(
     `SHOW INDEX FROM recipe_definitions`
@@ -297,11 +313,6 @@ const ensureRecipeSchemaOnce = async () => {
   if (!recipeIndexes.some(({ Key_name }) => Key_name === "idxRecipeResultProduct")) {
     await pool.query(
       "ALTER TABLE recipe_definitions ADD KEY idxRecipeResultProduct (idResultProductRecipe)"
-    );
-  }
-  if (!recipeIndexes.some(({ Key_name }) => Key_name === "idxRecipeYieldCulinaryUnit")) {
-    await pool.query(
-      "ALTER TABLE recipe_definitions ADD KEY idxRecipeYieldCulinaryUnit (idCulinaryUnitYieldRecipe)"
     );
   }
   if (!recipeIndexes.some(({ Key_name }) => Key_name === "idxRecipeYieldUnit")) {
@@ -325,6 +336,8 @@ const ensureRecipeSchemaOnce = async () => {
     idCulinaryUnitConversionRecipeComponent BIGINT UNSIGNED NULL,
     quantityRecipeComponent DECIMAL(12,4) NOT NULL,
     lossPercentRecipeComponent DECIMAL(7,4) NOT NULL DEFAULT 0,
+    costRecipeComponent DECIMAL(12,2) NOT NULL DEFAULT 0,
+    costFormationComponent DECIMAL(12,2) NOT NULL DEFAULT 0,
     createdAtRecipeComponent TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (idRecipeComponent),
     KEY idxRecipeComponentsRecipe (idRecipe),
@@ -364,6 +377,12 @@ const ensureRecipeSchemaOnce = async () => {
   }
   if (!componentColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "idCulinaryUnitConversionRecipeComponent")) {
     await pool.query("ALTER TABLE recipe_components ADD COLUMN idCulinaryUnitConversionRecipeComponent BIGINT UNSIGNED NULL AFTER idCulinaryUnitRecipeComponent");
+  }
+  if (!componentColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "costRecipeComponent")) {
+    await pool.query("ALTER TABLE recipe_components ADD COLUMN costRecipeComponent DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER lossPercentRecipeComponent");
+  }
+  if (!componentColumns.some(({ COLUMN_NAME }) => COLUMN_NAME === "costFormationComponent")) {
+    await pool.query("ALTER TABLE recipe_components ADD COLUMN costFormationComponent DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER costRecipeComponent");
   }
   await pool.query("ALTER TABLE recipe_components MODIFY COLUMN idComponentProductRecipe BIGINT UNSIGNED NULL");
   const [componentForeignKeys] = await pool.query(
@@ -434,6 +453,42 @@ const migrateCustomerConsumerSchema = async () => {
   );
   if (paymentTermColumns.length) {
     await pool.query("ALTER TABLE customers DROP COLUMN paymentTermCustomer");
+  }
+};
+
+const ensureMonetaryScaleSchema = async () => {
+  const monetaryColumns = [
+    ["fiscal_catalog_items", "valueFiscalCatalogItem", "DECIMAL(10,2) NULL"],
+    ["recipe_definitions", "totalCostRecipe", "DECIMAL(12,2) NOT NULL DEFAULT 0"],
+    ["recipe_definitions", "totalCostFormation", "DECIMAL(12,2) NOT NULL DEFAULT 0"],
+    ["recipe_definitions", "unitCostRecipe", "DECIMAL(12,2) NOT NULL DEFAULT 0"],
+    ["recipe_definitions", "unitCostFormation", "DECIMAL(12,2) NOT NULL DEFAULT 0"],
+    ["recipe_components", "costRecipeComponent", "DECIMAL(12,2) NOT NULL DEFAULT 0"],
+    ["recipe_components", "costFormationComponent", "DECIMAL(12,2) NOT NULL DEFAULT 0"],
+    ["fiscal_document_items", "unitPriceFiscalDocumentItem", "DECIMAL(14,2) NOT NULL DEFAULT 0"],
+    ["fiscal_document_items", "taxableUnitPriceFiscalDocumentItem", "DECIMAL(14,2) NULL"]
+  ];
+  for (const [tableName, columnName, definition] of monetaryColumns) {
+    const [tables] = await pool.query(
+      `SELECT TABLE_NAME
+       FROM information_schema.TABLES
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`,
+      [tableName]
+    );
+    if (!tables.length) continue;
+    const [columns] = await pool.query(
+      `SELECT COLUMN_NAME
+       FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+      [tableName, columnName]
+    );
+    if (!columns.length) continue;
+    await pool.query(
+      `UPDATE \`${tableName}\`
+       SET \`${columnName}\` = CEILING(\`${columnName}\` * 100) / 100
+       WHERE \`${columnName}\` IS NOT NULL`
+    );
+    await pool.query(`ALTER TABLE \`${tableName}\` MODIFY COLUMN \`${columnName}\` ${definition}`);
   }
 };
 
@@ -697,11 +752,11 @@ const initializeFiscalEntrySchema = async () => {
     cfopFiscalDocumentItem VARCHAR(10) NOT NULL DEFAULT '',
     fiscalUnitFiscalDocumentItem VARCHAR(20) NOT NULL DEFAULT '',
     quantityFiscalDocumentItem DECIMAL(14,4) NOT NULL,
-    unitPriceFiscalDocumentItem DECIMAL(14,6) NOT NULL DEFAULT 0,
+    unitPriceFiscalDocumentItem DECIMAL(14,2) NOT NULL DEFAULT 0,
     totalFiscalDocumentItem DECIMAL(14,2) NOT NULL DEFAULT 0,
     taxableUnitFiscalDocumentItem VARCHAR(20) NOT NULL DEFAULT '',
     taxableQuantityFiscalDocumentItem DECIMAL(14,4) NULL,
-    taxableUnitPriceFiscalDocumentItem DECIMAL(14,6) NULL,
+    taxableUnitPriceFiscalDocumentItem DECIMAL(14,2) NULL,
     freightFiscalDocumentItem DECIMAL(14,2) NOT NULL DEFAULT 0,
     insuranceFiscalDocumentItem DECIMAL(14,2) NOT NULL DEFAULT 0,
     otherExpensesFiscalDocumentItem DECIMAL(14,2) NOT NULL DEFAULT 0,
@@ -771,6 +826,7 @@ const initializeFiscalEntrySchema = async () => {
     idProduct BIGINT UNSIGNED NOT NULL,
     idStockUnit BIGINT UNSIGNED NULL,
     conversionFactor DECIMAL(14,6) NOT NULL DEFAULT 1,
+    isActiveProductFiscalReference TINYINT(1) NOT NULL DEFAULT 1,
     descriptionFiscalProductReference VARCHAR(255) NOT NULL,
     fiscalUnitProductReference VARCHAR(20) NOT NULL DEFAULT '',
     cfopProductFiscalReference VARCHAR(10) NOT NULL DEFAULT '',
@@ -823,6 +879,11 @@ const initializeFiscalEntrySchema = async () => {
       "ALTER TABLE product_fiscal_references ADD COLUMN conversionFactor DECIMAL(14,6) NOT NULL DEFAULT 1 AFTER idStockUnit"
     );
   }
+  if (!productFiscalReferenceColumnNames.has("isActiveProductFiscalReference")) {
+    await pool.query(
+      "ALTER TABLE product_fiscal_references ADD COLUMN isActiveProductFiscalReference TINYINT(1) NOT NULL DEFAULT 1 AFTER conversionFactor"
+    );
+  }
   const fiscalEntryItemColumns = await pool.query(
     `SELECT COLUMN_NAME
      FROM information_schema.COLUMNS
@@ -861,7 +922,8 @@ const initializeFiscalEntrySchema = async () => {
        WHERE ei.status = 'linked' AND ei.selected = 1 AND ei.idProduct IS NOT NULL
        ON DUPLICATE KEY UPDATE
          idStockUnit = VALUES(idStockUnit),
-         conversionFactor = VALUES(conversionFactor)`
+         conversionFactor = VALUES(conversionFactor),
+         isActiveProductFiscalReference = 1`
     );
   }
   if (!fiscalEntryItemColumnNames.has("idProductFiscalReference")) {
@@ -2318,6 +2380,7 @@ const ensureOperatorCashSchema = async () => {
     loadGeneralSourceSettings,
     ensureCustomerConsumerSchema,
     migrateCustomerConsumerSchema,
+    ensureMonetaryScaleSchema,
     ensureRecipeSchema,
     getGeneralSettingBoolean,
     ensureCompanySchema,

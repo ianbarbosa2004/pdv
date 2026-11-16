@@ -34,6 +34,9 @@ test("Produtos Vinculados expõe consulta fiscal e edição local do produto", a
   assert.match(source, /data-fiscal-edit-form/u);
   assert.match(source, /\/api\/products\?includeInactive=1/u);
   assert.match(source, /\/api\/products\/fiscal/u);
+  assert.match(source, /data-delete-fiscal-reference/u);
+  assert.match(source, /\/api\/stock\/product-fiscal-references\/\$\{reference\.idProductFiscalReference\}/u);
+  assert.match(source, /confirmLabel: "Excluir vínculo"/u);
   assert.match(source, /selectedProductId = editingProduct\.idProduct/u);
   assert.match(source, /await load\(\)/u);
   assert.match(source, /renderSuccessFeedback\(message, escapeHtml\)/u);
@@ -41,6 +44,8 @@ test("Produtos Vinculados expõe consulta fiscal e edição local do produto", a
   assert.match(source, /clearRenderedFeedback\(root\)/u);
   assert.doesNotMatch(source, /<div class="feedback success">/u);
   assert.match(server, /request\.method === "PUT" && request\.url === "\/api\/products\/fiscal"/u);
+  assert.match(server, /productFiscalReferenceDeleteMatch/u);
+  assert.match(server, /SET isActiveProductFiscalReference = 0/u);
   assert.match(server, /UPDATE products SET ncmProduct = \?, cestProduct = \?/u);
   assert.match(server, /ncm_catalog\.descriptionNcm AS descriptionNcm/u);
   assert.match(source, /valueOrDash\(product\.cestProduct\)/u);

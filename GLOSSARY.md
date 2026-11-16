@@ -159,6 +159,11 @@ independente e seus componentes, ou os vínculos dessas estruturas com um
 Produto comercial.
 _Evitar_: Kit, Combo, lista livre de ingredientes.
 
+**Formação de Produtos**:
+Tela operacional que mantém a Ficha Técnica diretamente associada a um Produto
+comercial apto para venda, definindo os componentes usados na sua formação.
+_Evitar_: cadastro da Receita independente, exclusão do Produto comercial.
+
 **Composição de Produto**:
 Estrutura nomeada e reutilizável que agrupa produtos e/ou outras Receitas para
 formar uma composição, sem representar uma produção do produto comercial.

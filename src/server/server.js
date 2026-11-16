@@ -7,6 +7,7 @@ import { createPool } from "./database.js";
 import { loadRuntimeConfig } from "./config.js";
 import { cancelSale, createSale, listRecentSales, SaleValidationError } from "./sale-service.js";
 import { parseImportBoolean, parseImportStatus } from "../shared/import-values.js";
+import { roundCostUpToCents } from "../shared/decimal.js";
 import {
   authorizeSaleNfce,
   buildNfceDiagnostic,
@@ -106,6 +107,7 @@ const {
   loadGeneralSourceSettings,
   ensureCustomerConsumerSchema,
   migrateCustomerConsumerSchema,
+  ensureMonetaryScaleSchema,
   ensureRecipeSchema,
   getGeneralSettingBoolean,
   ensureCompanySchema,
@@ -372,10 +374,13 @@ const parseNavigationType = (value) => {
 };
 
 const parseMoney = (value, fieldName) => {
-  if (!/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(String(value))) {
+  const raw = String(value ?? "").trim().replace(",", ".");
+  if (!/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(raw)) {
     throw new SaleValidationError(`${fieldName} inválido.`);
   }
-  return String(value);
+  const rounded = roundCostUpToCents(raw);
+  if (!Number.isFinite(rounded)) throw new SaleValidationError(`${fieldName} inválido.`);
+  return rounded.toFixed(2);
 };
 
 const normalizeHumanText = (value) => {
@@ -535,6 +540,7 @@ const hasImportedFiscalCest = async (queryable, ncmCode, cestCode) => {
        FROM product_fiscal_references
        WHERE ncmProductFiscalReference = ?
          AND cestProductFiscalReference = ?
+         AND isActiveProductFiscalReference = 1
        LIMIT 1`,
       [ncmCode, cestCode]
     );
@@ -2364,6 +2370,36 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "GET" && request.url === "/api/views/cost-divergences") {
+    try {
+      await ensureProductCatalogSchema();
+      await ensureRecipeSchema();
+      const [products] = await pool.query(
+        `SELECT products.idProduct, products.pdvCodeProduct, products.nameProduct,
+                products.costPriceProduct,
+                formations.idRecipe,
+                formations.unitCostFormation AS suggestedCostPriceProduct
+         FROM products
+         INNER JOIN recipe_definitions formations
+           ON formations.idResultProductRecipe = products.idProduct
+          AND formations.kindRecipe = 'production'
+          AND formations.statusRecipe = 'active'
+         WHERE products.isActiveProduct = 1
+           AND ROUND(COALESCE(products.costPriceProduct, 0), 2)
+             <> ROUND(COALESCE(formations.unitCostFormation, 0), 2)
+         ORDER BY products.nameProduct`
+      );
+      json(response, 200, { products });
+    } catch (error) {
+      handleError(response, error, {
+        log: "Falha ao listar divergências de custo:",
+        message: "Não foi possível consultar as divergências de custo.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
   if (request.method === "GET" && request.url.startsWith("/api/products")) {
     try {
       await ensureProductCatalogSchema();
@@ -2420,26 +2456,23 @@ const server = createServer(async (request, response) => {
       const parameters = [];
       const conditions = [];
       if (!includeArchived) conditions.push("recipes.statusRecipe <> 'archived'");
+      conditions.push("NOT (recipes.kindRecipe = 'production' AND recipes.idResultProductRecipe IS NOT NULL)");
       if (kind === "production" || kind === "composition") {
         conditions.push("recipes.kindRecipe = ?");
         parameters.push(kind);
       }
       const [recipes] = await pool.query(
         `SELECT recipes.idRecipe, recipes.nameRecipe, recipes.kindRecipe, recipes.idResultProductRecipe,
-                recipes.idCulinaryUnitYieldRecipe,
                 recipes.idUnitYieldRecipe,
                 recipes.statusRecipe, recipes.versionRecipe, recipes.yieldQuantityRecipe,
-                recipes.notesRecipe, recipes.createdAtRecipe, recipes.updatedAtRecipe,
+                recipes.notesRecipe, recipes.totalCostRecipe, recipes.totalCostFormation,
+                recipes.unitCostRecipe, recipes.unitCostFormation,
+                recipes.createdAtRecipe, recipes.updatedAtRecipe,
                 result.nameProduct AS resultProductName,
-                yield_unit.codeUnit AS yieldCulinaryUnitCode,
-                yield_unit.descriptionUnit AS yieldCulinaryUnitName,
-                yield_unit.baseUnitUnit AS yieldCulinaryUnitBase
-                ,yield_tax_unit.codeUnit AS yieldUnitCode,
+                yield_tax_unit.codeUnit AS yieldUnitCode,
                 yield_tax_unit.descriptionUnit AS yieldUnitDescription
          FROM recipe_definitions recipes
          LEFT JOIN products result ON result.idProduct = recipes.idResultProductRecipe
-         LEFT JOIN units yield_unit
-           ON yield_unit.idUnit = recipes.idCulinaryUnitYieldRecipe
          LEFT JOIN units yield_tax_unit
            ON yield_tax_unit.idUnit = recipes.idUnitYieldRecipe
          ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
@@ -2455,6 +2488,7 @@ const server = createServer(async (request, response) => {
                   components.idCulinaryUnitRecipeComponent,
                   components.idCulinaryUnitConversionRecipeComponent,
                   components.quantityRecipeComponent, components.lossPercentRecipeComponent,
+                  components.costRecipeComponent, components.costFormationComponent,
                   products.nameProduct AS componentProductName,
                   products.idUnitProduct AS componentProductUnitId,
                   products.idPhysicalStateProduct AS componentProductPhysicalStateId,
@@ -2503,6 +2537,287 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "GET" && request.url === "/api/product-formations") {
+    try {
+      await ensureProductCatalogSchema();
+      await ensureRecipeSchema();
+      const [products] = await pool.query(
+        `SELECT products.idProduct, products.pdvCodeProduct, products.nameProduct,
+                products.skuProduct, products.idUnitProduct, products.costPriceProduct, units.codeUnit,
+                units.descriptionUnit, product_types.descriptionProductType,
+                formations.idRecipe AS formationId,
+                formations.notesRecipe AS formationNotes,
+                formations.totalCostFormation AS formationTotalCost,
+                formations.unitCostFormation AS formationUnitCost
+         FROM products
+         INNER JOIN product_types
+           ON product_types.idProductType = products.idProductTypeProduct
+         LEFT JOIN units ON units.idUnit = products.idUnitProduct
+         LEFT JOIN recipe_definitions formations
+           ON formations.idResultProductRecipe = products.idProduct
+          AND formations.kindRecipe = 'production'
+          AND formations.statusRecipe <> 'archived'
+         WHERE products.isActiveProduct = 1
+           AND LOWER(TRIM(product_types.descriptionProductType))
+             IN ('mercadoria para revenda', 'produto acabado', 'produtos acabados')
+         ORDER BY products.nameProduct`
+      );
+      const [componentProducts] = await pool.query(
+        `SELECT products.idProduct, products.pdvCodeProduct, products.nameProduct,
+                products.skuProduct, products.idUnitProduct, products.costPriceProduct,
+                units.codeUnit, units.descriptionUnit
+         FROM products
+         LEFT JOIN units ON units.idUnit = products.idUnitProduct
+         WHERE products.isActiveProduct = 1
+         ORDER BY products.nameProduct`
+      );
+      const formationIds = products.map(({ formationId }) => formationId).filter(Boolean);
+      const [recipes] = await pool.query(
+        `SELECT recipes.idRecipe, recipes.nameRecipe, recipes.idUnitYieldRecipe,
+        recipes.unitCostRecipe, recipes.unitCostFormation,
+                yield_unit.codeUnit AS yieldUnitCode,
+                yield_unit.descriptionUnit AS yieldUnitDescription
+         FROM recipe_definitions recipes
+         LEFT JOIN units yield_unit ON yield_unit.idUnit = recipes.idUnitYieldRecipe
+         WHERE recipes.statusRecipe = 'active'
+         ORDER BY recipes.nameRecipe`
+      );
+      const components = formationIds.length
+        ? (await pool.query(
+          `SELECT components.idRecipe, components.componentTypeRecipe,
+                  components.idComponentProductRecipe AS productId,
+                  components.idComponentRecipe AS recipeId,
+                  components.detailsRecipeComponent AS details,
+                  components.quantityRecipeComponent AS quantity,
+                  components.costFormationComponent,
+                  products.nameProduct AS componentProductName,
+                  units.codeUnit AS componentCodeUnit,
+                  units.descriptionUnit AS componentDescriptionUnit,
+                  nested.nameRecipe AS componentRecipeName,
+                  nestedUnit.codeUnit AS componentRecipeUnitCode,
+                  nestedUnit.descriptionUnit AS componentRecipeUnitDescription
+           FROM recipe_components components
+           LEFT JOIN products ON products.idProduct = components.idComponentProductRecipe
+           LEFT JOIN units ON units.idUnit = products.idUnitProduct
+           LEFT JOIN recipe_definitions nested ON nested.idRecipe = components.idComponentRecipe
+           LEFT JOIN units nestedUnit ON nestedUnit.idUnit = nested.idUnitYieldRecipe
+           WHERE components.idRecipe IN (?) ORDER BY components.idRecipe, components.orderRecipeComponent, components.idRecipeComponent`,
+          [formationIds]
+        ))[0]
+        : [];
+      const byFormation = new Map();
+      components.forEach((component) => {
+        const list = byFormation.get(Number(component.idRecipe)) || [];
+        list.push({ ...component, targetType: component.componentTypeRecipe });
+        byFormation.set(Number(component.idRecipe), list);
+      });
+      json(response, 200, {
+        products: products.map((product) => ({
+          ...product,
+          formation: product.formationId
+            ? {
+              idRecipe: product.formationId,
+              notesRecipe: product.formationNotes || "",
+              totalCostFormation: product.formationTotalCost || 0,
+              unitCostFormation: product.formationUnitCost || 0,
+              components: byFormation.get(Number(product.formationId)) || []
+            }
+            : null
+        })),
+        componentProducts,
+        recipes
+      });
+    } catch (error) {
+      handleError(response, error, {
+        log: "Falha ao listar formações de produtos:",
+        message: "Não foi possível consultar as Formações de Produtos.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
+  if ((request.method === "PUT" && /^\/api\/product-formations\/\d+$/.test(new URL(request.url, "http://localhost").pathname))
+    || (request.method === "DELETE" && /^\/api\/product-formations\/\d+$/.test(new URL(request.url, "http://localhost").pathname))) {
+    let connection;
+    try {
+      await ensureProductCatalogSchema();
+      await ensureRecipeSchema();
+      const productId = Number(new URL(request.url, "http://localhost").pathname.split("/").pop());
+      connection = await pool.getConnection();
+      await connection.beginTransaction();
+      const [productRows] = await connection.query(
+        `SELECT products.idProduct, products.nameProduct, products.pdvCodeProduct,
+                products.idUnitProduct, product_types.descriptionProductType
+         FROM products
+         INNER JOIN product_types ON product_types.idProductType = products.idProductTypeProduct
+         WHERE products.idProduct = ? AND products.isActiveProduct = 1
+           AND LOWER(TRIM(product_types.descriptionProductType))
+             IN ('mercadoria para revenda', 'produto acabado', 'produtos acabados')`,
+        [productId]
+      );
+      if (!productRows.length) throw new SaleValidationError("Produto não apto para Formação de Produtos.", 409);
+      const [formationRows] = await connection.query(
+        `SELECT idRecipe FROM recipe_definitions
+         WHERE idResultProductRecipe = ? AND kindRecipe = 'production' AND statusRecipe <> 'archived'
+         LIMIT 1`,
+        [productId]
+      );
+      if (request.method === "DELETE") {
+        if (formationRows.length) {
+          await connection.query("DELETE FROM product_recipe_links WHERE idRecipe = ?", [formationRows[0].idRecipe]);
+          await connection.query("DELETE FROM recipe_definitions WHERE idRecipe = ?", [formationRows[0].idRecipe]);
+        }
+        await connection.commit();
+        json(response, 200, { ok: true });
+        return;
+      }
+      const payload = await readJsonBody(request);
+      const components = Array.isArray(payload.components) ? payload.components : [];
+      const notesRecipe = String(payload.notesRecipe || "").trim().slice(0, 500);
+      const totalCostFormation = roundCostUpToCents(String(payload.totalCostFormation ?? 0).replace(",", "."));
+      const unitCostFormation = roundCostUpToCents(String(payload.unitCostFormation ?? totalCostFormation).replace(",", "."));
+      if (!Number.isFinite(totalCostFormation) || totalCostFormation < 0) {
+        throw new SaleValidationError("Custo total da Formação inválido.", 409);
+      }
+      if (!Number.isFinite(unitCostFormation) || unitCostFormation < 0) {
+        throw new SaleValidationError("Custo unitário da Formação inválido.", 409);
+      }
+      if (!components.length) throw new SaleValidationError("Informe ao menos um componente.");
+      const productComponentIds = [...new Set(components.map((component) => Number(component.productId)).filter((id) => Number.isInteger(id) && id > 0))];
+      if (productComponentIds.length) {
+        const [componentProducts] = await connection.query(
+          "SELECT idProduct FROM products WHERE idProduct IN (?) AND isActiveProduct = 1",
+          [productComponentIds]
+        );
+        if (componentProducts.length !== productComponentIds.length) throw new SaleValidationError("Produto componente não encontrado.", 409);
+      }
+      const recipeId = formationRows[0]?.idRecipe || (await connection.query(
+        `INSERT INTO recipe_definitions
+          (nameRecipe, kindRecipe, idResultProductRecipe, idUnitYieldRecipe, statusRecipe, yieldQuantityRecipe,
+           totalCostFormation, unitCostFormation)
+         VALUES (?, 'production', ?, ?, 'active', 1, ?, ?)`,
+        [`Formação ${productRows[0].pdvCodeProduct || productId} - ${productRows[0].nameProduct}`.slice(0, 180), productId, productRows[0].idUnitProduct, totalCostFormation, unitCostFormation]
+      ))[0].insertId;
+      await connection.query(
+        `UPDATE recipe_definitions
+         SET idResultProductRecipe = ?, idUnitYieldRecipe = ?, statusRecipe = 'active',
+             yieldQuantityRecipe = 1, notesRecipe = ?, versionRecipe = versionRecipe + 1
+             , totalCostFormation = ?, unitCostFormation = ?
+         WHERE idRecipe = ?`,
+        [productId, productRows[0].idUnitProduct, notesRecipe, totalCostFormation, unitCostFormation, recipeId]
+      );
+      await connection.query("DELETE FROM recipe_components WHERE idRecipe = ?", [recipeId]);
+      for (const [index, component] of components.entries()) {
+        const productComponentId = Number(component.productId);
+        const recipeComponentId = Number(component.recipeId);
+        const quantity = Number(String(component.quantity ?? "").replace(",", "."));
+        if ((!productComponentId && !recipeComponentId) || (productComponentId && recipeComponentId) || !Number.isFinite(quantity) || quantity <= 0) {
+          throw new SaleValidationError(`Componente ${index + 1} inválido.`);
+        }
+        const costFormationComponent = roundCostUpToCents(String(component.costFormationComponent ?? 0).replace(",", "."));
+        if (!Number.isFinite(costFormationComponent) || costFormationComponent < 0) {
+          throw new SaleValidationError(`Custo do componente ${index + 1} inválido.`, 409);
+        }
+        await connection.query(
+          `INSERT INTO recipe_components
+            (idRecipe, componentTypeRecipe, idComponentProductRecipe, idComponentRecipe,
+             orderRecipeComponent, detailsRecipeComponent, quantityRecipeComponent, lossPercentRecipeComponent,
+             costFormationComponent)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+          [recipeId, productComponentId ? "product" : "recipe", productComponentId || null,
+            recipeComponentId || null, index + 1, String(component.details || "").trim().slice(0, 255), quantity,
+            costFormationComponent]
+        );
+      }
+      await connection.commit();
+      json(response, 200, { ok: true, idRecipe: recipeId });
+    } catch (error) {
+      if (connection) await connection.rollback();
+      handleError(response, error, {
+        log: "Falha ao salvar formação de produto:",
+        message: "Não foi possível salvar a Formação de Produtos.",
+        duplicate: ""
+      });
+    } finally {
+      connection?.release();
+    }
+    return;
+  }
+
+  const productFiscalReferenceDeleteMatch = request.method === "DELETE"
+    ? request.url.match(/^\/api\/stock\/product-fiscal-references\/(\d+)$/)
+    : null;
+  if (productFiscalReferenceDeleteMatch) {
+    let connection = null;
+    try {
+      requireOperatorSession(request);
+      await ensureProductCatalogSchema();
+      await ensureFiscalEntrySchema();
+      const idProductFiscalReference = parsePositiveId(productFiscalReferenceDeleteMatch[1]);
+      if (!idProductFiscalReference) throw new SaleValidationError("Vínculo fiscal inválido.");
+      connection = await pool.getConnection();
+      await connection.beginTransaction();
+      const [references] = await connection.query(
+        `SELECT idProductFiscalReference
+         FROM product_fiscal_references
+         WHERE idProductFiscalReference = ?
+         FOR UPDATE`,
+        [idProductFiscalReference]
+      );
+      if (!references.length) throw new SaleValidationError("Vínculo fiscal não encontrado.", 404);
+      const [editableEntries] = await connection.query(
+        `SELECT DISTINCT ei.idFiscalEntry
+         FROM fiscal_entry_items ei
+         JOIN fiscal_entries e ON e.idFiscalEntry = ei.idFiscalEntry
+         WHERE ei.idProductFiscalReference = ?
+           AND e.statusFiscalEntry = 'open'`,
+        [idProductFiscalReference]
+      );
+      await connection.query(
+        `UPDATE fiscal_entry_items ei
+         JOIN fiscal_entries e ON e.idFiscalEntry = ei.idFiscalEntry
+         SET ei.idProductFiscalReference = NULL,
+             ei.selected = 0,
+             ei.status = 'omitted'
+         WHERE ei.idProductFiscalReference = ?
+           AND e.statusFiscalEntry = 'open'`,
+        [idProductFiscalReference]
+      );
+      if (editableEntries.length) {
+        await connection.query(
+          "UPDATE fiscal_entries SET statusFiscalEntry = 'draft' WHERE idFiscalEntry IN (?)",
+          [editableEntries.map((entry) => entry.idFiscalEntry)]
+        );
+      }
+      await connection.query(
+        `UPDATE product_fiscal_references
+         SET isActiveProductFiscalReference = 0
+         WHERE idProductFiscalReference = ?`,
+        [idProductFiscalReference]
+      );
+      await connection.commit();
+      connection.release();
+      connection = null;
+      json(response, 200, {
+        idProductFiscalReference,
+        deleted: true,
+        resetEntryCount: editableEntries.length
+      });
+    } catch (error) {
+      if (connection) {
+        await connection.rollback().catch(() => {});
+        connection.release();
+      }
+      handleError(response, error, {
+        log: "Falha ao excluir vínculo fiscal:",
+        message: "Não foi possível excluir o vínculo fiscal.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
   if (request.method === "GET" && request.url === "/api/stock/product-fiscal-references") {
     try {
       requireOperatorSession(request);
@@ -2531,6 +2846,7 @@ const server = createServer(async (request, response) => {
          WHERE EXISTS (
            SELECT 1 FROM product_fiscal_references references_for_product
            WHERE references_for_product.idProduct = products.idProduct
+             AND references_for_product.isActiveProductFiscalReference = 1
          )
          ORDER BY products.nameProduct`
       );
@@ -2546,6 +2862,7 @@ const server = createServer(async (request, response) => {
                 references_for_product.cestProductFiscalReference
          FROM product_fiscal_references references_for_product
          JOIN products ON products.idProduct = references_for_product.idProduct
+         WHERE references_for_product.isActiveProductFiscalReference = 1
          ORDER BY references_for_product.idProduct, references_for_product.idProductFiscalReference`
       );
       const referencesByProduct = new Map();
@@ -2590,7 +2907,8 @@ const server = createServer(async (request, response) => {
             conversionId: component.idCulinaryUnitConversionRecipeComponent || component.conversionId,
             details: component.detailsRecipeComponent ?? component.details ?? "",
             quantity: component.quantityRecipeComponent ?? component.quantity,
-            lossPercent: component.lossPercentRecipeComponent ?? component.lossPercent ?? 0
+            lossPercent: component.lossPercentRecipeComponent ?? component.lossPercent ?? 0,
+            costRecipeComponent: component.costRecipeComponent ?? 0
           }))
           : []
       };
@@ -2726,6 +3044,14 @@ const server = createServer(async (request, response) => {
       }
       const recipeName = String(definition.name || "").trim().slice(0, 180);
       if (!recipeName) throw new SaleValidationError("Informe o nome da Receita ou Composição.");
+      const totalCostRecipe = roundCostUpToCents(String(payload.totalCostRecipe ?? 0).replace(",", "."));
+      const unitCostRecipe = roundCostUpToCents(String(payload.unitCostRecipe ?? 0).replace(",", "."));
+      if (!Number.isFinite(totalCostRecipe) || totalCostRecipe < 0) {
+        throw new SaleValidationError("Custo total da Receita inválido.", 409);
+      }
+      if (!Number.isFinite(unitCostRecipe) || unitCostRecipe < 0) {
+        throw new SaleValidationError("Custo unitário da Receita inválido.", 409);
+      }
       const recipeId = request.method === "PUT"
         ? Number(new URL(request.url, "http://localhost").pathname.split("/").pop())
         : null;
@@ -2764,34 +3090,42 @@ const server = createServer(async (request, response) => {
           `UPDATE recipe_definitions
            SET nameRecipe = ?, kindRecipe = ?, idUnitYieldRecipe = ?, statusRecipe = ?,
                yieldQuantityRecipe = ?, notesRecipe = ?, versionRecipe = versionRecipe + 1
+                  , totalCostRecipe = ?, unitCostRecipe = ?
            WHERE idRecipe = ?`,
           [recipeName, definition.kind, yieldUnitId, requestedStatus, yieldQuantity,
-            payload.notesRecipe ? String(payload.notesRecipe).trim().slice(0, 500) : null, recipeId]
+               payload.notesRecipe ? String(payload.notesRecipe).trim().slice(0, 500) : null,
+               totalCostRecipe, unitCostRecipe, recipeId]
         );
         await connection.query("DELETE FROM recipe_components WHERE idRecipe = ?", [recipeId]);
       }
       const result = recipeId ? { insertId: recipeId } : (await connection.query(
         `INSERT INTO recipe_definitions
           (nameRecipe, kindRecipe, idUnitYieldRecipe, statusRecipe,
-           yieldQuantityRecipe, notesRecipe)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+           yieldQuantityRecipe, notesRecipe, totalCostRecipe, unitCostRecipe)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           recipeName,
           definition.kind,
           yieldUnitId,
           requestedStatus,
           yieldQuantity,
-          payload.notesRecipe ? String(payload.notesRecipe).trim().slice(0, 500) : null
+          payload.notesRecipe ? String(payload.notesRecipe).trim().slice(0, 500) : null,
+          totalCostRecipe,
+          unitCostRecipe
         ]
       ))[0];
       for (const [index, component] of definition.components.entries()) {
+        const costRecipeComponent = roundCostUpToCents(String(component.costRecipeComponent ?? 0).replace(",", "."));
+        if (!Number.isFinite(costRecipeComponent) || costRecipeComponent < 0) {
+          throw new SaleValidationError(`Custo do componente ${index + 1} inválido.`, 409);
+        }
         await connection.query(
           `INSERT INTO recipe_components
             (idRecipe, componentTypeRecipe, idComponentProductRecipe, idComponentRecipe,
              orderRecipeComponent, detailsRecipeComponent,
              idCulinaryUnitRecipeComponent, idCulinaryUnitConversionRecipeComponent,
-             quantityRecipeComponent, lossPercentRecipeComponent)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             quantityRecipeComponent, lossPercentRecipeComponent, costRecipeComponent)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             result.insertId,
             component.recipeId ? "recipe" : "product",
@@ -2802,7 +3136,8 @@ const server = createServer(async (request, response) => {
             component.culinaryUnitId || null,
             component.conversionId || null,
             component.quantity,
-            component.lossPercent
+            component.lossPercent,
+            costRecipeComponent
           ]
         );
       }
@@ -3524,7 +3859,7 @@ const server = createServer(async (request, response) => {
         throw new SaleValidationError("O arquivo não contém o protocolo de autorização da SEFAZ.");
       }
       const issuedAt = new Date(result.issuedAt);
-      const total = Number(result.total);
+      const total = roundCostUpToCents(Number(result.total));
       if (!/^\d{14}$/.test(result.issuerDocument)
         || Number.isNaN(issuedAt.getTime())
         || !Number.isFinite(total)
@@ -3533,7 +3868,8 @@ const server = createServer(async (request, response) => {
       }
       const decimal = (value, scale) => {
         const parsed = Number(String(value ?? "").replace(",", "."));
-        return Number.isFinite(parsed) ? parsed.toFixed(scale) : "0";
+        if (!Number.isFinite(parsed)) return "0";
+        return scale === 2 ? roundCostUpToCents(parsed).toFixed(2) : parsed.toFixed(scale);
       };
       const dateOrNull = (value) => {
         if (!value) return null;
@@ -3715,11 +4051,16 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (request.method === "GET" && request.url === "/api/stock/fiscal-entries") {
+  const fiscalEntriesUrl = new URL(request.url, "http://localhost");
+  if (request.method === "GET" && fiscalEntriesUrl.pathname === "/api/stock/fiscal-entries") {
     try {
       requireOperatorSession(request);
       await ensureSupplierSchema();
       await ensureFiscalEntrySchema();
+      const includeCompletedEntries = fiscalEntriesUrl.searchParams.get("includeCompleted") === "1";
+      const fiscalEntryStatusFilter = includeCompletedEntries
+        ? ""
+        : " AND e.statusFiscalEntry IN ('draft', 'open')";
       const [[fiscalEntries], [missingSupplierRows]] = await Promise.all([
         pool.query(
           `SELECT e.idFiscalEntry, e.statusFiscalEntry, e.createdAtFiscalEntry,
@@ -3730,7 +4071,7 @@ const server = createServer(async (request, response) => {
                   d.totalFiscalDocument
            FROM fiscal_entries e
            JOIN fiscal_documents d ON d.idFiscalDocument = e.idFiscalDocument
-           WHERE e.statusFiscalEntry IN ('draft', 'open')
+           WHERE 1 = 1${fiscalEntryStatusFilter}
            ORDER BY e.updatedAtFiscalEntry DESC, e.idFiscalEntry DESC`
         ),
         pool.query(
@@ -3744,7 +4085,7 @@ const server = createServer(async (request, response) => {
              ON s.documentSupplier COLLATE utf8mb4_unicode_ci =
                 d.issuerDocumentFiscalDocument COLLATE utf8mb4_unicode_ci
             AND s.typeSupplier = IF(CHAR_LENGTH(TRIM(d.issuerDocumentFiscalDocument)) = 11, 'fisica', 'juridica')
-           WHERE e.statusFiscalEntry IN ('draft', 'open')
+           WHERE 1 = 1${fiscalEntryStatusFilter}
              AND s.idSupplier IS NULL
            GROUP BY d.issuerDocumentFiscalDocument
            ORDER BY companyNameSupplier, documentSupplier`
@@ -4153,8 +4494,8 @@ const server = createServer(async (request, response) => {
       const hasCompleteItems = hasSelectedItem && items
         .filter(({ selected }) => selected)
         .every(({ complete }) => complete);
-      const readyForOpen = hasCompleteItems && !invalidPayment && normalizedPayments.length > 0;
-      const nextStatus = readyForOpen ? "open" : "draft";
+      const readyForConfirmation = hasCompleteItems && !invalidPayment && normalizedPayments.length > 0;
+      const nextStatus = readyForConfirmation ? "open" : "draft";
       connection = await pool.getConnection();
       await connection.beginTransaction();
       const [entries] = await connection.query(
@@ -4185,17 +4526,22 @@ const server = createServer(async (request, response) => {
           const documentItem = documentItems[0];
           await connection.query(
             `INSERT INTO product_fiscal_references
-              (idProduct, idStockUnit, conversionFactor,
+              (idProduct, idStockUnit, conversionFactor, isActiveProductFiscalReference,
                descriptionFiscalProductReference, fiscalUnitProductReference,
                cfopProductFiscalReference, ncmProductFiscalReference, cestProductFiscalReference)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE
                idStockUnit = VALUES(idStockUnit),
-               conversionFactor = VALUES(conversionFactor)`,
+               conversionFactor = VALUES(conversionFactor),
+               isActiveProductFiscalReference = GREATEST(
+                 isActiveProductFiscalReference,
+                 VALUES(isActiveProductFiscalReference)
+               )`,
             [
               item.idProduct,
               item.idStockUnit,
               item.conversionFactor,
+              0,
               documentItem.descriptionFiscalDocumentItem,
               documentItem.fiscalUnitFiscalDocumentItem,
               documentItem.cfopFiscalDocumentItem,
@@ -5006,7 +5352,11 @@ const server = createServer(async (request, response) => {
       const isFractionalProduct = parseBooleanFlag(payload.isFractionalProduct, "Produto fracionado");
       const showsInPdvProduct = parseBooleanFlag(payload.showsInPdvProduct, "Exibe no PDV", true);
       const isActiveProduct = parseBooleanFlag(payload.isActiveProduct, "Status do produto", true);
-      const stockQuantityProduct = parseProductQuantity(payload.stockQuantityProduct, allowNegativeStock, Boolean(isFractionalProduct));
+      const stockQuantityProduct = parseProductQuantity(
+        payload.stockQuantityProduct,
+        allowNegativeStock && controlsStockProduct,
+        Boolean(isFractionalProduct)
+      );
       const [groups] = await pool.query("SELECT idGroup FROM `groups` WHERE idGroup = ?", [idGroup]);
       if (!groups.length) throw new SaleValidationError("Grupo não encontrado.", 409);
       const [productTypeRows] = await pool.query("SELECT idProductType, descriptionProductType FROM product_types WHERE idProductType = ? AND isActiveProductType = 1", [idProductTypeProduct]);
@@ -5348,6 +5698,42 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "PUT" && request.url === "/api/products/cost-price") {
+    try {
+      const payload = await readJsonBody(request);
+      const idProduct = parsePositiveId(payload.idProduct);
+      if (!idProduct) throw new SaleValidationError("Produto inválido.", 409);
+      const costPriceProduct = parseMoney(
+        String(payload.costPriceProduct ?? "").trim().replace(",", "."),
+        "Preço de custo"
+      );
+      const [result] = await pool.query(
+        "UPDATE products SET costPriceProduct = ? WHERE idProduct = ? AND isActiveProduct = 1",
+        [costPriceProduct, idProduct]
+      );
+      if (!result.affectedRows) throw new SaleValidationError("Produto não encontrado.", 404);
+      const [updatedProducts] = await pool.query(
+        "SELECT idProduct, costPriceProduct FROM products WHERE idProduct = ? AND isActiveProduct = 1",
+        [idProduct]
+      );
+      if (!updatedProducts.length) {
+        throw new SaleValidationError("Não foi possível confirmar o preço de custo atualizado.", 409);
+      }
+      json(response, 200, {
+        ok: true,
+        idProduct,
+        costPriceProduct: updatedProducts[0].costPriceProduct
+      });
+    } catch (error) {
+      handleError(response, error, {
+        log: "Falha ao atualizar custo do produto:",
+        message: "Não foi possível atualizar o preço de custo.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
   if (request.method === "PUT" && request.url === "/api/products") {
     try {
       const payload = await readJsonBody(request);
@@ -5371,7 +5757,11 @@ const server = createServer(async (request, response) => {
       const isBuffetProduct = parseBooleanFlag(payload.isBuffetProduct, "Produto Buffet", false);
       const isFractionalProduct = parseBooleanFlag(payload.isFractionalProduct, "Produto fracionado");
       const showsInPdvProduct = parseBooleanFlag(payload.showsInPdvProduct, "Exibe no PDV", true);
-      const stockQuantityProduct = parseProductQuantity(payload.stockQuantityProduct, allowNegativeStock, Boolean(isFractionalProduct));
+      const stockQuantityProduct = parseProductQuantity(
+        payload.stockQuantityProduct,
+        allowNegativeStock && controlsStockProduct,
+        Boolean(isFractionalProduct)
+      );
       const [groups] = await pool.query("SELECT idGroup FROM `groups` WHERE idGroup = ?", [idGroup]);
       if (!groups.length) throw new SaleValidationError("Grupo não encontrado.", 409);
       const [productTypeRows] = await pool.query("SELECT idProductType, descriptionProductType FROM product_types WHERE idProductType = ? AND isActiveProductType = 1", [idProductTypeProduct]);
@@ -6012,7 +6402,7 @@ server.listen(config.apiPort, config.apiHost, () => {
     ensureRecipeSchema(),
     ensureNavigationSchema(),
     ensureOperatorCashSchema()
-  ]).catch((error) => {
+  ]).then(() => ensureMonetaryScaleSchema()).catch((error) => {
     console.error("Falha ao preparar o banco:", error);
   });
 });
