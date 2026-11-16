@@ -44,7 +44,7 @@ export const DEFAULT_NAVIGATION = Object.freeze({
     item("cadastros", "classes", "Classes", "classes", 8, "products", "bar"),
     item("cadastros", "groups", "Grupos", "groups", 9, "products", "bar"),
     item("cadastros", "ncm-cest", "NCM / CEST", "ncm-cest", 10, "products", "bar"),
-    item("cadastros", "technical-sheet", "Ficha Técnica", "recipes", 11),
+    item("cadastros", "technical-sheet", "Formação de Produtos", "recipes", 11),
     item("cadastros", "recipes", "Receitas e Composições", "recipes", 1, "technical-sheet", "bar", "Cadastre Receitas de Produção e Composições de Produto com seus componentes, perdas e custos."),
     item("cadastros", "physical-states", "Estados Físicos", "physical-states", 3, "technical-sheet", "bar"),
     item("cadastros", "culinary-conversions", "Conversões", "culinary-conversions", 4, "technical-sheet", "bar"),
@@ -93,7 +93,8 @@ export const DEFAULT_NAVIGATION = Object.freeze({
     item("tools", "groups-products", "Grupos x Produtos", "groups-products", 1, "views", "bar", "Organize, pesquise e mantenha os produtos por classe e grupo."),
     item("tools", "no-cost", "Sem Custo", "no-cost", 2, "views", "bar", "Localize produtos ativos sem preço de custo informado."),
     item("tools", "no-physical-state", "Sem Estado Físico", "no-physical-state", 3, "views", "bar", "Localize matérias-primas sem estado físico definido para conversões culinárias."),
-    item("tools", "recipe-revisions", "Revisões de Fichas", "recipe-revisions", 4, "views", "bar", "Consulte estruturas de Receita e Composição marcadas para revisão.")
+    item("tools", "cost-divergences", "Divergência entre Custos", "cost-divergences", 4, "views", "bar", "Compare o custo atual do Produto com o custo unitário salvo na Formação."),
+    item("tools", "recipe-revisions", "Revisões de Fichas", "recipe-revisions", 5, "views", "bar", "Consulte estruturas de Receita e Composição marcadas para revisão.")
   ]
 });
 
@@ -196,6 +197,7 @@ export const mergeNavigationDefaults = (navigation) => {
       idNavigationItem: persisted?.idNavigationItem || `default-item-${definition.menuKey}-${definition.keyNavigationItem}-${definition.orderNavigationItem}`
     };
     if (definition.keyNavigationItem === "technical-sheet") {
+      merged.labelNavigationItem = "Formação de Produtos";
       merged.typeNavigationItem = "item";
       merged.routeNavigationItem = definition.routeNavigationItem;
       merged.idParentNavigationItem = null;

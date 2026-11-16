@@ -96,7 +96,17 @@ export const getProductTargetCulinaryUnitId = (product, culinaryUnits, units = [
 
 export const formatRecipeComponentUnit = (unit) => {
   if (!unit) return "Unidade não informada";
-  return [unit.codeUnit, unit.descriptionUnit].filter(Boolean).join(" - ");
+  const description = String(unit.descriptionUnit || "").trim();
+  const rawCode = String(unit.codeUnit || "").trim();
+  const normalized = normalizeText(`${rawCode} ${description}`);
+  const canonicalCode = normalized.includes("quilograma") || normalized.includes(" kg ")
+    ? "KG"
+    : normalized.includes("unidade") || normalized === "un"
+      ? "UN"
+      : normalized.includes("litro") || normalized === "l"
+        ? "L"
+        : rawCode;
+  return [canonicalCode, description].filter(Boolean).join(" - ");
 };
 
 export const formatCulinaryUnit = (unit) => {

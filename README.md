@@ -55,7 +55,11 @@ A fundação inicial já está criada:
 - catálogos NCM/CEST persistidos e atualização controlada pela API;
 - Receitas de Produção e Composições de Produto independentes de Produto
   comercial, com componentes, perdas, custos e revisões persistidos;
+- Formação de Produtos vinculada a Produtos comerciais, com snapshot de custos
+  dos componentes e apresentação padronizada das unidades finais;
 - vínculos quantificados entre Produtos comerciais e Receitas ou Composições;
+- Fila de documentos fiscais e Pré-entradas com revisão de itens, vínculos,
+  pagamentos e estados operacionais;
 - marcação de Produto Buffet, cuja venda não baixa estoque nem bloqueia o
   fechamento de caixa;
 - impressão térmica de 80 mm com modelo de cupom persistido no servidor.
@@ -70,6 +74,8 @@ A fundação inicial já está criada:
 - autenticação individual de operadores, sessões expiráveis e controle de caixa;
 - preparação idempotente do schema de caixa, com identificadores
   `SMALLINT UNSIGNED` para evitar estouro do contador de caixas.
+- valores monetários normalizados em duas casas com arredondamento para cima,
+  preservando escalas específicas para quantidades, percentuais e conversões.
 
 O catálogo da interface depende da API e pode aparecer vazio até que produtos
 sejam cadastrados no MariaDB. Uma venda só será considerada persistida quando o

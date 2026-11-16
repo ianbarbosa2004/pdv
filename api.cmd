@@ -16,4 +16,7 @@ if errorlevel 1 (
 
 echo.
 sc.exe query PDV-API
+
+npm.cmd run tauri -- dev
+
 exit /b 0

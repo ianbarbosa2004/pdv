@@ -225,9 +225,6 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
   });
 
   const sortedFiscalEntries = () => [...fiscalEntries].sort((left, right) => {
-    const currentComparison = Number(isCurrentFiscalEntry(right)) - Number(isCurrentFiscalEntry(left));
-    if (currentComparison !== 0) return currentComparison;
-
     const key = fiscalEntrySort.key;
     let comparison;
     if (key === "issuedAtFiscalDocument") {
@@ -354,7 +351,9 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
   const loadFiscalEntries = async () => {
     entriesLoading = true;
     try {
-      const response = await apiFetch(`${getApiUrl()}/api/stock/fiscal-entries`);
+      const response = await apiFetch(
+        `${getApiUrl()}/api/stock/fiscal-entries?includeCompleted=1`
+      );
       const result = await response.json();
       if (!response.ok || !Array.isArray(result.fiscalEntries)) {
         throw new Error(result.error || "Não foi possível carregar as pré-entradas.");
@@ -456,7 +455,7 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
             <div class="classic-panel-header">Pré-entrada ${escapeHtml(currentEntry.fiscalEntry.idFiscalEntry)} - <span class="fiscal-entry-title-status">${escapeHtml(fiscalEntryStatusLabel(currentEntry.fiscalEntry.statusFiscalEntry))}</span></div>
             <div class="classic-form-body">
               ${renderFiscalEntryHeader(currentEntry.fiscalEntry)}
-              <p class="form-help">Esta revisão ainda não movimenta, reserva ou baixa estoque. Clique em um item para vincular o produto e informar a conversão. Quando todos os itens e o pagamento estiverem válidos, gravar promoverá o estado para <strong>Em Aberto</strong>.</p>
+              <p class="form-help">Esta revisão ainda não movimenta, reserva ou baixa estoque. Clique em um item para vincular o produto e informar a conversão. Quando todos os itens e o pagamento estiverem válidos, gravar confirmará a Pré-entrada.</p>
               <p class="form-help">Reconsultar valores atualiza somente os valores fiscais dos itens e preserva os vínculos já criados.</p>
             </div>
             <div class="classic-grid-wrapper">
@@ -1059,6 +1058,9 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
     activeEntryId = Number(idFiscalEntry);
     try {
       currentEntry = await loadEntry(idFiscalEntry);
+      if (currentEntry.fiscalEntry?.statusFiscalEntry) {
+        fiscalEntryStatusFilter = currentEntry.fiscalEntry.statusFiscalEntry;
+      }
       entryPayments = currentEntry.entryPayments || [];
       selectedPaymentMethod = entryPayments[0]?.paymentDescriptionFiscalEntryPayment || "";
       await loadProducts();
@@ -1113,6 +1115,7 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
       render();
     }
   };
+
 
   const removeEntry = async (idFiscalEntry) => {
     const confirmed = await confirmAction({

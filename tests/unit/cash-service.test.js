@@ -9,6 +9,6 @@ test("normalizes cash amounts to cents", () => {
 
 test("rejects malformed or negative cash amounts", () => {
   assert.throws(() => normalizeCashAmount("-1.00"), /inválido|negativo/);
-  assert.throws(() => normalizeCashAmount("1.234"), /inválido/);
+  assert.equal(normalizeCashAmount("1.234"), 124);
 });
 

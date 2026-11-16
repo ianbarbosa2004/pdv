@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { roundCostUpToCents } from "../shared/decimal.js";
 
 export class SaleValidationError extends Error {
   constructor(message, status = 400) {
@@ -175,12 +176,13 @@ const isUuid = (value) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
 const toCents = (value, fieldName) => {
-  if ((typeof value !== "number" && typeof value !== "string") ||
-      !/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(String(value))) {
+  if ((typeof value !== "number" && typeof value !== "string")
+    || !/^(?:0|[1-9]\d*)(?:[.,]\d+)?$/.test(String(value))) {
     throw new SaleValidationError(`${fieldName} inválido.`);
   }
-  const [whole, fraction = ""] = String(value).split(".");
-  return Number.parseInt(whole, 10) * 100 + Number.parseInt(fraction.padEnd(2, "0"), 10);
+  const rounded = roundCostUpToCents(String(value).replace(",", "."));
+  if (!Number.isFinite(rounded)) throw new SaleValidationError(`${fieldName} inválido.`);
+  return Math.round(rounded * 100);
 };
 
 const normalizePayload = (payload) => {

@@ -2,6 +2,7 @@ import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { apiFetch, getApiUrl } from "../shared/api.js";
+import { confirmAction } from "../ui/confirmation-modal.js";
 
 const escapeHtml = (value) => String(value ?? "")
   .replaceAll("&", "&amp;")
@@ -95,6 +96,9 @@ export function createProductFiscalReferenceScreen(menuActions) {
             <div class="classic-form-grid product-fiscal-reference-ncm-grid">
               <label class="form-field${fiscalCodeFieldClass(reference.ncmMismatch)}"><span>NCM</span><input readonly value="${valueOrDash(reference.ncmProductFiscalReference)}" /></label>
               <label class="form-field${fiscalCodeFieldClass(reference.cestMismatch)}"><span>CEST</span><input readonly value="${valueOrDash(reference.cestProductFiscalReference)}" /></label>
+            </div>
+            <div class="product-fiscal-reference-actions">
+              <button class="icon-button delete" type="button" data-delete-fiscal-reference="${reference.idProductFiscalReference}" aria-label="Excluir vínculo fiscal" title="Excluir vínculo fiscal"><i data-lucide="trash-2"></i></button>
             </div>
           </article>
         `).join("")}
@@ -252,6 +256,16 @@ export function createProductFiscalReferenceScreen(menuActions) {
         if (product) void openEditModal(product);
       });
     });
+    root.querySelectorAll("[data-delete-fiscal-reference]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const product = selectedProduct();
+        const reference = product?.references.find(
+          (item) => String(item.idProductFiscalReference) === String(button.dataset.deleteFiscalReference)
+        );
+        if (product && reference) void removeReference(product, reference);
+      });
+    });
     root.querySelectorAll("[data-cancel-fiscal-edit]").forEach((button) => {
       button.addEventListener("click", () => {
         editingProduct = null;
@@ -321,6 +335,38 @@ export function createProductFiscalReferenceScreen(menuActions) {
       error = saveError instanceof Error ? saveError.message : "Falha ao editar o produto.";
     } finally {
       submitting = false;
+      render();
+    }
+  };
+
+  const removeReference = async (product, reference) => {
+    const confirmed = await confirmAction({
+      title: "Excluir vínculo fiscal",
+      message: `Excluir o vínculo fiscal "${reference.descriptionFiscalProductReference}"?`,
+      detail: `O vínculo será removido do produto comercial ${product.nameProduct}. Pré-entradas Em Aberto que usam este vínculo voltarão para Em Digitação para permitir uma nova associação.`,
+      confirmLabel: "Excluir vínculo"
+    });
+    if (!confirmed) return;
+    error = "";
+    message = "";
+    try {
+      const response = await apiFetch(
+        `${getApiUrl()}/api/stock/product-fiscal-references/${reference.idProductFiscalReference}`,
+        { method: "DELETE" }
+      );
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Não foi possível excluir o vínculo fiscal.");
+      await load();
+      message = payload.resetEntryCount
+        ? `Vínculo fiscal excluído. ${payload.resetEntryCount} Pré-entrada(s) voltou(aram) para Em Digitação.`
+        : "Vínculo fiscal excluído.";
+      render();
+      scheduleMessageClear(() => {
+        message = "";
+        clearRenderedFeedback(root);
+      });
+    } catch (removeError) {
+      error = removeError instanceof Error ? removeError.message : "Falha ao excluir o vínculo fiscal.";
       render();
     }
   };

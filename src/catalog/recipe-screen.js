@@ -3,7 +3,7 @@ import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { apiFetch, getApiUrl } from "../shared/api.js";
 import { getContextualNavigationItems, renderContextualNavigationItems } from "../ui/contextual-navigation.js";
 import { resolveNavigationHandler } from "../ui/navigation-routing.js";
-import { formatBrazilianDecimal, parseBrazilianDecimal } from "../shared/decimal.js";
+import { formatBrazilianDecimal, parseBrazilianDecimal, roundCostUpToCents } from "../shared/decimal.js";
 import { bindNumberMasks, formatMaskedNumber } from "../ui/number-mask.js";
 import { installComboboxDismissal } from "../ui/combobox.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
@@ -27,6 +27,7 @@ const escapeHtml = (value) => String(value ?? "")
   .replaceAll("'", "&#039;");
 
 const recipeNavigation = [
+  ["technical-sheet", "Formação de Produtos"],
   ["recipes", "Receitas e Composições"],
   ["units", "Unidades"],
   ["physical-states", "Estados Físicos"],
@@ -120,7 +121,11 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
       const conversionPayload = conversionResponse ? await conversionResponse.json() : null;
       const physicalStatePayload = physicalStateResponse ? await physicalStateResponse.json() : null;
       if (!recipeResponse.ok) throw new Error(recipePayload.error || "Não foi possível carregar as receitas.");
-      recipes = Array.isArray(recipePayload.recipes) ? recipePayload.recipes : [];
+      recipes = (Array.isArray(recipePayload.recipes) ? recipePayload.recipes : [])
+        .filter((recipe) => !(
+          recipe.kindRecipe === "production"
+          && recipe.idResultProductRecipe != null
+        ));
       if (!referencesLoaded) {
         if (!productResponse.ok) throw new Error(productPayload.error || "Não foi possível carregar os produtos.");
         if (!unitResponse.ok) throw new Error(unitPayload.error || "Não foi possível carregar as unidades.");
@@ -231,8 +236,12 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
             conversionId: component.conversionId || null,
             details: component.details || "",
             quantity: component.quantity,
-            lossPercent: component.lossPercent
+            lossPercent: component.lossPercent,
+            costRecipeComponent: componentCost(component)
           }))
+          ,
+          totalCostRecipe: totalComponentCost()
+          ,unitCostRecipe: costPerYieldUnit()
         })
       });
       const payload = await response.json();
@@ -267,6 +276,8 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
       yieldQuantityRecipe: String(recipe.yieldQuantityRecipe ?? 1).replace(".", ","),
       yieldUnitId: recipe.idUnitYieldRecipe || "",
       notesRecipe: recipe.notesRecipe || "",
+      totalCostRecipe: Number(recipe.totalCostRecipe || 0),
+      unitCostRecipe: Number(recipe.unitCostRecipe || 0),
       components: (recipe.components || []).map((component) => ({
         targetType: component.componentTypeRecipe,
         ...(component.componentTypeRecipe === "recipe"
@@ -278,7 +289,8 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
         culinaryUnitLabel: component.culinaryUnitName || "",
         conversionLabel: component.conversionLabel || "",
         quantity: Number(component.quantityRecipeComponent || 0),
-        lossPercent: Number(component.lossPercentRecipeComponent || 0)
+        lossPercent: Number(component.lossPercentRecipeComponent || 0),
+        costRecipeComponent: Number(component.costRecipeComponent || 0)
       }))
     };
   };
@@ -373,7 +385,20 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
     : products.find((product) => String(product.idProduct) === String(component.productId))?.nameProduct || "Produto não encontrado";
 
   const componentCost = (component) => {
-    if (component.targetType !== "product") return 0;
+    if (viewingRecipe && !editingRecipe && Number.isFinite(Number(component.costRecipeComponent))) {
+      return Number(component.costRecipeComponent);
+    }
+    if (component.targetType === "recipe") {
+      const recipe = recipes.find((item) => String(item.idRecipe) === String(component.recipeId));
+      const unitCost = Number(recipe?.unitCostRecipe);
+      return Number.isFinite(unitCost)
+        ? calculateComponentCost({
+          quantity: parseBrazilianDecimal(component.quantity),
+          lossPercent: parseBrazilianDecimal(component.lossPercent),
+          unitCost
+        }) || 0
+        : 0;
+    }
     const product = products.find((item) => String(item.idProduct) === String(component.productId));
     const unitCost = Number(product?.costPriceProduct);
     if (!Number.isFinite(unitCost)) return 0;
@@ -393,9 +418,16 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
     }) || 0;
   };
 
-  const totalComponentCost = () => form.components.reduce((total, component) => total + componentCost(component), 0);
+  const totalComponentCost = () => (
+    viewingRecipe && !editingRecipe && Number.isFinite(Number(form.totalCostRecipe))
+      ? Number(form.totalCostRecipe)
+      : roundCostUpToCents(form.components.reduce((total, component) => total + componentCost(component), 0)) || 0
+  );
   const yieldUnitLabel = () => units.find((unit) => String(unit.idUnit) === String(form.yieldUnitId))?.descriptionUnit || "unidade";
   const costPerYieldUnit = () => {
+    if (viewingRecipe && !editingRecipe && Number.isFinite(Number(form.unitCostRecipe))) {
+      return Number(form.unitCostRecipe);
+    }
     const yieldQuantity = parseBrazilianDecimal(form.yieldQuantityRecipe);
     return calculateCostPerYieldUnit(totalComponentCost(), yieldQuantity) || 0;
   };

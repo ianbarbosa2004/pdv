@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "PDV Zanzibar",
-  "version": "0.16.2",
+  "version": "0.16.3",
   "identifier": "com.ianbarbosa2004.pdv",
   "build": {
     "frontendDist": "../dist",

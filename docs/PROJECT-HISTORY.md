@@ -7,6 +7,28 @@ inicial do produto até o estado atual do workspace. Ele complementa o
 
 ## 0. Estado mais recente
 
+### Padronização monetária e unidades — 2026-11-15
+
+A aplicação passou a normalizar valores monetários para duas casas decimais
+com arredondamento para cima, incluindo custos, preços de venda, impostos,
+pagamentos, caixa e valores monetários importados de documentos fiscais.
+Quantidades, percentuais e fatores de conversão permanecem com suas escalas
+próprias.
+
+As colunas de custo de Receitas e Formação de Produtos, além dos preços
+unitários fiscais e valores de catálogo fiscal, foram migradas para duas casas.
+A migração é idempotente: primeiro aplica `CEILING(valor * 100) / 100` aos
+valores existentes e depois altera a definição da coluna.
+
+Na Formação de Produtos, unidades finais agora usam uma apresentação única com
+sigla e descrição, como `UN - Unidade` e `KG - Quilograma`, sem alterar a
+unidade persistida.
+
+Esta etapa foi versionada como **0.16.3**. A suíte completa foi executada com
+233 testes aprovados, além de `node --check` e `git diff --check`. Como houve
+alterações em `src/server/` e no schema, a API publicada deve ser reiniciada;
+não foi executado build Tauri.
+
 ### Destaque da pré-entrada em edição — 2026-11-13
 
 A listagem de Pré-entradas agora promove o documento aberto no workspace para

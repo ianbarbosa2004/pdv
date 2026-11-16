@@ -24,11 +24,13 @@ import { createSupplierScreen } from "./catalog/supplier-screen.js";
 import { createCustomerConsumerScreen } from "./catalog/customer-consumer-screen.js";
 import { createBackupScreen } from "./tools/backup-screen.js";
 import { createViewsScreen } from "./tools/views-screen.js";
+import { createCostDivergenceScreen } from "./tools/cost-divergence-screen.js";
 import { createNoCostScreen } from "./tools/no-cost-screen.js";
 import { createNoPhysicalStateScreen } from "./tools/no-physical-state-screen.js";
 import { createRecipeReviewScreen } from "./tools/recipe-review-screen.js";
 import { createCulinaryReferenceScreen } from "./catalog/culinary-reference-screen.js";
 import { createRecipeScreen } from "./catalog/recipe-screen.js";
+import { createProductFormationScreen } from "./catalog/product-formation-screen.js";
 import { createFiscalDocumentQueueScreen } from "./stock/fiscal-document-queue-screen.js";
 import { createProductFiscalReferenceScreen } from "./stock/product-fiscal-reference-screen.js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -49,7 +51,10 @@ import {
   createOperatorLoginScreen
 } from "./operator/operator-login-screen.js";
 import { createCashScreen } from "./operator/cash-screen.js";
-import { clearOperatorSessionToken } from "./shared/api.js";
+import {
+  clearOperatorSessionToken,
+  getOperatorSessionToken
+} from "./shared/api.js";
 import { installGlobalModalEscape } from "./ui/modal.js";
 import { loadTheme } from "./ui/theme-manager.js";
 
@@ -132,9 +137,10 @@ const common = () => ({
   "groups-products": showGroupsProducts,
   "no-cost": showNoCost,
   "no-physical-state": showNoPhysicalState,
+  "cost-divergences": showCostDivergences,
   "recipe-revisions": showRecipeRevisions,
   "culinary-units": showCulinaryUnits,
-  "technical-sheet": showRecipes,
+  "technical-sheet": showProductFormation,
   recipes: showRecipes,
   "physical-states": showPhysicalStates,
   "culinary-conversions": showCulinaryConversions,
@@ -203,6 +209,20 @@ const showLogin = () => mount(createOperatorLoginScreen({
     showEnvironmentSelection();
   }
 }));
+
+const restoreOperatorSession = async () => {
+  if (!getOperatorSessionToken()) return false;
+  try {
+    const response = await apiFetch(`${getApiUrl()}/api/operator/session`);
+    const payload = await response.json();
+    if (!response.ok || !payload.operator) throw new Error("Sessão expirada.");
+    window.__PDV_OPERATOR__ = payload.operator;
+    return true;
+  } catch {
+    await clearOperatorSessionToken().catch(() => {});
+    return false;
+  }
+};
 const showSettings = () =>
   mount(createSettingsScreen({ onBack: showBackoffice, ...common() }));
 const showTheme = () =>
@@ -238,6 +258,7 @@ const showGroupsProducts = () =>
     onGroupsProducts: showGroupsProducts,
     onNoCost: showNoCost,
     onNoPhysicalState: showNoPhysicalState,
+    onCostDivergences: showCostDivergences,
     onRecipeRevisions: showRecipeRevisions,
     ...common()
   }));
@@ -267,6 +288,16 @@ const showRecipeRevisions = () =>
     onRecipeRevisions: showRecipeRevisions,
     ...common()
   }));
+const showCostDivergences = () =>
+  mount(createCostDivergenceScreen({
+    onBack: showBackoffice,
+    onGroupsProducts: showGroupsProducts,
+    onNoCost: showNoCost,
+    onNoPhysicalState: showNoPhysicalState,
+    onCostDivergences: showCostDivergences,
+    onRecipeRevisions: showRecipeRevisions,
+    ...common()
+  }));
 const showCulinaryUnits = () => showUnits();
 const showPhysicalStates = () =>
   mount(createCulinaryReferenceScreen({ kind: "physicalStates", onBack: showBackoffice, onRecipes: showRecipes, ...common() }));
@@ -274,6 +305,8 @@ const showCulinaryConversions = () =>
   mount(createCulinaryReferenceScreen({ kind: "conversions", onBack: showBackoffice, onRecipes: showRecipes, ...common() }));
 const showRecipes = () =>
   mount(createRecipeScreen({ onBack: showBackoffice, onRecipes: showRecipes, ...common() }));
+const showProductFormation = () =>
+  mount(createProductFormationScreen({ onBack: showBackoffice, onRecipes: showRecipes, ...common() }));
 const showViews = showGroupsProducts;
 const showCatalogImport = () =>
   mount(createCatalogImportScreen({ onBack: showBackoffice, onTools: showCatalogImport, ...common() }));
@@ -619,8 +652,12 @@ const startApplication = async () => {
         loadProjectIcon(getApiUrl()).catch(() => {})
       ]);
     });
-    showLogin();
     await startupReady;
+    if (await restoreOperatorSession()) {
+      showEnvironmentSelection();
+    } else {
+      showLogin();
+    }
 };
 
 void startApplication().catch(() => showSales({ initialApiError: true }));

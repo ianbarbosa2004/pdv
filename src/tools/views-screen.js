@@ -29,6 +29,16 @@ const formatMoney = (value) =>
 const parseMoney = (value) =>
   Number(String(value ?? "0").replace(/\./g, "").replace(",", ".")) || 0;
 
+const normalizeStockValue = (value, product) => {
+  if (!Number(product.controlsStockProduct)) return "0";
+  const rawValue = String(value ?? "").trim() || String(product.stockQuantityProduct ?? "0");
+  if (product.isFractionalProduct) return rawValue.replace(",", ".");
+  const normalized = rawValue.replace(",", ".");
+  return /^-?\d+(?:\.0+)?$/.test(normalized)
+    ? normalized.split(".")[0]
+    : normalized;
+};
+
 const renderPhysicalStateOptions = (physicalStates, selectedId) =>
   `<option value="">Sem estado físico</option>${physicalStates.map((state) =>
     `<option value="${state.idPhysicalState}" ${String(state.idPhysicalState) === String(selectedId) ? "selected" : ""}>${escapeHtml(state.namePhysicalState)}</option>`
@@ -38,6 +48,7 @@ const viewsNavigation = [
   ["groups-products", "Grupos x Produtos"],
   ["no-cost", "Sem Custo"],
   ["no-physical-state", "Sem Estado Físico"],
+  ["cost-divergences", "Divergência entre Custos"],
   ["recipe-revisions", "Revisões de Fichas"]
 ];
 
@@ -120,7 +131,7 @@ const renderEditor = (product, groups, physicalStates, fiscalOperations, units, 
           </div>`}
           <div class="classic-form-grid product-cost-stock-row">
             <label class="form-field"><span>Preço de custo</span><input name="costPriceProduct" data-number-mask inputmode="decimal" required value="${escapeHtml(formatMaskedNumber(product.costPriceProduct ?? product.priceProduct))}" /></label>
-            <label class="form-field"><span>Estoque</span><input name="stockQuantityProduct" type="${Number(product.isFractionalProduct) ? "text" : "number"}" inputmode="decimal" min="0" step="${Number(product.isFractionalProduct) ? "0.001" : "1"}" ${Number(product.controlsStockProduct) ? "" : "readonly disabled"} required value="${escapeHtml(formatProductStockForInput(product.stockQuantityProduct, product.isFractionalProduct))}" /></label>
+            <label class="form-field"><span>Estoque</span><input name="stockQuantityProduct" type="${product.isFractionalProduct ? "text" : "number"}" inputmode="decimal" min="0" step="${product.isFractionalProduct ? "0.001" : "1"}" ${Number(product.controlsStockProduct) ? "" : "readonly disabled"} required value="${escapeHtml(formatProductStockForInput(product.stockQuantityProduct, product.isFractionalProduct))}" /></label>
           </div>
           <div class="classic-form-grid">
             ${["MERCADORIA PARA REVENDA", "PRODUTO ACABADO", "PRODUTOS ACABADOS"].includes(String(product.descriptionProductType || "").toLocaleUpperCase("pt-BR"))
@@ -159,6 +170,7 @@ export function createProductViewsScreen({
   onBack,
   onGroupsProducts,
   onNoCost,
+  onCostDivergences,
   onRecipeRevisions,
   ...menuHandlers
 }) {
@@ -274,7 +286,7 @@ export function createProductViewsScreen({
           cestProduct: formData.get("cestProduct") || null,
           priceProduct: parseMoney(formData.get("priceProduct") || editingProduct.priceProduct),
           costPriceProduct: parseMoney(formData.get("costPriceProduct")),
-          stockQuantityProduct: formData.get("stockQuantityProduct"),
+          stockQuantityProduct: normalizeStockValue(formData.get("stockQuantityProduct"), editingProduct),
           controlsStockProduct: formData.get("controlsStockProduct") === "on",
           isBuffetProduct: formData.get("isBuffetProduct") === "on",
           isFractionalProduct: formData.get("isFractionalProduct") === "on",
@@ -395,6 +407,7 @@ export function createProductViewsScreen({
       "groups-products": onGroupsProducts,
       "no-cost": onNoCost,
       "no-physical-state": menuHandlers.onNoPhysicalState,
+      "cost-divergences": onCostDivergences,
       "recipe-revisions": onRecipeRevisions
     });
     bindProductList(root, {
