@@ -91,11 +91,20 @@ percentuais e fatores de conversão mantêm suas escalas próprias.
 > compatibilidade da API. Nunca versione `.env`, credenciais, dados reais,
 > dumps, backups, `node_modules/`, `dist/` ou `src-tauri/target/`.
 >
-> Após alterações em `src/server/`, `database/schema.sql` ou
-> `src/server/schema-manager.js`, reinicie a API publicada antes de validar o
-> comportamento operacional. Não execute build por rotina; faça-o somente
-> quando a alteração envolver bundle, Vite/Tauri, versionamento ou validação de
-> produção.
+> O procedimento de atualização é determinado pelos arquivos alterados:
+>
+> | Arquivos alterados | Ação obrigatória antes do teste operacional |
+> | --- | --- |
+> | `src/server/**`, `database/schema.sql` ou migrações | Publicar a API, reiniciar o serviço `PDV-API` e validar a API |
+> | Frontend, `src/shared/**` ou configuração Vite/Tauri | Gerar e instalar um novo cliente Tauri |
+> | API e frontend no mesmo conjunto de alterações | Publicar/reiniciar a API **e** gerar/instalar o novo cliente |
+> | Somente testes, documentação ou scripts locais sem código publicado | Não publicar nem reiniciar; executar apenas a validação aplicável |
+>
+> O critério é baseado no destino do código, não na mensagem exibida: código
+> em `src/server/` só passa a existir no servidor após a publicação da API;
+> código do frontend só passa a existir no terminal após a instalação do novo
+> cliente. Não execute build por rotina; faça-o quando a alteração envolver
+> bundle, Vite/Tauri, versionamento ou validação de produção.
 >
 > Depois de alterações de código, execute a validação mínima:
 >
@@ -106,8 +115,9 @@ percentuais e fatores de conversão mantêm suas escalas próprias.
 >
 > Execute `npm.cmd run build` somente quando a alteração envolver o bundle,
 > Vite/Tauri, versionamento ou uma validação de produção. Use `node --check`
-> nos arquivos JavaScript modificados. Reinicie a API quando `src/server/`
-> for alterado.
+> nos arquivos JavaScript modificados. Se `src/server/` for alterado, publicar
+> e reiniciar a API; se o frontend também for alterado, publicar e instalar o
+> cliente correspondente.
 >
 > Se a alteração envolver Tauri, valide também `npm.cmd exec tauri info` e,
 > quando necessário, `npm.cmd run tauri -- build --no-bundle`. Se envolver

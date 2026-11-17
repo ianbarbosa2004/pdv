@@ -17,6 +17,7 @@ import {
   normalizeProductPackageQuantity
 } from "../shared/product.js";
 import { normalizePrintPlace } from "../shared/print-place.js";
+import { normalizeCostPolicy } from "../shared/inventory.js";
 
 const escapeHtml = (value) =>
   String(value)
@@ -95,6 +96,7 @@ export function createCatalogScreen({
     idUnitProduct: "",
     priceProduct: "0,00",
     costPriceProduct: "0,00",
+    costPolicyProduct: "last",
     stockQuantityProduct: "0",
     packageQuantityProduct: "1",
     controlsStockProduct: defaultControlsStock,
@@ -170,6 +172,7 @@ export function createCatalogScreen({
       packageQuantityProduct: String(formData.get("packageQuantityProduct") ?? "1"),
       priceProduct: String(formData.get("priceProduct") ?? ""),
       costPriceProduct: String(formData.get("costPriceProduct") ?? ""),
+      costPolicyProduct: normalizeCostPolicy(formData.get("costPolicyProduct")),
       stockQuantityProduct: String(
         formData.get("stockQuantityProduct") ?? newProductDraft.stockQuantityProduct ?? "0"
       ) || "0",
@@ -231,6 +234,11 @@ export function createCatalogScreen({
     return `<label class="form-field"><span>Preço de custo</span><input name="costPriceProduct" data-number-mask inputmode="decimal" required value="${escapeHtml(costValue)}" /></label>`;
   };
 
+  const renderCostPolicyField = (product, helpId) => `<label class="form-field"><span class="field-label-with-help">Cálculo do custo <button class="field-help-trigger" type="button" aria-label="Ajuda sobre cálculo do custo" aria-describedby="${helpId}">?<span class="field-help-tooltip" id="${helpId}" role="tooltip"><strong>Último custo:</strong> usa o valor unitário da entrada mais recente. <strong>Custo médio:</strong> recalcula o valor pela média ponderada do estoque atual e da nova entrada.</span></button></span><select name="costPolicyProduct">
+    <option value="last" ${normalizeCostPolicy(product.costPolicyProduct) === "last" ? "selected" : ""}>Último custo</option>
+    <option value="average" ${normalizeCostPolicy(product.costPolicyProduct) === "average" ? "selected" : ""}>Custo médio</option>
+  </select></label>`;
+
   const renderSalePriceField = (product, isEdit = false) => {
     const saleValue = isEdit ? formatMaskedNumber(product.priceProduct) : product.priceProduct;
     return `<label class="form-field"><span>Preço de venda</span><input name="priceProduct" data-number-mask inputmode="decimal" required value="${escapeHtml(saleValue)}" /></label>`;
@@ -264,6 +272,7 @@ export function createCatalogScreen({
       packageQuantityProduct: "1",
       priceProduct: "0,00",
       costPriceProduct: "0,00",
+      costPolicyProduct: "last",
       stockQuantityProduct: "0",
       controlsStockProduct: defaultControlsStock,
       isBuffetProduct: false,
@@ -285,7 +294,8 @@ export function createCatalogScreen({
         existingNames: products.map(({ nameProduct }) => nameProduct)
       }),
       priceProduct: formatMaskedNumber(product.priceProduct),
-      costPriceProduct: formatMaskedNumber(product.costPriceProduct)
+      costPriceProduct: formatMaskedNumber(product.costPriceProduct),
+      costPolicyProduct: normalizeCostPolicy(product.costPolicyProduct)
     };
     newNcmProduct = product.ncmProduct || "";
     newCestProduct = product.cestProduct || "";
@@ -378,6 +388,7 @@ export function createCatalogScreen({
           ${isNonSaleCatalog ? "" : `<div class="classic-form-grid product-sale-price-row">${renderSalePriceField(newProductDraft, true)}</div>`}
           <div class="classic-form-grid product-cost-stock-row">
             ${renderCostField(newProductDraft, true)}
+            ${renderCostPolicyField(newProductDraft, "new-cost-policy-help")}
             ${renderStockInput(newProductDraft, "Estoque inicial")}
           </div>
           <div class="classic-form-grid">${renderPrintPlaceField(newProductDraft)}</div>
@@ -486,6 +497,7 @@ export function createCatalogScreen({
                 ${isNonSaleCatalog ? "" : `<div class="classic-form-grid product-sale-price-row">${renderSalePriceField(editingProduct, true)}</div>`}
                 <div class="classic-form-grid product-cost-stock-row">
                   ${renderCostField(editingProduct, true)}
+                  ${renderCostPolicyField(editingProduct, "edit-cost-policy-help")}
                   ${renderStockInput(editingProduct, "Estoque")}
                 </div>
                 <div class="classic-form-grid">${renderPrintPlaceField(editingProduct)}</div>
@@ -938,6 +950,7 @@ export function createCatalogScreen({
             ? normalizeMaskedNumber(formData.get("costPriceProduct"))
             : normalizeMaskedNumber(formData.get("priceProduct")),
           costPriceProduct: normalizeMaskedNumber(formData.get("costPriceProduct")),
+          costPolicyProduct: normalizeCostPolicy(formData.get("costPolicyProduct")),
           stockQuantityProduct: formData.get("stockQuantityProduct")
             ?? (productId ? editingProduct?.stockQuantityProduct : newProductDraft.stockQuantityProduct)
             ?? "0",

@@ -8,6 +8,7 @@ import { formatBrazilianDecimal, parseBrazilianDecimal } from "../shared/decimal
 import { getContextualNavigationItems, renderContextualNavigationItems } from "../ui/contextual-navigation.js";
 import { resolveNavigationHandler } from "../ui/navigation-routing.js";
 import { rerenderPreservingInputSelection } from "../ui/input-selection.js";
+import { bindNumberMasks } from "../ui/number-mask.js";
 
 const escapeHtml = (value) => String(value ?? "")
   .replaceAll("&", "&amp;")
@@ -153,7 +154,8 @@ export function createCulinaryReferenceScreen({ kind, onBack, ...menuHandlers })
     }
     const inputType = type === "number" ? "text" : type;
     const inputValue = type === "number" ? formatBrazilianDecimal(value) : value;
-    return `<label class="form-field"><span>${label}</span><input name="${field}" type="${inputType}" inputmode="${type === "number" ? "decimal" : "text"}" maxlength="${field.includes("description") || field.includes("notes") ? 150 : 120}" ${required ? "required" : ""} value="${escapeHtml(inputValue)}" /></label>`;
+    const numberMask = type === "number" ? ' data-number-mask="fractional-3"' : "";
+    return `<label class="form-field"><span>${label}</span><input name="${field}" type="${inputType}"${numberMask} inputmode="${type === "number" ? "decimal" : "text"}" maxlength="${field.includes("description") || field.includes("notes") ? 150 : 120}" ${required ? "required" : ""} value="${escapeHtml(inputValue)}" /></label>`;
   };
 
   const submit = async (formData, id) => {
@@ -256,6 +258,7 @@ export function createCulinaryReferenceScreen({ kind, onBack, ...menuHandlers })
       ${editingItem ? `<div class="classic-modal-backdrop" data-modal-backdrop><section class="classic-modal" role="dialog" aria-modal="true"><div class="classic-panel-header modal-panel-header"><span>Editar ${definition.singular}</span><button class="modal-close-button" data-cancel type="button" aria-label="Fechar"><i data-lucide="x"></i></button></div><form data-edit-form><div class="classic-form-body">${definition.fields.map((field) => renderField(field, editingItem)).join("")}${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}</div><div class="classic-form-actions"><button class="classic-button primary" type="submit">Salvar alterações</button><button class="classic-button" data-cancel type="button">Cancelar</button></div></form></section></div>` : ""}
     `;
     renderLucideIcons(root);
+    bindNumberMasks(root);
     bindMainMenu(root, menuHandlers);
     root.querySelectorAll("[data-culinary-nav]").forEach((button) => button.addEventListener("click", () => {
       const handler = resolveNavigationHandler(menuHandlers, button.dataset.culinaryNav)

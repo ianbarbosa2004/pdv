@@ -74,9 +74,11 @@ export const DEFAULT_NAVIGATION = Object.freeze({
     item("cadastros", "suppliers", "Fornecedores", "suppliers", 4, null, "bar", "Cadastre e consulte fornecedores, contatos e dados fiscais usados nas compras e no estoque."),
     item("cadastros", "customers", "Clientes", "customers", 5, null, "bar", "Cadastre e consulte clientes para identificar vendas, contatos e condições comerciais."),
     item("cadastros", "consumers", "Consumidores", "consumers", 6, null, "bar", "Cadastre e consulte consumidores para identificar atendimentos e vínculos com clientes."),
-    item("stock", "fiscal-document-queue", "Fila de Documentos", "fiscal-document-queue", 1, null, "bar", "Importe documentos fiscais e acompanhe as pré-entradas em estado Em Aberto."),
-    item("stock", "fiscal-entry-xml", "Entrada de NF-e / NFC-e", "fiscal-entry-xml", 2, null, "bar", "Revise pré-entradas de NF-e e NFC-e, itens, vínculos, conversões e pagamentos."),
-    item("stock", "product-fiscal-references", "Produtos Vinculados", "product-fiscal-references", 3, null, "bar", "Consulte os produtos comerciais vinculados a descrições fiscais de documentos."),
+    item("stock", "fiscal-document-queue", "Fila de Documentos", "fiscal-document-queue", 1, null, "bar", "Importe documentos fiscais e acompanhe as entradas em estado Em Aberto."),
+    item("stock", "fiscal-entry-xml", "Entrada de NF-e / NFC-e", "fiscal-entry-xml", 2, null, "bar", "Revise entradas de NF-e e NFC-e, itens, vínculos, conversões e pagamentos."),
+    item("stock", "fiscal-entry-design", "Entrada de NF-e / NFC-e (Teste)", "fiscal-entry-design", 3, null, "bar", "Teste visual da entrada com formulário e documentos em aberto."),
+    item("stock", "product-fiscal-references", "Produtos Vinculados", "product-fiscal-references", 4, null, "bar", "Consulte os produtos comerciais vinculados a descrições fiscais de documentos."),
+    item("stock", "inventory", "Inventário", "inventory", 5, null, "bar", "Conte quantidades físicas e registre ajustes auditáveis de estoque."),
     item("settings", "settings", "Impressoras", "settings", 1, null, "bar", "Defina as impressoras padrão usadas pelo PDV em cupons, comprovantes e relatórios."),
     item("settings", "general-settings", "Configurações Gerais", "general-settings", 2, null, "bar", "Defina regras gerais de funcionamento compartilhadas por todos os terminais do PDV."),
     item("settings", "theme", "Aparência", "theme", 3, null, "bar", "Escolha a aparência visual deste terminal do PDV."),
@@ -196,6 +198,13 @@ export const mergeNavigationDefaults = (navigation) => {
       routeNavigationItem: persisted?.routeNavigationItem || definition.routeNavigationItem,
       idNavigationItem: persisted?.idNavigationItem || `default-item-${definition.menuKey}-${definition.keyNavigationItem}-${definition.orderNavigationItem}`
     };
+    if (definition.keyNavigationItem === "fiscal-entry-xml") {
+      merged.labelNavigationItem = "Entrada de NF-e / NFC-e";
+      merged.descriptionNavigationItem = "Revise entradas de NF-e e NFC-e, itens, vínculos, conversões e pagamentos.";
+    }
+    if (definition.keyNavigationItem === "fiscal-document-queue") {
+      merged.descriptionNavigationItem = "Importe documentos fiscais e acompanhe as entradas em estado Em Aberto.";
+    }
     if (definition.keyNavigationItem === "technical-sheet") {
       merged.labelNavigationItem = "Formação de Produtos";
       merged.typeNavigationItem = "item";

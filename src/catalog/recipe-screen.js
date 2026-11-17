@@ -12,6 +12,7 @@ import { rerenderPreservingInputSelection } from "../ui/input-selection.js";
 import { calculateComponentCost, calculateCostPerYieldUnit } from "../shared/recipe.js";
 import {
   filterRecipeComponentOptions,
+  formatRecipeComponentLabel,
   formatCulinaryUnitName,
   getAvailableRecipeConversions,
   getCompatibleCulinaryUnits,
@@ -198,7 +199,9 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
     if (submitting) return;
     const yieldQuantity = parseBrazilianDecimal(form.yieldQuantityRecipe);
     const hasMissingCulinaryUnit = form.components.some((component) =>
-      component.targetType === "product" && !component.culinaryUnitId
+      (component.targetType === "product"
+        || (form.kindRecipe === "composition" && component.targetType === "recipe"))
+      && !component.culinaryUnitId
     );
     const hasMissingConversion = form.components.some((component) =>
       component.targetType === "product" && !component.conversionId
@@ -245,8 +248,14 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
         })
       });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Não foi possível salvar a Receita ou Composição.");
-      message = editingRecipe ? "Receita atualizada com sucesso." : "Cadastro salvo com sucesso.";
+      if (!response.ok) {
+        const diagnostic = payload.diagnosticCode ? ` [${payload.diagnosticCode}]` : "";
+        const detail = payload.diagnosticDetail ? `: ${payload.diagnosticDetail}` : "";
+        throw new Error(`${payload.error || "Não foi possível salvar a Receita ou Composição."}${diagnostic}${detail}`);
+      }
+      message = payload.updatedRecipeCount > 1
+        ? `${editingRecipe ? "Receita atualizada" : "Cadastro salvo"} com sucesso. ${payload.updatedRecipeCount} Receita(s)/Ficha(s) recalculada(s).`
+        : editingRecipe ? "Receita atualizada com sucesso." : "Cadastro salvo com sucesso.";
       resetFormState({ keepMessage: true });
       submitting = false;
       await load();
@@ -326,12 +335,24 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
     const product = targetType === "product"
       ? products.find((item) => String(item.idProduct) === String(targetId))
       : null;
+    const targetRecipe = targetType === "recipe"
+      ? recipes.find((item) => String(item.idRecipe) === String(targetId))
+      : null;
     const hasTarget = Boolean(componentDraft.target);
     const hasProduct = Boolean(product);
+    const hasCulinaryTarget = hasProduct
+      || (form.kindRecipe === "composition" && Boolean(targetRecipe));
     const compatibleUnits = product
       ? getCompatibleCulinaryUnits({
         unit: { codeUnit: product.codeUnit, descriptionUnit: product.descriptionUnit }
       }, culinaryUnits)
+      : targetRecipe
+        ? getCompatibleCulinaryUnits({
+          unit: {
+            codeUnit: targetRecipe.yieldUnitCode,
+            descriptionUnit: targetRecipe.yieldUnitDescription
+          }
+        }, culinaryUnits)
       : [];
     const availableConversions = product
       ? getAvailableRecipeConversions({
@@ -343,14 +364,14 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
       })
       : [];
     return `
-      <label class="form-field"><span>Unidade culinária</span><select data-component-culinary-unit required ${hasProduct ? "" : "disabled"}>
+      <label class="form-field"><span>Unidade culinária</span><select data-component-culinary-unit required ${hasCulinaryTarget ? "" : "disabled"}>
           <option value="">Selecione</option>
           ${compatibleUnits.map((unit) => `<option value="${unit.idCulinaryUnit}" ${String(componentDraft.culinaryUnitId) === String(unit.idCulinaryUnit) ? "selected" : ""}>${escapeHtml(formatCulinaryUnitName(unit))}</option>`).join("")}
         </select></label>
-      <label class="form-field"><span>Quantidade</span><input data-component-quantity data-number-mask inputmode="decimal" ${hasTarget ? "" : "readonly disabled"} value="${escapeHtml(formatMaskedNumber(componentDraft.quantity))}" /></label>
+      <label class="form-field"><span>Quantidade</span><input data-component-quantity data-number-mask="fractional-3" inputmode="decimal" ${hasTarget ? "" : "readonly disabled"} value="${escapeHtml(formatMaskedNumber(componentDraft.quantity, 3))}" /></label>
       <label class="form-field"><span>Conversão</span><select data-component-conversion required ${hasProduct && componentDraft.culinaryUnitId ? "" : "disabled"}>
             <option value="">Selecione</option>
-            ${availableConversions.map((conversion) => `<option value="${conversion.idCulinaryUnitConversion}" ${String(componentDraft.conversionId) === String(conversion.idCulinaryUnitConversion) ? "selected" : ""}>${escapeHtml(`${conversion.fromNameCulinaryUnit} → ${conversion.toNameCulinaryUnit} (${conversion.namePhysicalState || "Estado não informado"}; fator ${formatBrazilianDecimal(conversion.factorCulinaryUnitConversion, 4)})`)}</option>`).join("")}
+            ${availableConversions.map((conversion) => `<option value="${conversion.idCulinaryUnitConversion}" ${String(componentDraft.conversionId) === String(conversion.idCulinaryUnitConversion) ? "selected" : ""}>${escapeHtml(`${conversion.fromNameCulinaryUnit} → ${conversion.toNameCulinaryUnit} (${conversion.namePhysicalState || "Estado não informado"}; fator ${formatBrazilianDecimal(conversion.factorCulinaryUnitConversion, 3)})`)}</option>`).join("")}
           </select></label>
       <label class="form-field"><span>Perda (%)</span><input data-component-loss data-number-mask inputmode="decimal" ${hasTarget ? "" : "readonly disabled"} value="${escapeHtml(formatMaskedNumber(componentDraft.lossPercent))}" /></label>
     `;
@@ -364,8 +385,8 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
     })),
     ...recipes.map((recipe) => ({
       value: `recipe:${recipe.idRecipe}`,
-      label: recipe.nameRecipe,
-      searchText: recipe.nameRecipe
+      label: formatRecipeComponentLabel(recipe),
+      searchText: `${formatRecipeComponentLabel(recipe)} ${recipe.nameRecipe}`
     }))
   ], componentDraft.searchTerm).slice(0, 20);
 
@@ -375,19 +396,22 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
         value: `product:${product.idProduct}`,
         label: `${product.nameProduct}${product.pdvCodeProduct || product.skuProduct ? ` (${product.pdvCodeProduct || product.skuProduct})` : ""}`
       })),
-      ...recipes.map((recipe) => ({ value: `recipe:${recipe.idRecipe}`, label: recipe.nameRecipe }))
+      ...recipes.map((recipe) => ({ value: `recipe:${recipe.idRecipe}`, label: formatRecipeComponentLabel(recipe) }))
     ].find((item) => item.value === componentDraft.target);
     return option?.label || "Selecione um componente";
   };
 
   const componentName = (component) => component.targetType === "recipe"
-    ? recipes.find((recipe) => String(recipe.idRecipe) === String(component.recipeId))?.nameRecipe || "Receita não encontrada"
+    ? formatRecipeComponentLabel({
+      ...(recipes.find((recipe) => String(recipe.idRecipe) === String(component.recipeId)) || {}),
+      kindRecipe: component.componentRecipeKind
+        || recipes.find((recipe) => String(recipe.idRecipe) === String(component.recipeId))?.kindRecipe,
+      nameRecipe: component.componentRecipeName
+        || recipes.find((recipe) => String(recipe.idRecipe) === String(component.recipeId))?.nameRecipe
+    })
     : products.find((product) => String(product.idProduct) === String(component.productId))?.nameProduct || "Produto não encontrado";
 
   const componentCost = (component) => {
-    if (viewingRecipe && !editingRecipe && Number.isFinite(Number(component.costRecipeComponent))) {
-      return Number(component.costRecipeComponent);
-    }
     if (component.targetType === "recipe") {
       const recipe = recipes.find((item) => String(item.idRecipe) === String(component.recipeId));
       const unitCost = Number(recipe?.unitCostRecipe);
@@ -419,15 +443,10 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
   };
 
   const totalComponentCost = () => (
-    viewingRecipe && !editingRecipe && Number.isFinite(Number(form.totalCostRecipe))
-      ? Number(form.totalCostRecipe)
-      : roundCostUpToCents(form.components.reduce((total, component) => total + componentCost(component), 0)) || 0
+    roundCostUpToCents(form.components.reduce((total, component) => total + componentCost(component), 0)) || 0
   );
   const yieldUnitLabel = () => units.find((unit) => String(unit.idUnit) === String(form.yieldUnitId))?.descriptionUnit || "unidade";
   const costPerYieldUnit = () => {
-    if (viewingRecipe && !editingRecipe && Number.isFinite(Number(form.unitCostRecipe))) {
-      return Number(form.unitCostRecipe);
-    }
     const yieldQuantity = parseBrazilianDecimal(form.yieldQuantityRecipe);
     return calculateCostPerYieldUnit(totalComponentCost(), yieldQuantity) || 0;
   };
@@ -443,7 +462,7 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
               <tr>
                 <td class="component-index-column">${index + 1}</td>
                 <td class="component-name-column"><div>${escapeHtml(componentName(component))}</div>${component.details ? `<em class="recipe-component-details">${escapeHtml(component.details)}</em>` : ""}</td>
-                <td class="component-quantity-column">${escapeHtml(formatBrazilianDecimal(component.quantity, 2))}</td>
+                <td class="component-quantity-column">${escapeHtml(formatBrazilianDecimal(component.quantity, 3))}</td>
                 <td class="component-unit-column">${escapeHtml(component.culinaryUnitLabel || "—")}</td>
                 <td class="component-loss-column">${escapeHtml(formatBrazilianDecimal(component.lossPercent, 2))}%</td>
                 <td class="component-cost-column">${escapeHtml(formatBrazilianDecimal(componentCost(component), 2))}</td>
@@ -547,7 +566,7 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
           </select></label>
         </div>
         <div class="classic-form-grid">
-          <label class="form-field"><span>Rendimento</span><input data-recipe-yield data-number-mask inputmode="decimal" required ${readOnly ? "readonly" : ""} value="${escapeHtml(formatMaskedNumber(form.yieldQuantityRecipe))}" placeholder="Ex.: 1,00" /></label>
+          <label class="form-field"><span>Rendimento</span><input data-recipe-yield data-number-mask="fractional-3" inputmode="decimal" required ${readOnly ? "readonly" : ""} value="${escapeHtml(formatMaskedNumber(form.yieldQuantityRecipe, 3))}" placeholder="Ex.: 1,000" /></label>
           <label class="form-field"><span>Unidade final</span><select data-recipe-yield-unit required ${readOnly ? "disabled" : ""}>
             <option value="">Selecione</option>
             ${units.filter((unit) => unit.isActiveUnit !== 0)
@@ -666,7 +685,7 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
     componentEditorRoot.querySelector("[data-component-quantity]")?.addEventListener("blur", (event) => {
       const value = parseBrazilianDecimal(event.currentTarget.value);
       if (!Number.isFinite(value)) return;
-      event.currentTarget.value = formatMaskedNumber(value);
+      event.currentTarget.value = formatMaskedNumber(value, 3);
       componentDraft.quantity = event.currentTarget.value;
     });
     componentEditorRoot.querySelector("[data-component-loss]")?.addEventListener("input", (event) => {
@@ -701,10 +720,14 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
       form.components.push({
         targetType,
         ...(targetType === "recipe" ? { recipeId: targetId } : { productId: targetId }),
-        culinaryUnitId: targetType === "product" ? componentDraft.culinaryUnitId : "",
+        culinaryUnitId: targetType === "product"
+          || (targetType === "recipe" && form.kindRecipe === "composition")
+          ? componentDraft.culinaryUnitId
+          : "",
         conversionId: targetType === "product" ? componentDraft.conversionId : "",
         details: componentDraft.details.trim(),
         culinaryUnitLabel: targetType === "product"
+          || (targetType === "recipe" && form.kindRecipe === "composition")
           ? (() => {
             const unit = culinaryUnits.find((item) => String(item.idCulinaryUnit) === String(componentDraft.culinaryUnitId));
             return unit ? formatCulinaryUnitName(unit) : "";
@@ -755,6 +778,7 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
         || normalizedLoss < 0
         || normalizedLoss >= 100
         || (targetType === "product" && !culinaryUnitId)
+        || (targetType === "recipe" && form.kindRecipe === "composition" && !culinaryUnitId)
         || (targetType === "product" && !conversionId)
       ) {
         error = "Informe componente, unidade culinária, conversão, quantidade maior que zero e perda entre 0 e 99,99%.";
@@ -764,10 +788,14 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
       form.components[editingComponentIndex] = {
         targetType,
         ...(targetType === "recipe" ? { recipeId: targetId } : { productId: targetId }),
-        culinaryUnitId: targetType === "product" ? culinaryUnitId : "",
+        culinaryUnitId: targetType === "product"
+          || (targetType === "recipe" && form.kindRecipe === "composition")
+          ? culinaryUnitId
+          : "",
         conversionId: targetType === "product" ? conversionId : "",
         details: details.trim(),
         culinaryUnitLabel: targetType === "product"
+          || (targetType === "recipe" && form.kindRecipe === "composition")
           ? (() => {
             const unit = culinaryUnits.find((item) => String(item.idCulinaryUnit) === String(culinaryUnitId));
             return unit ? formatCulinaryUnitName(unit) : "";

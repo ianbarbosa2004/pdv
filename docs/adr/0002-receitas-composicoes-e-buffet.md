@@ -26,5 +26,9 @@ Os componentes usam `costRecipeComponent` ou `costFormationComponent`, conforme
 o tipo da estrutura, e os totais usam `totalCostRecipe`/`unitCostRecipe` ou
 `totalCostFormation`/`unitCostFormation`. O custo unitário é o custo total
 dividido pelo rendimento e é usado por estruturas superiores. Alterar o custo atual de um Produto não reescreve esses
-valores; um novo salvamento recalcula e atualiza o snapshot. O total da Formação
-é reservado como fonte futura para `products.costPriceProduct`.
+valores; um novo salvamento recalcula e atualiza o snapshot. Quando uma Formação
+de Produto é recalculada, seu custo unitário também atualiza o
+`products.costPriceProduct` do Produto resultante, propagando a alteração para
+estruturas dependentes. As telas de consulta recalculam os custos exibidos dos
+componentes de Produto usando o custo atual do catálogo, evitando que um
+snapshot antigo seja apresentado como custo vigente.

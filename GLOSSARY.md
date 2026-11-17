@@ -114,6 +114,42 @@ Operação futura que transforma um Documento fiscal eletrônico confirmado em
 itens, quantidades e valores movimentados no estoque.
 _Evitar_: inclusão na Fila de documentos fiscais.
 
+**Entrada confirmada**:
+Entrada de estoque concluída na tela operacional de Pré-entrada, com atualização
+atômica de quantidade e custo quando aplicável. Seus efeitos não são apagados:
+um desfazimento posterior registra uma nova operação auditável.
+_Evitar_: Pré-entrada, Em Aberto, alteração direta do Produto.
+
+**Política de custo**:
+Regra do Produto comercial que define como o custo atual será atualizado por
+uma Entrada confirmada. As opções são Último custo e Custo médio; uma
+substituição por item exige permissão de estoque.
+_Evitar_: preço de venda, custo histórico, custo estimado da Ficha.
+
+**Último custo**:
+Política de custo que define como custo atual o custo unitário da entrada,
+calculado pelo valor dos produtos dividido pela quantidade convertida para a
+unidade de estoque.
+_Evitar_: custo médio, preço de compra sem conversão.
+
+**Custo médio**:
+Política de custo que combina o custo atual e uma entrada usando média ponderada
+quando o saldo anterior é positivo. Com saldo zero ou negativo, o custo da
+entrada torna-se o novo custo.
+_Evitar_: média das últimas compras, preço médio sem quantidade.
+
+**Inventário**:
+Operação recorrente de contagem física que compara a quantidade observada com o
+saldo do sistema e ajusta somente a quantidade. Cada inventário registra
+produto, saldo anterior, quantidade contada, diferença, operador, data e motivo.
+_Evitar_: entrada fiscal, ajuste silencioso, atualização de custo.
+
+**Histórico de movimentos**:
+Consulta auditável dos eventos que alteram ou desfazem quantidades e custos,
+incluindo Entradas confirmadas, Inventários e desfazimentos, com filtros por
+produto, período, tipo, documento e operador.
+_Evitar_: saldo atual, log técnico sem contexto operacional.
+
 ## Catálogo culinário e composição
 
 **Unidade de medida**:

@@ -46,7 +46,7 @@ test("define a fila fiscal como item direto do menu Estoque", () => {
   );
 });
 
-test("define Entrada XML como item direto do menu Estoque", () => {
+test("define Entrada de NF-e / NFC-e como item direto do menu Estoque", () => {
   const entryItem = DEFAULT_NAVIGATION.items.find((item) => item.keyNavigationItem === "fiscal-entry-xml");
 
   assert.deepEqual(
@@ -61,6 +61,27 @@ test("define Entrada XML como item direto do menu Estoque", () => {
       menuKey: "stock",
       label: "Entrada de NF-e / NFC-e",
       route: "fiscal-entry-xml",
+      type: "bar",
+      parentKey: null
+    }
+  );
+});
+
+test("define Entrada de NF-e / NFC-e (Teste) como tela separada no menu Estoque", () => {
+  const entryItem = DEFAULT_NAVIGATION.items.find((item) => item.keyNavigationItem === "fiscal-entry-design");
+
+  assert.deepEqual(
+    {
+      menuKey: entryItem?.menuKey,
+      label: entryItem?.labelNavigationItem,
+      route: entryItem?.routeNavigationItem,
+      type: entryItem?.typeNavigationItem,
+      parentKey: entryItem?.parentKey
+    },
+    {
+      menuKey: "stock",
+      label: "Entrada de NF-e / NFC-e (Teste)",
+      route: "fiscal-entry-design",
       type: "bar",
       parentKey: null
     }

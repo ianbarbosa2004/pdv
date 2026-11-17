@@ -167,6 +167,7 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
   let fiscalBrowserError = "";
   let reconcileEntryId = null;
   let entrySaving = false;
+  let entryConfirming = false;
   let entryReconciling = false;
   let entryError = "";
   let currentEntry = null;
@@ -238,7 +239,7 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
           ? Number(left[key]) === 65 ? "NFC-e" : "NF-e"
           : key === "numberFiscalDocument"
             ? left.numberFiscalDocument
-              ? `${left.seriesFiscalDocument || ""}/${left.numberFiscalDocument}`
+              ? left.numberFiscalDocument
               : left.accessKeyFiscalDocument
           : left[key];
       const rightValue = key === "statusFiscalEntry"
@@ -247,7 +248,7 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
           ? Number(right[key]) === 65 ? "NFC-e" : "NF-e"
           : key === "numberFiscalDocument"
             ? right.numberFiscalDocument
-              ? `${right.seriesFiscalDocument || ""}/${right.numberFiscalDocument}`
+              ? right.numberFiscalDocument
               : right.accessKeyFiscalDocument
           : right[key];
       comparison = String(leftValue || "").localeCompare(String(rightValue || ""), "pt-BR", { sensitivity: "base" });
@@ -267,7 +268,7 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
       if (!search) return true;
       return [
         Number(entry.modelFiscalDocument) === 65 ? "NFC-e" : "NF-e",
-        entry.numberFiscalDocument ? `${entry.seriesFiscalDocument || ""}/${entry.numberFiscalDocument}` : entry.accessKeyFiscalDocument,
+        entry.numberFiscalDocument || entry.accessKeyFiscalDocument,
         entry.issuerLegalNameFiscalDocument,
         entry.issuerDocumentFiscalDocument,
         fiscalEntryStatusLabel(entry.statusFiscalEntry)
@@ -356,12 +357,12 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
       );
       const result = await response.json();
       if (!response.ok || !Array.isArray(result.fiscalEntries)) {
-        throw new Error(result.error || "Não foi possível carregar as pré-entradas.");
+        throw new Error(result.error || "Não foi possível carregar as entradas.");
       }
       fiscalEntries = result.fiscalEntries;
       missingSuppliers = Array.isArray(result.missingSuppliers) ? result.missingSuppliers : [];
     } catch (entriesError) {
-      error = entriesError instanceof Error ? entriesError.message : "Falha ao carregar as pré-entradas.";
+      error = entriesError instanceof Error ? entriesError.message : "Falha ao carregar as entradas.";
     } finally {
       entriesLoading = false;
       renderPreservingFormDraft(root, render);
@@ -376,14 +377,14 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
       ${renderScreenContextBar(entryOnly ? "Entrada de NF-e / NFC-e" : "Fila de Documentos")}
       <section class="classic-content">
         ${renderSuccessFeedback(message, escapeHtml)}
-        ${renderNavigationIntro(entryOnly ? "fiscal-entry-xml" : "fiscal-document-queue", entryOnly ? "Entrada de NF-e / NFC-e" : "Fila de Documentos", entryOnly ? "Revise pré-entradas de NF-e e NFC-e, seus itens, vínculos, conversões e pagamentos." : "Importe documentos fiscais e acompanhe as pré-entradas em estado Em Aberto.")}
+        ${renderNavigationIntro(entryOnly ? "fiscal-entry-xml" : "fiscal-document-queue", entryOnly ? "Entrada de NF-e / NFC-e" : "Fila de Documentos", entryOnly ? "Revise entradas de NF-e e NFC-e, seus itens, vínculos, conversões e pagamentos." : "Importe documentos fiscais e acompanhe as entradas em estado Em Aberto.")}
         ${!entryOnly ? `
           <div class="fiscal-document-queue-layout" data-queue-only>
             <div class="fiscal-document-import-column">
               <section class="classic-form-panel fiscal-entry-upload-panel fiscal-browser-panel">
                 <div class="classic-panel-header">Consulta fiscal interativa</div>
                 <div class="classic-form-body">
-                  <p class="form-help">Abra o portal oficial da SEF/MG, informe a chave, resolva o HCaptcha manualmente e avance até a consulta completa. Depois, leia o DOM renderizado para criar a pré-entrada.</p>
+                  <p class="form-help">Abra o portal oficial da SEF/MG, informe a chave, resolva o HCaptcha manualmente e avance até a consulta completa. Depois, leia o DOM renderizado para criar a entrada.</p>
                   ${fiscalBrowserError ? `<p class="payment-error">${escapeHtml(fiscalBrowserError)}</p>` : ""}
                 </div>
                 <div class="classic-form-actions">
@@ -393,11 +394,11 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
               <form class="classic-form-panel fiscal-entry-upload-panel" data-xml-form>
                 <div class="classic-panel-header">Importar XML de entrada</div>
                 <div class="classic-form-body">
-                  <p class="form-help">O XML autorizado será validado e salvo como pré-entrada em estado <strong>Em Digitação</strong>. Essa operação não movimenta nem reserva estoque.</p>
+                  <p class="form-help">O XML autorizado será validado e salvo como entrada em estado <strong>Em Digitação</strong>. Essa operação não movimenta nem reserva estoque.</p>
                   <label class="form-field"><span>Arquivo XML da NF-e/NFC-e</span><input name="xmlFile" type="file" accept=".xml,text/xml,application/xml" required /></label>
                   ${xmlError ? `<p class="payment-error">${escapeHtml(xmlError)}</p>` : ""}
                 </div>
-                <div class="classic-form-actions"><button class="classic-button primary" type="submit" ${xmlSubmitting ? "disabled" : ""}>${xmlSubmitting ? "Importando..." : "Importar como pré-entrada"}</button></div>
+                <div class="classic-form-actions"><button class="classic-button primary" type="submit" ${xmlSubmitting ? "disabled" : ""}>${xmlSubmitting ? "Importando..." : "Importar como entrada"}</button></div>
               </form>
               <section class="classic-grid-panel missing-suppliers-panel">
                 <div class="classic-panel-header">Fornecedores não cadastrados</div>
@@ -414,13 +415,13 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
             </div>
             <section class="classic-grid-panel fiscal-entry-list-panel">
               ${renderFiscalEntryListHeader("Documentos na Fila")}
-              <div class="classic-grid-wrapper" data-default-page-size="50">${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : entriesLoading ? `<p class="classic-empty">Carregando documentos...</p>` : visibleFiscalEntries().length ? `
+              <div class="classic-grid-wrapper" data-default-page-size="25">${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : entriesLoading ? `<p class="classic-empty">Carregando documentos...</p>` : visibleFiscalEntries().length ? `
                 <table class="classic-table">
                   <thead><tr>${sortableHeader("modelFiscalDocument", "Tipo")}${sortableHeader("numberFiscalDocument", "Doc")}${sortableHeader("issuerLegalNameFiscalDocument", "Fornecedor", "supplier-column product-name-column")}${sortableHeader("issuedAtFiscalDocument", "Emissão")}${sortableHeader("totalFiscalDocument", "Valor", "value-column")}${sortableHeader("statusFiscalEntry", "Status")}<th class="actions-column">Ações</th></tr></thead>
                   <tbody>${visibleFiscalEntries().map((entry) => `
                     <tr class="${isCurrentFiscalEntry(entry) ? "fiscal-entry-current" : ""}">
                       <td>${Number(entry.modelFiscalDocument) === 65 ? "NFC-e" : "NF-e"}</td>
-                      <td>${escapeHtml(entry.numberFiscalDocument ? `${entry.seriesFiscalDocument || ""}/${entry.numberFiscalDocument}` : "Documento fiscal")}</td>
+                      <td>${escapeHtml(entry.numberFiscalDocument || "Documento fiscal")}</td>
                       <td class="supplier-column product-name-column">${escapeHtml(entry.issuerLegalNameFiscalDocument || formatDocument(entry.issuerDocumentFiscalDocument))}</td>
                       <td>${escapeHtml(formatDateOnly(entry.issuedAtFiscalDocument))}</td>
                       <td class="value-column">${escapeHtml(formatMoney(entry.totalFiscalDocument))}</td>
@@ -433,33 +434,34 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
         ` : ""}
         ${entryOnly ? `
           <section class="classic-grid-panel fiscal-entry-list-panel">
-            ${renderFiscalEntryListHeader("Pré-entradas iniciadas")}
-            <div class="classic-grid-wrapper" data-default-page-size="50">${entriesLoading ? `<p class="classic-empty">Carregando pré-entradas...</p>` : visibleFiscalEntries().length ? `
+            ${renderFiscalEntryListHeader("Entradas iniciadas")}
+            <div class="classic-grid-wrapper" data-default-page-size="25">${entriesLoading ? `<p class="classic-empty">Carregando entradas...</p>` : visibleFiscalEntries().length ? `
               <table class="classic-table">
                 <thead><tr>${sortableHeader("modelFiscalDocument", "Tipo")}${sortableHeader("numberFiscalDocument", "Doc")}${sortableHeader("issuerLegalNameFiscalDocument", "Fornecedor", "supplier-column product-name-column")}${sortableHeader("issuedAtFiscalDocument", "Emissão")}${sortableHeader("totalFiscalDocument", "Valor", "value-column")}${sortableHeader("statusFiscalEntry", "Status")}<th class="actions-column">Ações</th></tr></thead>
                 <tbody>${visibleFiscalEntries().map((entry) => `
                   <tr class="${isCurrentFiscalEntry(entry) ? "fiscal-entry-current" : ""}">
                     <td>${Number(entry.modelFiscalDocument) === 65 ? "NFC-e" : "NF-e"}</td>
-                    <td>${escapeHtml(entry.numberFiscalDocument ? `${entry.seriesFiscalDocument || ""}/${entry.numberFiscalDocument}` : "Documento fiscal")}</td>
+                    <td>${escapeHtml(entry.numberFiscalDocument || "Documento fiscal")}</td>
                     <td class="supplier-column product-name-column">${escapeHtml(entry.issuerLegalNameFiscalDocument || formatDocument(entry.issuerDocumentFiscalDocument))}</td>
                     <td>${escapeHtml(formatDateOnly(entry.issuedAtFiscalDocument))}</td>
                     <td class="value-column">${escapeHtml(formatMoney(entry.totalFiscalDocument))}</td>
                     <td><span class="fiscal-entry-status fiscal-entry-status-${fiscalEntryStatusClass(entry.statusFiscalEntry)}">${escapeHtml(fiscalEntryStatusLabel(entry.statusFiscalEntry))}</span></td>
-                    <td class="actions-column"><button class="icon-button" type="button" data-copy-access-key="${escapeHtml(entry.accessKeyFiscalDocument)}" aria-label="Copiar chave de acesso" title="Copiar chave de acesso"><i data-lucide="notebook-tabs"></i></button><button class="icon-button" type="button" data-open-entry="${entry.idFiscalEntry}" aria-label="Continuar revisão" title="Continuar revisão"><i data-lucide="arrow-right-circle"></i></button><button class="icon-button delete" type="button" data-delete-entry="${entry.idFiscalEntry}" aria-label="Excluir pré-entrada" title="Excluir pré-entrada"><i data-lucide="trash-2"></i></button></td>
+                    <td class="actions-column"><button class="icon-button" type="button" data-copy-access-key="${escapeHtml(entry.accessKeyFiscalDocument)}" aria-label="Copiar chave de acesso" title="Copiar chave de acesso"><i data-lucide="notebook-tabs"></i></button><button class="icon-button" type="button" data-open-entry="${entry.idFiscalEntry}" aria-label="Abrir entrada" title="Abrir entrada"><i data-lucide="arrow-right-circle"></i></button><button class="icon-button delete" type="button" data-delete-entry="${entry.idFiscalEntry}" aria-label="Excluir entrada" title="Excluir entrada"><i data-lucide="trash-2"></i></button></td>
                   </tr>`).join("")}</tbody>
-              </table>` : `<p class="classic-empty">Nenhuma pré-entrada iniciada.</p>`}</div>
+              </table>` : `<p class="classic-empty">Nenhuma entrada iniciada.</p>`}</div>
           </section>
         ` : ""}
         ${currentEntry ? `
           <section class="classic-grid-panel fiscal-entry-workspace-panel">
-            <div class="classic-panel-header">Pré-entrada ${escapeHtml(currentEntry.fiscalEntry.idFiscalEntry)} - <span class="fiscal-entry-title-status">${escapeHtml(fiscalEntryStatusLabel(currentEntry.fiscalEntry.statusFiscalEntry))}</span></div>
+            <div class="classic-panel-header">Entrada ${escapeHtml(currentEntry.fiscalEntry.idFiscalEntry)} - <span class="fiscal-entry-title-status">${escapeHtml(fiscalEntryStatusLabel(currentEntry.fiscalEntry.statusFiscalEntry))}</span></div>
             <div class="classic-form-body">
               ${renderFiscalEntryHeader(currentEntry.fiscalEntry)}
-              <p class="form-help">Esta revisão ainda não movimenta, reserva ou baixa estoque. Clique em um item para vincular o produto e informar a conversão. Quando todos os itens e o pagamento estiverem válidos, gravar confirmará a Pré-entrada.</p>
-              <p class="form-help">Reconsultar valores atualiza somente os valores fiscais dos itens e preserva os vínculos já criados.</p>
+              <p class="form-help">${currentEntry.fiscalEntry.statusFiscalEntry === "confirmed"
+                ? "Esta entrada está confirmada e seus efeitos fiscais, de estoque e de custos já foram aplicados. A exclusão exige confirmação e realiza o estorno desses efeitos."
+                : "Esta revisão ainda não movimenta, reserva ou baixa estoque. Clique em um item para vincular o produto e informar a conversão. Quando todos os itens e o pagamento estiverem válidos, gravar confirmará a entrada. Reconsultar valores atualiza somente os valores fiscais dos itens e preserva os vínculos já criados."}</p>
             </div>
             <div class="classic-grid-wrapper">
-              <table class="classic-table">
+              <table class="classic-table fiscal-entry-items-table">
                 <thead><tr><th>Usar</th><th>Linha</th><th class="description-column">Descrição</th><th>Qtd</th><th>Unidade</th><th class="value-column">Valor</th><th>Status</th></tr></thead>
                 <tbody>${currentEntry.items.map((item) => `
                   <tr data-edit-item="${item.idFiscalEntryItem}" class="${item.idProduct ? "entry-item-linked" : ""}">
@@ -467,7 +469,7 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
                     <td>${escapeHtml(item.lineNumberFiscalDocumentItem)}</td>
                     <td class="description-column">${escapeHtml(item.descriptionFiscalDocumentItem)}</td>
                     <td>${escapeHtml(formatQuantity(item.quantityFiscalDocumentItem))}</td>
-                    <td>${escapeHtml(item.fiscalUnitFiscalDocumentItem)}</td>
+                    <td>${escapeHtml(String(item.fiscalUnitFiscalDocumentItem || "").toLocaleUpperCase("pt-BR"))}</td>
                     <td class="value-column">${escapeHtml(formatMoney(item.totalFiscalDocumentItem))}</td>
                     <td>${item.idProduct ? "Vinculado" : "Pendente"}</td>
                   </tr>`).join("")}</tbody>
@@ -480,17 +482,21 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
                   <label class="form-field"><span>Forma</span><select name="paymentMethod" required><option value="">Selecione</option>${paymentMethods.map((method) => `<option value="${escapeHtml(method.namePaymentMethod)}" ${selectedPaymentMethod === method.namePaymentMethod ? "selected" : ""}>${escapeHtml(method.namePaymentMethod)}</option>`).join("")}</select></label>
                   <label class="form-field"><span>Valor dos produtos marcados</span><input name="amount" value="${escapeHtml(formatBrazilianNumber(selectedEntryTotal()))}" inputmode="decimal" readonly /></label>
                 </div>
-                <p class="form-help">O valor é recalculado pela soma das linhas marcadas. Itens desmarcados não entram no pagamento.</p>
+                ${currentEntry.fiscalEntry.statusFiscalEntry === "confirmed"
+                  ? ""
+                  : '<p class="form-help">O valor é recalculado pela soma das linhas marcadas. Itens desmarcados não entram no pagamento.</p>'}
                 ${entryError ? `<p class="payment-error">${escapeHtml(entryError)}</p>` : ""}
               </div>
-              <div class="classic-form-actions"><button class="classic-button" data-reconcile-entry type="button" ${entryReconciling || entrySaving ? "disabled" : ""}>${entryReconciling ? "Atualizando..." : "Atualizar consulta"}</button><button class="classic-button primary" data-save-entry type="button" ${entrySaving || entryReconciling ? "disabled" : ""}>${entrySaving ? "Gravando..." : "Gravar pré-entrada"}</button></div>
+              <div class="classic-form-actions">${currentEntry.fiscalEntry.statusFiscalEntry === "confirmed"
+                ? `<button class="classic-button delete" data-delete-current-entry type="button">Excluir entrada</button>`
+                : `<button class="classic-button" data-reconcile-entry type="button" ${entryReconciling || entrySaving || entryConfirming ? "disabled" : ""}>${entryReconciling ? "Atualizando..." : "Atualizar consulta"}</button><button class="classic-button primary" data-save-entry type="button" ${entrySaving ? "disabled" : ""}>${entrySaving ? "Gravando..." : "Gravar entrada"}</button>${currentEntry.fiscalEntry.statusFiscalEntry === "open" ? `<button class="classic-button primary" data-confirm-entry type="button" ${entrySaving || entryReconciling || entryConfirming ? "disabled" : ""}>${entryConfirming ? "Confirmando..." : "Revisar impacto"}</button>` : ""}`}</div>
             </form>
           </section>
         ` : ""}
         ${entryOnly && !currentEntry ? `
           <section class="classic-grid-panel fiscal-entry-workspace-panel fiscal-entry-empty-panel">
-            <div class="classic-panel-header">Pré-entrada em aberto</div>
-            <div class="classic-empty">Selecione uma pré-entrada iniciada ao lado ou importe um novo XML para começar a revisão.</div>
+            <div class="classic-panel-header">Entrada</div>
+            <div class="classic-empty">Selecione uma entrada iniciada ao lado ou importe um novo XML para começar a revisão.</div>
           </section>
         ` : ""}
         ${editingItem ? `
@@ -716,6 +722,9 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
     root.querySelectorAll("[data-delete-entry]").forEach((button) => {
       button.addEventListener("click", () => void removeEntry(Number(button.dataset.deleteEntry)));
     });
+    root.querySelector("[data-delete-current-entry]")?.addEventListener("click", () => {
+      void removeEntry(Number(currentEntry?.fiscalEntry?.idFiscalEntry));
+    });
     root.querySelectorAll("[data-copy-access-key]").forEach((button) => {
       button.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -750,6 +759,7 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
     });
     root.querySelector("[data-reconcile-entry]")?.addEventListener("click", () => void openFiscalReconciliation());
     root.querySelector("[data-save-entry]")?.addEventListener("click", () => void saveEntry());
+    root.querySelector("[data-confirm-entry]")?.addEventListener("click", () => void confirmEntry());
     root.querySelectorAll("[data-edit-item]").forEach((row) => {
       row.addEventListener("click", (event) => {
         if (event.target.closest("[data-select-item]")) return;
@@ -839,7 +849,7 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
   };
 
   const finishImportedEntry = async (result, form) => {
-    message = `Pré-entrada ${result.fiscalEntry?.idFiscalEntry || ""} gravada como ${fiscalEntryStatusLabel(result.fiscalEntry?.statusFiscalEntry)}.`;
+    message = `Entrada ${result.fiscalEntry?.idFiscalEntry || ""} gravada como ${fiscalEntryStatusLabel(result.fiscalEntry?.statusFiscalEntry)}.`;
     await loadFiscalEntries();
     if (entryOnly) {
       currentEntry = await loadEntry(result.fiscalEntry.idFiscalEntry);
@@ -935,7 +945,7 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
           : fiscalEntries.find((entry) => Number(entry.idFiscalEntry) === currentReconcileEntryId);
         const accessKey = html.match(/\d(?:[\s./-]*\d){43}/)?.[0]?.replace(/\D/g, "") || "";
         if (!targetEntry || accessKey !== String(targetEntry.accessKeyFiscalDocument)) {
-          throw new Error("A consulta lida não corresponde à chave da pré-entrada selecionada.");
+          throw new Error("A consulta lida não corresponde à chave da entrada selecionada.");
         }
         const confirmed = await confirmAction({
           title: "Entrada já existente",
@@ -1030,7 +1040,7 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
     );
     const result = await response.json();
     if (!response.ok || !result.fiscalEntry) {
-      throw new Error(result.error || "Não foi possível carregar a pré-entrada.");
+      throw new Error(result.error || "Não foi possível carregar a entrada.");
     }
     applyStoredFiscalReferences(result);
     return result;
@@ -1067,7 +1077,7 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
       await loadPaymentMethods();
       render();
     } catch (openError) {
-      error = openError instanceof Error ? openError.message : "Não foi possível abrir a pré-entrada.";
+      error = openError instanceof Error ? openError.message : "Não foi possível abrir a entrada.";
       render();
     }
   };
@@ -1096,19 +1106,19 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
         })
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Não foi possível gravar a pré-entrada.");
+      if (!response.ok) throw new Error(result.error || "Não foi possível gravar a entrada.");
       currentEntry = await loadEntry(currentEntry.fiscalEntry.idFiscalEntry);
       entryPayments = currentEntry.entryPayments || [];
       selectedPaymentMethod = entryPayments[0]?.paymentDescriptionFiscalEntryPayment || "";
       await loadFiscalEntries();
-      message = `Pré-entrada ${currentEntry.fiscalEntry.idFiscalEntry} gravada como ${fiscalEntryStatusLabel(result.statusFiscalEntry)}.`;
+      message = `Entrada ${currentEntry.fiscalEntry.idFiscalEntry} gravada como ${fiscalEntryStatusLabel(result.statusFiscalEntry)}.`;
       render();
       scheduleMessageClear(() => {
         message = "";
         clearRenderedFeedback(root);
       });
     } catch (saveError) {
-      entryError = saveError instanceof Error ? saveError.message : "Falha ao gravar a pré-entrada.";
+      entryError = saveError instanceof Error ? saveError.message : "Falha ao gravar a entrada.";
       render();
     } finally {
       entrySaving = false;
@@ -1116,35 +1126,102 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
     }
   };
 
+  const confirmEntry = async () => {
+    if (!currentEntry || currentEntry.fiscalEntry.statusFiscalEntry !== "open") return;
+    entryConfirming = true;
+    entryError = "";
+    render();
+    try {
+      const entryId = currentEntry.fiscalEntry.idFiscalEntry;
+      const impactResponse = await apiFetch(`${getApiUrl()}/api/stock/fiscal-entries/${entryId}/impact`);
+      const impactResult = await impactResponse.json();
+      if (!impactResponse.ok) throw new Error(impactResult.error || "Não foi possível calcular o impacto.");
+      if (impactResult.pendingCount > 0 || !impactResult.items?.length) {
+        throw new Error("Todos os itens selecionados devem estar vinculados antes da confirmação.");
+      }
+      const confirmed = await confirmAction({
+        title: "Revisar impacto da entrada",
+        message: "Somente os itens selecionados e vinculados serão confirmados.",
+        detailItems: impactResult.items.map((item) => ({
+          title: item.nameProduct,
+          summary: [
+            `Quantidade: ${formatQuantity(item.quantityConverted)} un.`,
+            `Custo: ${formatMoney(item.currentCost)} → ${formatMoney(item.estimatedCost)}`,
+            `Estoque: ${formatQuantity(item.currentStock)} → ${formatQuantity(item.estimatedStock)}`
+          ].join("  •  ")
+        })),
+        confirmLabel: "Confirmar entrada"
+      });
+      if (!confirmed) return;
+      const response = await apiFetch(`${getApiUrl()}/api/stock/fiscal-entries/${entryId}/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: [] })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Não foi possível confirmar a entrada.");
+      currentEntry = await loadEntry(entryId);
+      await loadFiscalEntries();
+      message = result.updatedRecipeCount
+        ? `Entrada ${entryId} confirmada. ${result.updatedRecipeCount} Receita(s)/Ficha(s) recalculada(s).`
+        : `Entrada ${entryId} confirmada.`;
+      render();
+      scheduleMessageClear(() => {
+        message = "";
+        clearRenderedFeedback(root);
+      });
+    } catch (confirmError) {
+      entryError = confirmError instanceof Error ? confirmError.message : "Falha ao confirmar a entrada.";
+      render();
+    } finally {
+      entryConfirming = false;
+      render();
+    }
+  };
+
 
   const removeEntry = async (idFiscalEntry) => {
+    const entry = fiscalEntries.find((item) => Number(item.idFiscalEntry) === idFiscalEntry)
+      || (Number(currentEntry?.fiscalEntry?.idFiscalEntry) === idFiscalEntry ? currentEntry.fiscalEntry : null);
+    const isConfirmed = entry?.statusFiscalEntry === "confirmed";
     const confirmed = await confirmAction({
-      title: "Excluir pré-entrada",
-      message: "Excluir este documento da fila?",
-      detail: "A exclusão remove a pré-entrada e seus dados importados. Não cancela a nota na SEFAZ nem movimenta estoque.",
-      confirmLabel: "Excluir documento"
+      title: isConfirmed ? "Excluir entrada confirmada" : "Excluir entrada",
+      message: isConfirmed
+        ? "Excluir esta entrada confirmada e desfazer seus efeitos no estoque?"
+        : "Excluir esta entrada da fila?",
+      detail: isConfirmed
+        ? "A entrada será desfeita, o estoque e os custos serão estornados, e o documento ficará cancelado."
+        : "A exclusão remove a entrada e seus dados importados. Não cancela a nota na SEFAZ nem movimenta estoque.",
+      confirmLabel: isConfirmed ? "Excluir entrada" : "Excluir entrada"
     });
     if (!confirmed) return;
     try {
-      const response = await apiFetch(`${getApiUrl()}/api/stock/fiscal-entries/${idFiscalEntry}`, {
-        method: "DELETE"
-      });
+      const response = await apiFetch(
+        `${getApiUrl()}/api/stock/fiscal-entries/${idFiscalEntry}${isConfirmed ? "/reverse" : ""}`,
+        {
+          method: isConfirmed ? "POST" : "DELETE",
+          headers: isConfirmed ? { "Content-Type": "application/json" } : undefined,
+          body: isConfirmed ? JSON.stringify({}) : undefined
+        }
+      );
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Não foi possível excluir a pré-entrada.");
+      if (!response.ok) throw new Error(result.error || "Não foi possível excluir a entrada.");
       if (Number(currentEntry?.fiscalEntry?.idFiscalEntry) === idFiscalEntry) {
         currentEntry = null;
         activeEntryId = null;
         editingItem = null;
       }
       await loadFiscalEntries();
-      message = "Documento excluído da fila.";
+      message = isConfirmed
+        ? "Entrada confirmada excluída e estoque estornado."
+        : "Entrada excluída da fila.";
       render();
       scheduleMessageClear(() => {
         message = "";
         clearRenderedFeedback(root);
       });
     } catch (removeError) {
-      error = removeError instanceof Error ? removeError.message : "Falha ao excluir a pré-entrada.";
+      error = removeError instanceof Error ? removeError.message : "Falha ao excluir a entrada.";
       render();
     }
   };

@@ -143,7 +143,9 @@ CREATE TABLE IF NOT EXISTS fiscal_entries (
   createdAtFiscalEntry TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAtFiscalEntry TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   confirmedAtFiscalEntry TIMESTAMP NULL,
+  confirmedByOperator BIGINT UNSIGNED NULL,
   cancelledAtFiscalEntry TIMESTAMP NULL,
+  cancelledByOperator BIGINT UNSIGNED NULL,
   PRIMARY KEY (idFiscalEntry),
   UNIQUE KEY uqFiscalEntriesDocument (idFiscalDocument),
   KEY idxFiscalEntriesStatus (statusFiscalEntry, updatedAtFiscalEntry),
@@ -167,6 +169,7 @@ CREATE TABLE IF NOT EXISTS products (
   cestProduct CHAR(7) NULL,
   priceProduct DECIMAL(12,2) NOT NULL,
   costPriceProduct DECIMAL(12,2) NOT NULL DEFAULT 0,
+  costPolicyProduct ENUM('last', 'average') NOT NULL DEFAULT 'last',
   stockQuantityProduct DECIMAL(12,3) NOT NULL DEFAULT 0,
   controlsStockProduct TINYINT(1) NOT NULL DEFAULT 1,
   isBuffetProduct TINYINT(1) NOT NULL DEFAULT 0,
@@ -383,6 +386,58 @@ CREATE TABLE IF NOT EXISTS fiscal_entry_payments (
   CONSTRAINT fkFiscalEntryPaymentsEntry
     FOREIGN KEY (idFiscalEntry) REFERENCES fiscal_entries (idFiscalEntry)
     ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS inventory_movements (
+  idInventoryMovement BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  idProduct BIGINT UNSIGNED NOT NULL,
+  idFiscalEntry BIGINT UNSIGNED NULL,
+  typeInventoryMovement ENUM('fiscal_entry', 'inventory', 'fiscal_entry_reversal') NOT NULL,
+  quantityDeltaInventoryMovement DECIMAL(14,4) NOT NULL DEFAULT 0,
+  previousStockInventoryMovement DECIMAL(14,4) NOT NULL DEFAULT 0,
+  nextStockInventoryMovement DECIMAL(14,4) NOT NULL DEFAULT 0,
+  previousCostInventoryMovement DECIMAL(14,4) NOT NULL DEFAULT 0,
+  nextCostInventoryMovement DECIMAL(14,4) NOT NULL DEFAULT 0,
+  costPolicyInventoryMovement ENUM('last', 'average') NULL,
+  reasonInventoryMovement VARCHAR(500) NULL,
+  idOperator BIGINT UNSIGNED NULL,
+  createdAtInventoryMovement TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (idInventoryMovement),
+  KEY idxInventoryMovementsProductDate (idProduct, createdAtInventoryMovement),
+  KEY idxInventoryMovementsFiscalEntry (idFiscalEntry),
+  CONSTRAINT fkInventoryMovementsProduct
+    FOREIGN KEY (idProduct) REFERENCES products (idProduct)
+    ON DELETE RESTRICT,
+  CONSTRAINT fkInventoryMovementsFiscalEntry
+    FOREIGN KEY (idFiscalEntry) REFERENCES fiscal_entries (idFiscalEntry)
+    ON DELETE RESTRICT,
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS inventory_counts (
+  idInventoryCount BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  idOperator BIGINT UNSIGNED NULL,
+  reasonInventoryCount VARCHAR(500) NOT NULL,
+  createdAtInventoryCount TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (idInventoryCount),
+  KEY idxInventoryCountsDate (createdAtInventoryCount),
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS inventory_count_items (
+  idInventoryCountItem BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  idInventoryCount BIGINT UNSIGNED NOT NULL,
+  idProduct BIGINT UNSIGNED NOT NULL,
+  previousStockInventoryCountItem DECIMAL(14,4) NOT NULL DEFAULT 0,
+  countedQuantityInventoryCountItem DECIMAL(14,4) NOT NULL DEFAULT 0,
+  quantityDeltaInventoryCountItem DECIMAL(14,4) NOT NULL DEFAULT 0,
+  createdAtInventoryCountItem TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (idInventoryCountItem),
+  UNIQUE KEY uqInventoryCountItemsProduct (idInventoryCount, idProduct),
+  CONSTRAINT fkInventoryCountItemsCount
+    FOREIGN KEY (idInventoryCount) REFERENCES inventory_counts (idInventoryCount)
+    ON DELETE CASCADE,
+  CONSTRAINT fkInventoryCountItemsProduct
+    FOREIGN KEY (idProduct) REFERENCES products (idProduct)
+    ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS ncm_catalog (

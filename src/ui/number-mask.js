@@ -16,7 +16,7 @@ export const normalizeMaskedNumber = (value, fractionDigits = 2) => {
   return (Number(digits) / divisor).toFixed(fractionDigits);
 };
 
-export const normalizeDecimalInput = (value) => {
+export const normalizeDecimalInput = (value, fractionDigits = 2) => {
   const text = String(value ?? "").trim();
   if (!text) return "";
 
@@ -29,7 +29,7 @@ export const normalizeDecimalInput = (value) => {
     : unsigned
   ).replace(/\D/g, "");
   const fractionPart = hasSeparator
-    ? unsigned.slice(separatorIndex + 1).replace(/\D/g, "").slice(0, 2)
+    ? unsigned.slice(separatorIndex + 1).replace(/\D/g, "").slice(0, fractionDigits)
     : "";
   const normalizedInteger = integerPart.replace(/^0+(?=\d)/, "") || "0";
   const groupedInteger = normalizedInteger.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
@@ -37,15 +37,15 @@ export const normalizeDecimalInput = (value) => {
   return `${sign}${groupedInteger}${hasSeparator ? `,${fractionPart}` : ""}`;
 };
 
-const formatDecimalInput = (value) => {
-  const normalized = normalizeDecimalInput(value);
+const formatDecimalInput = (value, fractionDigits = 2) => {
+  const normalized = normalizeDecimalInput(value, fractionDigits);
   if (!normalized) return "";
   const [integerPart, fractionPart = ""] = normalized.split(",");
   const numeric = Number(`${integerPart.replace(/\./g, "")}.${fractionPart || "0"}`);
   if (!Number.isFinite(numeric)) return normalized;
   return numeric.toLocaleString("pt-BR", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits
   });
 };
 
@@ -54,6 +54,10 @@ export const bindNumberMasks = (root) => {
     input.addEventListener("input", () => {
       if (input.dataset.numberMask === "decimal") {
         input.value = formatDecimalInput(input.value);
+        return;
+      }
+      if (input.dataset.numberMask === "decimal-3") {
+        input.value = formatDecimalInput(input.value, 3);
         return;
       }
       if (input.dataset.numberMask === "fractional-3") {

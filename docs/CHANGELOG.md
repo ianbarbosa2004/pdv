@@ -4,6 +4,22 @@ Este documento registra as mudanças funcionais e técnicas agrupadas por versã
 O número da versão só deve ser incrementado após pedido explícito. Builds e
 releases não alteram a versão automaticamente.
 
+## 0.17.0 - 2026-11-17
+
+- Consolidada a revisão fiscal de Entradas, com confirmação transacional,
+  reversão de entradas confirmadas e atualização dos vínculos de estoque.
+- Corrigida a propagação de custos entre Receitas, Formações e Produtos,
+  incluindo o cálculo composto de custos atuais.
+- Adicionada a seleção do cálculo de custo do Produto entre último custo e
+  custo médio, com persistência nos cadastros, modais e Views.
+- Padronizados os tooltips, alinhamentos, paginação e mensagens da tela de
+  Entradas.
+- Validada a seleção dos instaladores: somente o MSI e o EXE da versão atual
+  são copiados para os nomes fixos de distribuição.
+- Alterações em `src/server/`, schema e migrações exigem reinício da API
+  publicada. A geração dos instaladores exige build Tauri; não foi executada
+  neste checkout por depender do token e do endereço da API de distribuição.
+
 ## 0.16.3 - 2026-11-15
 
 - Padronizado o arredondamento para cima em duas casas decimais para valores

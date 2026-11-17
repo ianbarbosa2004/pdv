@@ -3985,6 +3985,27 @@ h2 {
   width: 11%;
 }
 
+.fiscal-entry-only-screen .fiscal-entry-items-table th {
+  text-align: center;
+}
+
+.fiscal-entry-only-screen .fiscal-entry-items-table th:nth-child(4),
+.fiscal-entry-only-screen .fiscal-entry-items-table th:nth-child(6) {
+  text-align: center;
+}
+
+.fiscal-entry-only-screen .fiscal-entry-items-table td:nth-child(1),
+.fiscal-entry-only-screen .fiscal-entry-items-table td:nth-child(2),
+.fiscal-entry-only-screen .fiscal-entry-items-table td:nth-child(5),
+.fiscal-entry-only-screen .fiscal-entry-items-table td:nth-child(7) {
+  text-align: center;
+}
+
+.fiscal-entry-only-screen .fiscal-entry-items-table td:nth-child(4),
+.fiscal-entry-only-screen .fiscal-entry-items-table td:nth-child(6) {
+  text-align: right;
+}
+
 .fiscal-entry-only-screen .fiscal-entry-empty-panel {
   min-height: 260px;
 }
@@ -4047,6 +4068,273 @@ h2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.fiscal-entry-mode-panel,
+.fiscal-entry-design-workspace {
+  grid-column: 1 / -1;
+}
+
+.fiscal-entry-mode-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 22px 24px;
+  border: 1px solid #c7d2de;
+  background: #f5f8fb;
+}
+
+.fiscal-entry-mode-panel h2,
+.fiscal-entry-design-heading h2 {
+  margin: 0;
+  color: #23384d;
+  font-size: 1.15rem;
+}
+
+.fiscal-entry-mode-panel p,
+.fiscal-entry-design-heading p {
+  max-width: 62ch;
+  margin: 6px 0 0;
+  color: #58697a;
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.fiscal-entry-mode-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.fiscal-entry-mode-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 220px;
+  padding: 12px 14px;
+  text-align: left;
+}
+
+.fiscal-entry-mode-card svg {
+  width: 21px;
+  height: 21px;
+  flex: 0 0 auto;
+}
+
+.fiscal-entry-mode-card span {
+  display: grid;
+  gap: 2px;
+}
+
+.fiscal-entry-mode-card small {
+  color: #617284;
+  font-size: 0.72rem;
+  font-weight: 400;
+}
+
+.fiscal-entry-design-workspace {
+  overflow: hidden;
+  border: 1px solid #bcc9d6;
+  background: #fff;
+  box-shadow: 0 3px 12px rgb(35 56 77 / 8%);
+}
+
+.fiscal-entry-design-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 24px 26px 18px;
+  border-bottom: 1px solid #d6dee7;
+  background: #f7f9fb;
+}
+
+.fiscal-entry-design-kicker {
+  display: block;
+  margin-bottom: 5px;
+  color: #2f855a;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.fiscal-entry-design-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 26px;
+  border-bottom: 1px solid #e1e7ee;
+  color: #5c6e7f;
+  font-size: 0.76rem;
+}
+
+.fiscal-entry-design-status strong {
+  color: #8a5a00;
+}
+
+.fiscal-entry-design-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #d99a22;
+}
+
+.fiscal-entry-design-sections {
+  display: grid;
+  gap: 18px;
+  padding: 22px 26px 26px;
+}
+
+.fiscal-entry-design-section {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid #d5dee7;
+  background: #fbfcfd;
+}
+
+.fiscal-entry-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.fiscal-entry-section-heading > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fiscal-entry-section-heading h3 {
+  margin: 0;
+  color: #2d4358;
+  font-size: 0.95rem;
+}
+
+.fiscal-entry-section-number {
+  color: #2f855a;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.fiscal-entry-section-note {
+  color: #69798a;
+  font-size: 0.7rem;
+}
+
+.fiscal-entry-design-form-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.fiscal-entry-design-wide-field {
+  grid-column: span 2;
+}
+
+.fiscal-entry-design-table-wrap {
+  overflow-x: auto;
+}
+
+.fiscal-entry-design-table {
+  min-width: 840px;
+}
+
+.fiscal-entry-design-table input {
+  width: 100%;
+  min-width: 110px;
+}
+
+.fiscal-entry-design-table .fiscal-entry-design-compact-input {
+  min-width: 72px;
+}
+
+.fiscal-entry-design-table .fiscal-entry-design-money-input {
+  min-width: 100px;
+}
+
+.fiscal-entry-design-placeholder,
+.fiscal-entry-design-pending {
+  color: #778697;
+  font-size: 0.78rem;
+}
+
+.fiscal-entry-design-pending {
+  color: #9a6b0c;
+  font-weight: 700;
+}
+
+.fiscal-entry-design-lower-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(260px, 0.8fr);
+  gap: 18px;
+}
+
+.fiscal-entry-design-summary {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 20px;
+  border: 1px solid #d5dee7;
+  background: #f3f7fa;
+}
+
+.fiscal-entry-design-summary > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: #607183;
+  font-size: 0.78rem;
+}
+
+.fiscal-entry-design-summary strong {
+  color: #2d4358;
+  font-size: 1rem;
+}
+
+.fiscal-entry-design-summary-total {
+  margin-top: 6px;
+  padding-top: 14px;
+  border-top: 1px solid #cbd6e0;
+}
+
+.fiscal-entry-design-summary-total strong {
+  color: #1d5e9f;
+  font-size: 1.25rem;
+}
+
+.fiscal-entry-design-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px 26px;
+  border-top: 1px solid #d6dee7;
+  background: #f7f9fb;
+}
+
+.fiscal-entry-design-footer p {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  color: #617284;
+  font-size: 0.75rem;
+}
+
+.fiscal-entry-design-footer p svg {
+  width: 16px;
+  height: 16px;
+  color: #2f855a;
+}
+
+.fiscal-entry-design-footer > div {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .fiscal-document-queue-layout {
   display: grid;
   grid-column: 1 / -1;
@@ -4092,23 +4380,28 @@ h2 {
   flex-wrap: wrap;
 }
 
-.fiscal-document-queue-layout .fiscal-entry-list-panel {
+.fiscal-document-queue-layout .fiscal-entry-list-panel,
+.fiscal-entry-test-layout .fiscal-entry-list-panel {
   min-width: 0;
   align-self: stretch;
 }
 
-.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-grid-wrapper {
+.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-grid-wrapper,
+.fiscal-entry-test-layout .fiscal-entry-list-panel .classic-grid-wrapper {
   min-height: 220px;
   max-height: 640px;
 }
 
-.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table {
+.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table,
+.fiscal-entry-test-layout .fiscal-entry-list-panel .classic-table {
   width: 100%;
   table-layout: fixed;
 }
 
 .fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table th,
-.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table td {
+.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table td,
+.fiscal-entry-test-layout .fiscal-entry-list-panel .classic-table th,
+.fiscal-entry-test-layout .fiscal-entry-list-panel .classic-table td {
   white-space: normal;
   overflow-wrap: normal;
   word-break: normal;
@@ -4120,58 +4413,75 @@ h2 {
 .fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table th,
 .fiscal-entry-only-screen .fiscal-entry-list-panel .classic-table th,
 .fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table .table-sort-button,
-.fiscal-entry-only-screen .fiscal-entry-list-panel .classic-table .table-sort-button {
+.fiscal-entry-only-screen .fiscal-entry-list-panel .classic-table .table-sort-button,
+.fiscal-entry-test-layout .fiscal-entry-list-panel .classic-table th {
   white-space: nowrap;
   overflow-wrap: normal;
   word-break: normal;
 }
 
 .fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table th:nth-child(1),
-.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table td:nth-child(1) {
+.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table td:nth-child(1),
+.fiscal-entry-test-layout .fiscal-entry-list-panel .classic-table th:nth-child(1),
+.fiscal-entry-test-layout .fiscal-entry-list-panel .classic-table td:nth-child(1) {
   width: 9%;
 }
 
 .fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table th:nth-child(2),
-.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table td:nth-child(2) {
+.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table td:nth-child(2),
+.fiscal-entry-test-layout .fiscal-entry-list-panel .classic-table th:nth-child(2),
+.fiscal-entry-test-layout .fiscal-entry-list-panel .classic-table td:nth-child(2) {
   width: 90px;
   min-width: 90px;
   max-width: 90px;
 }
 
 .fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table th:nth-child(3),
-.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table td:nth-child(3) {
+.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table td:nth-child(3),
+.fiscal-entry-test-layout .fiscal-entry-list-panel .classic-table th:nth-child(3),
+.fiscal-entry-test-layout .fiscal-entry-list-panel .classic-table td:nth-child(3) {
   width: 25%;
 }
 
 .fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table th:nth-child(4),
-.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table td:nth-child(4) {
+.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table td:nth-child(4),
+.fiscal-entry-test-layout .fiscal-entry-list-panel .classic-table th:nth-child(4),
+.fiscal-entry-test-layout .fiscal-entry-list-panel .classic-table td:nth-child(4) {
   width: 90px;
   min-width: 90px;
   max-width: 90px;
 }
 
 .fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table th:nth-child(5),
-.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table td:nth-child(5) {
+.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table td:nth-child(5),
+.fiscal-entry-test-layout .fiscal-entry-list-panel .classic-table th:nth-child(5),
+.fiscal-entry-test-layout .fiscal-entry-list-panel .classic-table td:nth-child(5) {
   width: 14%;
 }
 
 .fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table th:nth-child(6),
-.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table td:nth-child(6) {
+.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table td:nth-child(6),
+.fiscal-entry-test-layout .fiscal-entry-list-panel .classic-table th:nth-child(6),
+.fiscal-entry-test-layout .fiscal-entry-list-panel .classic-table td:nth-child(6) {
   width: 12%;
 }
 
 .fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table th:nth-child(7),
-.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table td:nth-child(7) {
+.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table td:nth-child(7),
+.fiscal-entry-test-layout .fiscal-entry-list-panel .classic-table th:nth-child(7),
+.fiscal-entry-test-layout .fiscal-entry-list-panel .classic-table td:nth-child(7) {
   width: 12%;
 }
 
-.fiscal-document-queue-layout .fiscal-entry-list-panel [data-open-entry] {
+.fiscal-document-queue-layout .fiscal-entry-list-panel [data-open-entry],
+.fiscal-entry-test-layout .fiscal-entry-list-panel [data-test-open-entry] {
   width: 30px;
   height: 30px;
   padding: 4px;
 }
 
-.fiscal-document-queue-layout .fiscal-entry-list-panel [data-open-entry] svg {
+.fiscal-document-queue-layout .fiscal-entry-list-panel [data-open-entry] svg,
+.fiscal-entry-test-layout .fiscal-entry-list-panel [data-test-open-entry] svg {
   width: 18px;
   height: 18px;
 }
@@ -4196,6 +4506,47 @@ h2 {
   overflow-wrap: normal;
   word-break: normal;
   text-align: right;
+}
+
+.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table th,
+.fiscal-entry-only-screen .fiscal-entry-list-panel .classic-table th,
+.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table .table-sort-button,
+.fiscal-entry-only-screen .fiscal-entry-list-panel .classic-table .table-sort-button {
+  text-align: center;
+}
+
+.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table .table-sort-button,
+.fiscal-entry-only-screen .fiscal-entry-list-panel .classic-table .table-sort-button {
+  justify-content: center;
+}
+
+.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table td:nth-child(1),
+.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table td:nth-child(2),
+.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table td:nth-child(4),
+.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table td:nth-child(6),
+.fiscal-entry-only-screen .fiscal-entry-list-panel .classic-table td:nth-child(1),
+.fiscal-entry-only-screen .fiscal-entry-list-panel .classic-table td:nth-child(2),
+.fiscal-entry-only-screen .fiscal-entry-list-panel .classic-table td:nth-child(4),
+.fiscal-entry-only-screen .fiscal-entry-list-panel .classic-table td:nth-child(6) {
+  text-align: center;
+}
+
+.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table th:nth-child(2),
+.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table td:nth-child(2),
+.fiscal-entry-only-screen .fiscal-entry-list-panel .classic-table th:nth-child(2),
+.fiscal-entry-only-screen .fiscal-entry-list-panel .classic-table td:nth-child(2) {
+  width: 75px;
+  min-width: 75px;
+  max-width: 75px;
+}
+
+.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table th:nth-child(6),
+.fiscal-document-queue-layout .fiscal-entry-list-panel .classic-table td:nth-child(6),
+.fiscal-entry-only-screen .fiscal-entry-list-panel .classic-table th:nth-child(6),
+.fiscal-entry-only-screen .fiscal-entry-list-panel .classic-table td:nth-child(6) {
+  width: 95px;
+  min-width: 95px;
+  max-width: 95px;
 }
 
 .classic-modal {
@@ -4347,7 +4698,9 @@ h2 {
 }
 
 .confirmation-modal {
-  width: min(100%, 500px);
+  width: min(calc(100vw - 32px), 800px);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
 }
 
 .confirmation-modal-body {
@@ -4376,11 +4729,54 @@ h2 {
   color: #687584;
   font-size: 0.78rem;
   line-height: 1.45;
+  white-space: pre-line;
+}
+
+.confirmation-modal-detail-list {
+  display: grid;
+  grid-column: 2;
+  gap: 8px;
+  min-width: 0;
+  max-height: min(46vh, 420px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.confirmation-modal-detail-item {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid #d7e0e9;
+  border-radius: 6px;
+  background: #f7f9fb;
+}
+
+.confirmation-modal-detail-item strong {
+  color: #26384b;
+  font-size: 0.82rem;
+  line-height: 1.3;
+}
+
+.confirmation-modal-detail-item span {
+  color: #536274;
+  font-size: 0.76rem;
+  line-height: 1.45;
 }
 
 .confirmation-modal-actions {
   justify-content: flex-end;
   padding: 12px 24px 20px;
+}
+
+@media (max-width: 640px) {
+  .confirmation-modal {
+    width: min(calc(100vw - 20px), 800px);
+  }
+
+  .confirmation-modal-detail-list,
+  .confirmation-modal-detail {
+    grid-column: 1 / -1;
+  }
 }
 
 .classic-button.danger {
@@ -5744,6 +6140,82 @@ h2 {
   object-fit: contain;
 }
 
+.fiscal-entry-design-feedback {
+  margin: 0;
+  padding: 10px 26px 14px;
+  border-top: 1px solid #d6dee7;
+  color: #1d5e9f;
+  background: #f7f9fb;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.fiscal-entry-test-content {
+  display: block;
+}
+
+.fiscal-entry-test-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+
+.fiscal-entry-test-layout > .fiscal-entry-test-recipe-panel,
+.fiscal-entry-test-layout > .fiscal-entry-test-queue-panel {
+  grid-column: auto !important;
+  grid-row: auto;
+}
+
+.fiscal-entry-test-recipe-panel,
+.fiscal-entry-test-queue-panel {
+  min-width: 0;
+  height: 100%;
+}
+
+.fiscal-entry-test-recipe-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.fiscal-entry-test-wide-field {
+  grid-column: span 2;
+}
+
+.fiscal-entry-test-components {
+  margin-top: 8px;
+}
+
+.fiscal-entry-test-component-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1.5fr) minmax(82px, 0.7fr) minmax(76px, 0.65fr) 30px;
+  gap: 6px;
+  align-items: center;
+}
+
+.fiscal-entry-test-component-row input,
+.fiscal-entry-test-component-row select {
+  min-width: 0;
+  width: 100%;
+}
+
+.fiscal-entry-test-component-number {
+  color: #2f855a;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+.fiscal-entry-test-notes {
+  margin-top: 16px;
+}
+
+.fiscal-entry-test-status-label {
+  float: right;
+  color: #8a5a00;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
 @media (max-width: 1100px) {
   .sale-screen {
     padding: 24px;
@@ -5779,6 +6251,21 @@ h2 {
 
   .fiscal-entry-header-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .fiscal-entry-mode-panel,
+  .fiscal-entry-design-heading,
+  .fiscal-entry-design-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .fiscal-entry-design-form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .fiscal-entry-design-lower-grid {
+    grid-template-columns: 1fr;
   }
 
   .fiscal-document-queue-screen .classic-content {
@@ -5829,6 +6316,46 @@ h2 {
 }
 
 @media (max-width: 620px) {
+  .fiscal-entry-test-recipe-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .fiscal-entry-test-wide-field {
+    grid-column: auto;
+  }
+
+  .fiscal-entry-test-component-row {
+    grid-template-columns: 24px minmax(0, 1fr) 30px;
+  }
+
+  .fiscal-entry-test-component-row input:nth-of-type(2),
+  .fiscal-entry-test-component-row select {
+    grid-column: 2;
+  }
+
+  .fiscal-entry-test-component-row button {
+    grid-column: 3;
+    grid-row: 1 / span 3;
+  }
+
+  .fiscal-entry-mode-actions,
+  .fiscal-entry-design-footer > div {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .fiscal-entry-mode-card {
+    min-width: 0;
+  }
+
+  .fiscal-entry-design-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .fiscal-entry-design-wide-field {
+    grid-column: auto;
+  }
+
   .backup-directory-picker {
     grid-template-columns: 1fr;
   }

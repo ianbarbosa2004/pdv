@@ -17,6 +17,10 @@ acentos, filtrar unidades culinárias pela base da unidade tributável do Produt
 e filtrar conversões pela unidade escolhida, pela unidade tributável de destino
 e pelo estado físico. A API repete
 essas validações antes de inserir os dados na transação.
+Em Composições de Produto, componentes que apontam para outra Receita também
+exigem a Unidade Culinária compatível com o rendimento da Receita, mas continuam
+sem Conversão. Nos comboboxes, os itens são identificados por `Receita -` ou
+`Composição -` conforme o tipo cadastrado.
 
 Medidas culinárias como colheres, xícaras e doses não têm base nem categoria
 físicas fixas: o mesmo recipiente pode representar massa, pó ou líquido. Nesses
@@ -37,9 +41,10 @@ desabilitados até a seleção do componente. A listagem de componentes aparece
 abaixo desse bloco, com área fixa de `248px` e margem inferior de `30px` no
 botão de inclusão para evitar que a listagem fique visualmente colada ao
 editor.
-Quantidade, rendimento e perda usam a máscara numérica padrão do
-projeto durante a digitação; ao sair da edição de quantidade ou perda, o valor
-é normalizado com duas casas decimais. A lista de componentes exibe a ordem, permite reordenar com setas e
+Quantidade e rendimento usam máscara com três casas decimais; a perda e os
+valores monetários continuam com duas casas. Ao sair da edição de quantidade ou
+perda, o valor é normalizado conforme a escala do campo. O fator de conversão
+também aceita três casas decimais. A lista de componentes exibe a ordem, permite reordenar com setas e
 apresenta o custo calculado por componente e o custo total estimado alinhado à
 direita no rodapé, sem SKU ou coluna de Conversão. A conversão continua sendo
 usada no cálculo e na edição do componente. Quando a unidade do Produto é quilograma, por
@@ -1552,6 +1557,13 @@ combinados antes da ordenação da lista.
 A consulta da listagem usa `includeCompleted=1` para incluir também entradas
 Confirmadas e Canceladas; os filtros visuais continuam separando esses status
 dos registros Em Digitação e Em Aberto.
+
+**Pré-entrada de NF-e / NFC-e** permanece dedicada à revisão de documentos
+importados, vínculos, conversões e pagamentos. O link separado
+**Entrada de NF-e / NFC-e (Teste)** copia visualmente o formulário de
+**Nova Receita ou Composição** e a listagem **Documentos na Fila**, com campo de
+pesquisa local. Ao abrir uma linha da fila, o formulário exibe o cabeçalho
+fiscal usado em **Pré-entrada em aberto** e os componentes para edição visual.
 
 Na revisão da Pré-entrada, o valor dos produtos marcados é somado com
 conversão tolerante a valores decimais brasileiros e exibido no campo de

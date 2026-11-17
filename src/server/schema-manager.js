@@ -792,7 +792,9 @@ const initializeFiscalEntrySchema = async () => {
     createdAtFiscalEntry TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updatedAtFiscalEntry TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     confirmedAtFiscalEntry TIMESTAMP NULL,
+    confirmedByOperator BIGINT UNSIGNED NULL,
     cancelledAtFiscalEntry TIMESTAMP NULL,
+    cancelledByOperator BIGINT UNSIGNED NULL,
     PRIMARY KEY (idFiscalEntry),
     UNIQUE KEY uqFiscalEntriesDocument (idFiscalDocument),
     KEY idxFiscalEntriesStatus (statusFiscalEntry, updatedAtFiscalEntry),
@@ -803,6 +805,18 @@ const initializeFiscalEntrySchema = async () => {
   await pool.query(
     "ALTER TABLE fiscal_entries MODIFY COLUMN statusFiscalEntry ENUM('draft', 'open', 'confirmed', 'cancelled') NOT NULL DEFAULT 'draft'"
   );
+  const [fiscalEntryColumns] = await pool.query(
+    `SELECT COLUMN_NAME
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'fiscal_entries'`
+  );
+  const fiscalEntryColumnNames = new Set(fiscalEntryColumns.map(({ COLUMN_NAME }) => COLUMN_NAME));
+  if (!fiscalEntryColumnNames.has("confirmedByOperator")) {
+    await pool.query("ALTER TABLE fiscal_entries ADD COLUMN confirmedByOperator BIGINT UNSIGNED NULL AFTER confirmedAtFiscalEntry");
+  }
+  if (!fiscalEntryColumnNames.has("cancelledByOperator")) {
+    await pool.query("ALTER TABLE fiscal_entries ADD COLUMN cancelledByOperator BIGINT UNSIGNED NULL AFTER cancelledAtFiscalEntry");
+  }
   await pool.query(`CREATE TABLE IF NOT EXISTS fiscal_entry_items (
     idFiscalEntryItem BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     idFiscalEntry BIGINT UNSIGNED NOT NULL,
@@ -1213,7 +1227,8 @@ const ensureProductCatalogSchema = () => {
     ["isFractionalProduct", "ALTER TABLE products ADD COLUMN isFractionalProduct TINYINT(1) NOT NULL DEFAULT 0 AFTER controlsStockProduct"],
     ["printsPlace", "ALTER TABLE products ADD COLUMN printsPlace VARCHAR(20) NOT NULL DEFAULT 'Não Imprimir' AFTER isFractionalProduct"],
     ["showsInPdvProduct", "ALTER TABLE products ADD COLUMN showsInPdvProduct TINYINT(1) NOT NULL DEFAULT 1 AFTER printsPlace"],
-    ["costPriceProduct", "ALTER TABLE products ADD COLUMN costPriceProduct DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER priceProduct"]
+    ["costPriceProduct", "ALTER TABLE products ADD COLUMN costPriceProduct DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER priceProduct"],
+    ["costPolicyProduct", "ALTER TABLE products ADD COLUMN costPolicyProduct ENUM('last', 'average') NOT NULL DEFAULT 'last' AFTER costPriceProduct"]
   ];
   for (const [name, statement] of additions) {
     if (!existing.has(name)) await pool.query(statement);
@@ -1247,6 +1262,75 @@ const ensureProductCatalogSchema = () => {
     productCatalogSchemaPromise = null;
   });
   return productCatalogSchemaPromise;
+};
+
+let inventorySchemaPromise = null;
+
+const ensureInventorySchema = () => {
+  if (inventorySchemaPromise) return inventorySchemaPromise;
+  inventorySchemaPromise = (async () => {
+    await ensureProductCatalogSchema();
+    await ensureFiscalEntrySchema();
+    await pool.query(`CREATE TABLE IF NOT EXISTS inventory_movements (
+      idInventoryMovement BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      idProduct BIGINT UNSIGNED NOT NULL,
+      idFiscalEntry BIGINT UNSIGNED NULL,
+      typeInventoryMovement ENUM('fiscal_entry', 'inventory', 'fiscal_entry_reversal') NOT NULL,
+      quantityDeltaInventoryMovement DECIMAL(14,4) NOT NULL DEFAULT 0,
+      previousStockInventoryMovement DECIMAL(14,4) NOT NULL DEFAULT 0,
+      nextStockInventoryMovement DECIMAL(14,4) NOT NULL DEFAULT 0,
+      previousCostInventoryMovement DECIMAL(14,4) NOT NULL DEFAULT 0,
+      nextCostInventoryMovement DECIMAL(14,4) NOT NULL DEFAULT 0,
+      costPolicyInventoryMovement ENUM('last', 'average') NULL,
+      reasonInventoryMovement VARCHAR(500) NULL,
+      idOperator BIGINT UNSIGNED NULL,
+      createdAtInventoryMovement TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (idInventoryMovement),
+      KEY idxInventoryMovementsProductDate (idProduct, createdAtInventoryMovement),
+      KEY idxInventoryMovementsFiscalEntry (idFiscalEntry),
+      CONSTRAINT fkInventoryMovementsProduct
+        FOREIGN KEY (idProduct) REFERENCES products (idProduct)
+        ON DELETE RESTRICT,
+      CONSTRAINT fkInventoryMovementsFiscalEntry
+        FOREIGN KEY (idFiscalEntry) REFERENCES fiscal_entries (idFiscalEntry)
+        ON DELETE RESTRICT,
+      CONSTRAINT fkInventoryMovementsOperator
+        FOREIGN KEY (idOperator) REFERENCES operators (idOperator)
+        ON DELETE SET NULL
+    ) ENGINE=InnoDB`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS inventory_counts (
+      idInventoryCount BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      idOperator BIGINT UNSIGNED NULL,
+      reasonInventoryCount VARCHAR(500) NOT NULL,
+      createdAtInventoryCount TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (idInventoryCount),
+      KEY idxInventoryCountsDate (createdAtInventoryCount),
+      CONSTRAINT fkInventoryCountsOperator
+        FOREIGN KEY (idOperator) REFERENCES operators (idOperator)
+        ON DELETE SET NULL
+    ) ENGINE=InnoDB`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS inventory_count_items (
+      idInventoryCountItem BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      idInventoryCount BIGINT UNSIGNED NOT NULL,
+      idProduct BIGINT UNSIGNED NOT NULL,
+      previousStockInventoryCountItem DECIMAL(14,4) NOT NULL DEFAULT 0,
+      countedQuantityInventoryCountItem DECIMAL(14,4) NOT NULL DEFAULT 0,
+      quantityDeltaInventoryCountItem DECIMAL(14,4) NOT NULL DEFAULT 0,
+      createdAtInventoryCountItem TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (idInventoryCountItem),
+      UNIQUE KEY uqInventoryCountItemsProduct (idInventoryCount, idProduct),
+      CONSTRAINT fkInventoryCountItemsCount
+        FOREIGN KEY (idInventoryCount) REFERENCES inventory_counts (idInventoryCount)
+        ON DELETE CASCADE,
+      CONSTRAINT fkInventoryCountItemsProduct
+        FOREIGN KEY (idProduct) REFERENCES products (idProduct)
+        ON DELETE RESTRICT
+    ) ENGINE=InnoDB`);
+  })().catch((error) => {
+    inventorySchemaPromise = null;
+    throw error;
+  });
+  return inventorySchemaPromise;
 };
 
 let culinarySchemaPromise = null;
@@ -2047,8 +2131,29 @@ const synchronizeNavigationDefaults = async () => {
      SET labelNavigationItem = ?, descriptionNavigationItem = ?
      WHERE keyNavigationItem = ? AND labelNavigationItem = ?`,
     [
+      "Entrada de NF-e / NFC-e",
+      "Revise entradas de NF-e e NFC-e, itens, vínculos, conversões e pagamentos.",
+      "fiscal-entry-xml",
+      "Entrada de NF-e / NFC-e"
+    ]
+  );
+  await pool.query(
+    `UPDATE navigation_items
+     SET labelNavigationItem = ?, descriptionNavigationItem = ?
+     WHERE keyNavigationItem = ?`,
+    [
+      "Entrada de NF-e / NFC-e (Teste)",
+      "Teste visual da entrada com formulário e documentos em aberto.",
+      "fiscal-entry-design"
+    ]
+  );
+  await pool.query(
+    `UPDATE navigation_items
+     SET labelNavigationItem = ?, descriptionNavigationItem = ?
+     WHERE keyNavigationItem = ? AND labelNavigationItem = ?`,
+    [
       "Fila de Documentos",
-      "Importe documentos fiscais e acompanhe as pré-entradas em estado Em Aberto.",
+      "Importe documentos fiscais e acompanhe as entradas em estado Em Aberto.",
       "fiscal-document-queue",
       "Fila de NF-e/NFC-e"
     ]
@@ -2387,6 +2492,7 @@ const ensureOperatorCashSchema = async () => {
     ensureSaleFiscalSchema,
     ensureFiscalDocumentQueueSchema,
     ensureFiscalEntrySchema,
+    ensureInventorySchema,
     ensureFiscalOperationSchema,
     ensureNcmCestSchema,
     ensureProductFiscalSchema,

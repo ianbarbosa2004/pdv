@@ -11,6 +11,7 @@ import {
 } from "../../src/shared/recipe.js";
 import {
   filterRecipeComponentOptions,
+  formatRecipeComponentLabel,
   formatRecipeComponentUnit,
   getAvailableRecipeConversions,
   getCompatibleCulinaryUnits,
@@ -19,6 +20,11 @@ import {
   getProductTargetCulinaryUnitId,
   resolveRecipeComponentConversionFactor
 } from "../../src/shared/recipe-component.js";
+
+test("rotula componentes de receita pelo tipo", () => {
+  assert.equal(formatRecipeComponentLabel({ kindRecipe: "production", nameRecipe: "Molho" }), "Receita - Molho");
+  assert.equal(formatRecipeComponentLabel({ kindRecipe: "composition", nameRecipe: "Kit" }), "Composição - Kit");
+});
 
 test("filtra componentes por busca sem diferenciar caixa ou acentos", () => {
   assert.deepEqual(

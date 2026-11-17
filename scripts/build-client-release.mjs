@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
+import { selectCurrentInstallerFiles } from "./release-installer-selection.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const releaseDir = join(root, "dist", "releases");
@@ -70,10 +71,6 @@ const safeName = (value) => String(value || "empresa")
 
 const projectName = "PDV Zanzibar";
 const releaseName = safeName(projectName);
-const bundleFilePattern = new RegExp(
-  `^PDV Zanzibar_${packageVersion.replaceAll(".", "\\.")}_.+\\.(msi|exe)$`,
-  "i"
-);
 const releaseFilePattern = new RegExp(
   `^${releaseName}(?:-\\d+\\.\\d+\\.\\d+)?(?:-PDV(?: Zanzibar)?_.*|-metadata)?\\.(?:msi|exe|json)$`,
   "i"
@@ -114,25 +111,24 @@ const bundleDirectories = [
   join(root, "src-tauri", "target", "release", "bundle", "nsis")
 ];
 const copied = [];
-const copiedExtensions = new Set();
+const bundleCandidates = [];
 for (const directory of bundleDirectories) {
   if (!existsSync(directory)) continue;
   const files = (await readdir(directory))
-    .filter((file) => bundleFilePattern.test(file))
     .sort();
-  for (const file of files) {
-    const source = join(directory, file);
-    const extension = file.slice(file.lastIndexOf(".")).toLowerCase();
-    if (copiedExtensions.has(extension)) {
-      throw new Error(`Mais de um instalador ${extension} da versão ${packageVersion} foi encontrado.`);
-    }
-    const target = join(releaseDir, `${releaseName}${extension}`);
-    await copyFile(source, target);
-    copied.push(target);
-    copiedExtensions.add(extension);
-  }
+  bundleCandidates.push(...files.map((file) => ({ directory, file })));
 }
-if (!copied.length) throw new Error("O build terminou, mas nenhum instalador MSI/EXE foi encontrado.");
+const selectedBundleFiles = selectCurrentInstallerFiles(
+  bundleCandidates.map(({ file }) => file),
+  { projectName, version: packageVersion }
+);
+for (const [extension, file] of selectedBundleFiles) {
+  const candidate = bundleCandidates.find((entry) => entry.file === file);
+  if (!candidate) throw new Error(`Instalador selecionado não encontrado: ${file}.`);
+  const target = join(releaseDir, `${releaseName}${extension}`);
+  await copyFile(join(candidate.directory, candidate.file), target);
+  copied.push(target);
+}
 await writeFile(
   join(releaseDir, `${releaseName}-metadata.json`),
   `${JSON.stringify(releaseMetadata, null, 2)}\n`,

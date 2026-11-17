@@ -582,10 +582,12 @@ pdv-zanzibar.exe
 pdv-zanzibar-metadata.json
 ```
 
-Os nomes não incluem a versão. Antes de copiar os instaladores, confirme que
-eles foram gerados a partir do checkout mesclado em `main` e que o metadata
-aponta para a API correta. Use `--refresh-icons` somente quando o ícone fonte
-for alterado.
+Os nomes não incluem a versão. O script considera somente arquivos cujo nome
+contenha a versão atual do `package.json`, exige exatamente um MSI e um EXE,
+ignora artefatos de versões anteriores e falha diante de duplicidade ou formato
+ausente. Antes de copiar os instaladores, confirme que eles foram gerados a
+partir do checkout mesclado em `main` e que o metadata aponta para a API
+correta. Use `--refresh-icons` somente quando o ícone fonte for alterado.
 
 Após alterações no cadastro de Tipos de Produtos, confirme na API:
 
