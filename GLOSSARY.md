@@ -95,12 +95,16 @@ _Evitar_: status da nota fiscal, situação do produto.
 Estado inicial persistido de uma Pré-entrada, usado enquanto itens, vínculos,
 seleções, conversões ou pagamento ainda estão sendo preenchidos. Permite salvar
 o rascunho sem movimentar estoque e sem considerá-lo validado para conclusão.
+Uma Entrada manual pode retornar a este estado a partir de Em Aberto, preservando
+os dados já preenchidos para nova edição.
 _Evitar_: entrada incompleta descartada, Em Aberto.
 
 **Em Aberto**:
 Estado de uma entrada fiscal já gravada, mas ainda não concluída para
 movimentação de estoque. A entrada permanece disponível para continuidade,
-revisão ou confirmação posterior e não movimenta nem reserva estoque.
+revisão ou confirmação posterior e não movimenta nem reserva estoque. Uma
+Entrada manual pode ser reaberta explicitamente para Em Digitação antes da
+confirmação.
 _Evitar_: entrada confirmada, estoque lançado, nota autorizada.
 
 **Consulta fiscal**:
@@ -113,6 +117,21 @@ _Evitar_: abertura manual do portal, consulta demonstrativa.
 Operação futura que transforma um Documento fiscal eletrônico confirmado em
 itens, quantidades e valores movimentados no estoque.
 _Evitar_: inclusão na Fila de documentos fiscais.
+
+**Entrada manual**:
+Entrada de estoque registrada pelo operador a partir dos dados de uma Nota
+fiscal ou de um Pedido, sem depender de importação ou consulta fiscal
+automática. A origem documental identifica o contexto do registro, mas não
+cria um fluxo operacional separado. Seu registro usa uma data obrigatória e um
+número opcional, independentemente da origem; cada Produto comercial usa a sua
+única Unidade tributável cadastrada, sem conversão na entrada.
+_Evitar_: lançamento sem fornecedor, importação fiscal.
+
+**Origem documental**:
+Classificação que informa se uma Entrada manual foi registrada a partir de uma
+Nota fiscal ou de um Pedido. A classificação descreve a procedência dos dados,
+não altera os estados nem as regras de confirmação da Entrada.
+_Evitar_: status da entrada, tipo de Produto comercial.
 
 **Entrada confirmada**:
 Entrada de estoque concluída na tela operacional de Pré-entrada, com atualização

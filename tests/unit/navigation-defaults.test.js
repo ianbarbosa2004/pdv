@@ -67,7 +67,7 @@ test("define Entrada de NF-e / NFC-e como item direto do menu Estoque", () => {
   );
 });
 
-test("define Entrada de NF-e / NFC-e (Teste) como tela separada no menu Estoque", () => {
+test("define Entrada Manual como tela separada no menu Estoque", () => {
   const entryItem = DEFAULT_NAVIGATION.items.find((item) => item.keyNavigationItem === "fiscal-entry-design");
 
   assert.deepEqual(
@@ -80,12 +80,28 @@ test("define Entrada de NF-e / NFC-e (Teste) como tela separada no menu Estoque"
     },
     {
       menuKey: "stock",
-      label: "Entrada de NF-e / NFC-e (Teste)",
+      label: "Entrada Manual",
       route: "fiscal-entry-design",
       type: "bar",
       parentKey: null
     }
   );
+});
+
+test("reconcilia o rótulo legado da Entrada Manual", () => {
+  const navigation = reconcileNavigation({
+    menus: [{ idNavigationMenu: 7, keyNavigationMenu: "stock", labelNavigationMenu: "Estoque" }],
+    items: [{
+      idNavigationItem: 8,
+      idNavigationMenu: 7,
+      keyNavigationItem: "fiscal-entry-design",
+      labelNavigationItem: "Entrada de NF-e / NFC-e (Teste)",
+      routeNavigationItem: "fiscal-entry-design"
+    }]
+  });
+  const entryItem = navigation.items.find((item) => item.keyNavigationItem === "fiscal-entry-design");
+  assert.equal(entryItem.labelNavigationItem, "Entrada Manual");
+  assert.equal(entryItem.descriptionNavigationItem, "Registre entradas manuais por Nota fiscal ou Pedido.");
 });
 
 test("define barras contextuais singleton para telas operacionais", () => {

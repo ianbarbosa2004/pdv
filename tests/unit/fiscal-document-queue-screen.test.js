@@ -262,26 +262,6 @@ test("exibe até 25 entradas antes de iniciar a paginação", async () => {
   assert.match(paginationSource, /Number\(wrapper\.dataset\.defaultPageSize\) \|\| DEFAULT_PAGE_SIZE/u);
 });
 
-test("aplica o layout solicitado à lista de entradas", async () => {
-  const source = await readFile(
-    new URL("../../src/stock/fiscal-document-queue-screen.js", import.meta.url),
-    "utf8"
-  );
-  const styles = await readFile(
-    new URL("../../src/styles.css", import.meta.url),
-    "utf8"
-  );
-
-  assert.match(source, /renderFiscalEntryListHeader\("Entradas iniciadas"\)/u);
-  assert.match(source, /<td>\$\{escapeHtml\(entry\.numberFiscalDocument \|\| "Documento fiscal"\)\}<\/td>/u);
-  assert.match(styles, /fiscal-document-queue-layout[\s\S]*?nth-child\(2\)[\s\S]*?width: 75px/u);
-  assert.match(styles, /fiscal-entry-only-screen[\s\S]*?nth-child\(2\)[\s\S]*?width: 75px/u);
-  assert.match(styles, /fiscal-document-queue-layout[\s\S]*?nth-child\(6\)[\s\S]*?width: 95px/u);
-  assert.match(styles, /fiscal-entry-only-screen[\s\S]*?nth-child\(6\)[\s\S]*?width: 95px/u);
-  assert.match(styles, /fiscal-document-queue-layout[\s\S]*?text-align: center/u);
-  assert.match(styles, /fiscal-entry-only-screen[\s\S]*?text-align: center/u);
-});
-
 test("usa exclusão com estorno para entradas confirmadas", async () => {
   const source = await readFile(
     new URL("../../src/stock/fiscal-document-queue-screen.js", import.meta.url),

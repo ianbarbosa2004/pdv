@@ -4083,6 +4083,286 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  const manualEntryDetailMatch = request.url.match(/^\/api\/stock\/manual-entries\/(\d+)$/);
+  const manualEntryItemsTotal = (items) => items.reduce(
+    (total, item) => total + Number((item.quantity * item.unitPrice).toFixed(2)),
+    0
+  );
+  const normalizeManualDate = (value) => {
+    const text = String(value ?? "").trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : "";
+  };
+  const normalizeManualPayload = async (payload, connection = pool, { requireOpen = false } = {}) => {
+    const origin = ["nota_fiscal", "pedido"].includes(String(payload?.origin || "")) ? String(payload.origin) : "";
+    const date = normalizeManualDate(payload?.entryDate);
+    const idSupplier = parsePositiveId(payload?.idSupplier);
+    const items = Array.isArray(payload?.items) ? payload.items.map((item, index) => {
+      const idProduct = parsePositiveId(item?.idProduct);
+      const quantity = Number(String(item?.quantity ?? "").replace(",", "."));
+      const unitPrice = Number(String(item?.unitPrice ?? "").replace(",", "."));
+      if (!idProduct || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitPrice) || unitPrice <= 0) {
+        throw new SaleValidationError(`Informe produto, quantidade e preço válidos na linha ${index + 1}.`);
+      }
+      return { idProduct, quantity, unitPrice };
+    }) : [];
+    const payments = Array.isArray(payload?.payments) ? payload.payments.flatMap((payment) => {
+      const description = String(payment?.description ?? "").trim();
+      const amount = Number(String(payment?.amount ?? "").replace(",", "."));
+      if (!description && !String(payment?.amount ?? "").trim()) return [];
+      if (!description || !Number.isFinite(amount) || amount <= 0) {
+        throw new SaleValidationError("Informe descrição e valor válidos para cada pagamento.");
+      }
+      return [{ description, amount }];
+    }) : [];
+    const number = String(payload?.number ?? "").trim();
+    const total = Number(manualEntryItemsTotal(items).toFixed(2));
+    if (!origin) throw new SaleValidationError("Selecione a origem da entrada.");
+    if (!date) throw new SaleValidationError("Informe uma data válida.");
+    const paymentsTotal = Number(payments.reduce((sum, payment) => sum + payment.amount, 0).toFixed(2));
+    if (requireOpen && (!idSupplier || !date || !items.length || !payments.length
+      || Math.abs(paymentsTotal - total) > 0.005)) {
+      throw new SaleValidationError("Para abrir, informe fornecedor, data, itens positivos e pagamentos com total exato.");
+    }
+    if (idSupplier) {
+      const [suppliers] = await connection.query(
+        "SELECT * FROM suppliers WHERE idSupplier = ? AND isActiveSupplier = 1",
+        [idSupplier]
+      );
+      if (!suppliers.length) throw new SaleValidationError("Fornecedor ativo não encontrado.", 409);
+    }
+    for (const item of items) {
+      const [products] = await connection.query(
+        `SELECT p.idProduct, p.nameProduct, p.skuProduct, p.idUnitProduct,
+                u.codeUnit, u.descriptionUnit
+         FROM products p
+         LEFT JOIN units u ON u.idUnit = p.idUnitProduct
+         WHERE p.idProduct = ? AND p.isActiveProduct = 1
+           AND p.idUnitProduct IS NOT NULL AND u.isActiveUnit = 1 AND u.isTaxableUnit = 1`,
+        [item.idProduct]
+      );
+      if (!products.length) throw new SaleValidationError("Todos os produtos devem estar ativos e possuir uma única unidade tributável.", 409);
+      item.product = products[0];
+    }
+    return { origin, date, number, idSupplier, items, payments, total };
+  };
+  const ensureManualDocumentIsUnique = async (connection, { origin, number, idSupplier }, excludeId = null) => {
+    if (!number || !idSupplier) return;
+    const [duplicates] = await connection.query(
+      `SELECT e.idFiscalEntry
+       FROM fiscal_entries e
+       JOIN fiscal_documents d ON d.idFiscalDocument = e.idFiscalDocument
+       WHERE d.originFiscalDocument = 'manual'
+         AND d.manualSourceFiscalDocument = ?
+         AND d.idSupplierFiscalDocument = ?
+         AND d.numberFiscalDocument = ?
+         AND e.statusFiscalEntry <> 'cancelled'
+         AND (? IS NULL OR e.idFiscalEntry <> ?)
+       LIMIT 1`,
+      [origin, idSupplier, number, excludeId, excludeId]
+    );
+    if (duplicates.length) {
+      throw new SaleValidationError("Já existe uma Entrada Manual com este fornecedor, origem e número.", 409);
+    }
+  };
+  if (request.method === "GET" && request.url === "/api/stock/manual-entries") {
+    try {
+      requireOperatorSession(request);
+      await ensureSupplierSchema();
+      await ensureFiscalEntrySchema();
+      const [entries] = await pool.query(
+        `SELECT e.idFiscalEntry, e.statusFiscalEntry, e.updatedAtFiscalEntry,
+                d.manualSourceFiscalDocument,
+                d.entryDateFiscalDocument AS manualEntryDateFiscalDocument,
+                d.numberFiscalDocument AS manualNumberFiscalDocument,
+                d.totalFiscalDocument,
+                s.idSupplier, s.companyNameSupplier, s.tradeNameSupplier,
+                (SELECT COALESCE(SUM(p.amountFiscalEntryPayment), 0)
+                   FROM fiscal_entry_payments p
+                  WHERE p.idFiscalEntry = e.idFiscalEntry) AS totalPaymentsFiscalEntry
+         FROM fiscal_entries e
+         JOIN fiscal_documents d ON d.idFiscalDocument = e.idFiscalDocument
+         LEFT JOIN suppliers s ON s.idSupplier = d.idSupplierFiscalDocument
+         WHERE d.originFiscalDocument = 'manual'
+         ORDER BY e.updatedAtFiscalEntry DESC, e.idFiscalEntry DESC`
+      );
+      json(response, 200, { manualEntries: entries });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao listar entradas manuais:", message: "Não foi possível carregar as entradas manuais.", duplicate: "" });
+    }
+    return;
+  }
+  if (request.method === "GET" && manualEntryDetailMatch) {
+    try {
+      requireOperatorSession(request);
+      await ensureFiscalEntrySchema();
+      const [entries] = await pool.query(
+        `SELECT e.*,
+                d.manualSourceFiscalDocument,
+                d.entryDateFiscalDocument AS manualEntryDateFiscalDocument,
+                d.numberFiscalDocument AS manualNumberFiscalDocument,
+                d.idSupplierFiscalDocument,
+                d.issuedAtFiscalDocument,
+                s.idSupplier, s.companyNameSupplier, s.tradeNameSupplier
+         FROM fiscal_entries e
+         JOIN fiscal_documents d ON d.idFiscalDocument = e.idFiscalDocument
+         LEFT JOIN suppliers s ON s.idSupplier = d.idSupplierFiscalDocument
+         WHERE e.idFiscalEntry = ? AND d.originFiscalDocument = 'manual'`,
+        [Number(manualEntryDetailMatch[1])]
+      );
+      if (!entries.length) throw new SaleValidationError("Entrada manual não encontrada.", 404);
+      const [items] = await pool.query(
+        `SELECT ei.idFiscalEntryItem, i.idFiscalDocumentItem, i.lineNumberFiscalDocumentItem,
+                i.descriptionFiscalDocumentItem, i.quantityFiscalDocumentItem,
+                i.unitPriceFiscalDocumentItem, i.totalFiscalDocumentItem,
+                p.idProduct, p.nameProduct, u.codeUnit, u.descriptionUnit
+         FROM fiscal_entry_items ei
+         JOIN fiscal_document_items i ON i.idFiscalDocumentItem = ei.idFiscalDocumentItem
+         JOIN product_fiscal_references pfr ON pfr.idProductFiscalReference = ei.idProductFiscalReference
+         JOIN products p ON p.idProduct = pfr.idProduct
+         JOIN units u ON u.idUnit = p.idUnitProduct
+         WHERE ei.idFiscalEntry = ? ORDER BY i.lineNumberFiscalDocumentItem`,
+        [Number(manualEntryDetailMatch[1])]
+      );
+      const [payments] = await pool.query(
+        `SELECT idFiscalEntryPayment, paymentDescriptionFiscalEntryPayment AS description,
+                amountFiscalEntryPayment AS amount
+         FROM fiscal_entry_payments WHERE idFiscalEntry = ? ORDER BY idFiscalEntryPayment`,
+        [Number(manualEntryDetailMatch[1])]
+      );
+      json(response, 200, { manualEntry: entries[0], items, payments });
+    } catch (error) {
+      handleError(response, error, { log: "Falha ao consultar entrada manual:", message: "Não foi possível carregar a entrada manual.", duplicate: "" });
+    }
+    return;
+  }
+  if (request.method === "POST" && request.url === "/api/stock/manual-entries") {
+    let connection = null;
+    try {
+      requireOperatorSession(request);
+      await ensureSupplierSchema(); await ensureProductCatalogSchema(); await ensureFiscalEntrySchema();
+      const payload = await readJsonBody(request);
+      const normalized = await normalizeManualPayload(payload, pool, { requireOpen: payload.status === "open" });
+      connection = await pool.getConnection(); await connection.beginTransaction();
+      await ensureManualDocumentIsUnique(connection, normalized);
+      const supplier = normalized.idSupplier ? (await connection.query("SELECT * FROM suppliers WHERE idSupplier = ?", [normalized.idSupplier]))[0][0] : null;
+      const accessKey = `MANUAL-${Date.now()}-${randomBytes(6).toString("hex")}`;
+      const [document] = await connection.query(
+        `INSERT INTO fiscal_documents
+          (idFiscalDocumentQueue, accessKeyFiscalDocument, modelFiscalDocument,
+           issuerDocumentFiscalDocument, issuerLegalNameFiscalDocument, issuerTradeNameFiscalDocument,
+           issuedAtFiscalDocument, numberFiscalDocument, totalFiscalDocument,
+           authorizationStatusFiscalDocument, originalXmlFiscalDocument,
+           originFiscalDocument, manualSourceFiscalDocument, idSupplierFiscalDocument, entryDateFiscalDocument)
+         VALUES (NULL, ?, 0, ?, ?, ?, ?, ?, ?, 'manual', '', 'manual', ?, ?, ?)`,
+        [accessKey, supplier?.documentSupplier || "", supplier?.companyNameSupplier || "",
+          supplier?.tradeNameSupplier || "", normalized.date, normalized.number, normalized.total.toFixed(2),
+          normalized.origin, normalized.idSupplier, normalized.date]
+      );
+      const documentId = document.insertId;
+      const [entry] = await connection.query("INSERT INTO fiscal_entries (idFiscalDocument, statusFiscalEntry) VALUES (?, ?)", [documentId, payload.status === "open" ? "open" : "draft"]);
+      for (const [index, item] of normalized.items.entries()) {
+        const [reference] = await connection.query(
+          `INSERT INTO product_fiscal_references
+             (idProduct, idStockUnit, conversionFactor, isActiveProductFiscalReference,
+              descriptionFiscalProductReference, fiscalUnitProductReference)
+           VALUES (?, ?, 1, 1, ?, ?)
+           ON DUPLICATE KEY UPDATE idStockUnit = VALUES(idStockUnit), isActiveProductFiscalReference = 1`,
+          [item.idProduct, item.product.idUnitProduct, item.product.nameProduct, item.product.codeUnit]
+        );
+        const [refs] = await connection.query(
+          `SELECT idProductFiscalReference FROM product_fiscal_references
+           WHERE idProduct = ? AND descriptionFiscalProductReference = ? AND fiscalUnitProductReference = ? LIMIT 1`,
+          [item.idProduct, item.product.nameProduct, item.product.codeUnit]
+        );
+        const [docItem] = await connection.query(
+          `INSERT INTO fiscal_document_items
+            (idFiscalDocument, lineNumberFiscalDocumentItem, descriptionFiscalDocumentItem,
+             fiscalUnitFiscalDocumentItem, quantityFiscalDocumentItem, unitPriceFiscalDocumentItem,
+             totalFiscalDocumentItem, taxableUnitFiscalDocumentItem)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [documentId, index + 1, item.product.nameProduct, item.product.codeUnit,
+            item.quantity.toFixed(4), item.unitPrice.toFixed(2), (item.quantity * item.unitPrice).toFixed(2), item.product.codeUnit]
+        );
+        await connection.query(
+          `INSERT INTO fiscal_entry_items (idFiscalEntry, idFiscalDocumentItem, idProductFiscalReference, selected, status)
+           VALUES (?, ?, ?, 1, 'linked')`,
+          [entry.insertId, docItem.insertId, refs[0]?.idProductFiscalReference || reference.insertId]
+        );
+      }
+      for (const payment of normalized.payments) {
+        await connection.query("INSERT INTO fiscal_entry_payments (idFiscalEntry, paymentDescriptionFiscalEntryPayment, amountFiscalEntryPayment) VALUES (?, ?, ?)", [entry.insertId, payment.description, payment.amount.toFixed(2)]);
+      }
+      await connection.commit(); connection.release(); connection = null;
+      json(response, 201, { idFiscalEntry: entry.insertId, statusFiscalEntry: payload.status === "open" ? "open" : "draft" });
+    } catch (error) {
+      if (connection) { await connection.rollback().catch(() => {}); connection.release(); }
+      handleError(response, error, { log: "Falha ao criar entrada manual:", message: "Não foi possível criar a entrada manual.", duplicate: "" });
+    }
+    return;
+  }
+  const manualEntryWriteMatch = (request.method === "PUT" && manualEntryDetailMatch) ? manualEntryDetailMatch : null;
+  if (manualEntryWriteMatch) {
+    let connection = null;
+    try {
+      requireOperatorSession(request); await ensureSupplierSchema(); await ensureProductCatalogSchema(); await ensureFiscalEntrySchema();
+      const payload = await readJsonBody(request);
+      connection = await pool.getConnection(); await connection.beginTransaction();
+      const [locked] = await connection.query(
+        `SELECT e.statusFiscalEntry, d.idFiscalDocument FROM fiscal_entries e
+         JOIN fiscal_documents d ON d.idFiscalDocument = e.idFiscalDocument
+         WHERE e.idFiscalEntry = ? AND d.originFiscalDocument = 'manual' FOR UPDATE`,
+        [Number(manualEntryWriteMatch[1])]
+      );
+      if (!locked.length) throw new SaleValidationError("Entrada manual não encontrada.", 404);
+      if (!["draft", "open"].includes(locked[0].statusFiscalEntry)) throw new SaleValidationError("Somente entradas em digitação ou em aberto podem ser alteradas.", 409);
+      const normalized = await normalizeManualPayload(payload, connection, { requireOpen: payload.status === "open" });
+      await ensureManualDocumentIsUnique(connection, normalized, Number(manualEntryWriteMatch[1]));
+      await connection.query("DELETE FROM fiscal_entry_payments WHERE idFiscalEntry = ?", [Number(manualEntryWriteMatch[1])]);
+      await connection.query("DELETE FROM fiscal_entry_items WHERE idFiscalEntry = ?", [Number(manualEntryWriteMatch[1])]);
+      await connection.query("DELETE FROM fiscal_document_items WHERE idFiscalDocument = ?", [locked[0].idFiscalDocument]);
+      const supplier = normalized.idSupplier ? (await connection.query("SELECT * FROM suppliers WHERE idSupplier = ?", [normalized.idSupplier]))[0][0] : null;
+      await connection.query(
+        `UPDATE fiscal_documents SET issuerDocumentFiscalDocument = ?, issuerLegalNameFiscalDocument = ?,
+         issuerTradeNameFiscalDocument = ?, numberFiscalDocument = ?, totalFiscalDocument = ?,
+         manualSourceFiscalDocument = ?, idSupplierFiscalDocument = ?, entryDateFiscalDocument = ?, issuedAtFiscalDocument = ?
+         WHERE idFiscalDocument = ?`,
+        [supplier?.documentSupplier || "", supplier?.companyNameSupplier || "", supplier?.tradeNameSupplier || "",
+          normalized.number, normalized.total.toFixed(2), normalized.origin, normalized.idSupplier, normalized.date,
+          normalized.date, locked[0].idFiscalDocument]
+      );
+      for (const [index, item] of normalized.items.entries()) {
+        const [refs] = await connection.query(
+          "SELECT idProductFiscalReference FROM product_fiscal_references WHERE idProduct = ? AND idStockUnit = ? AND conversionFactor = 1 AND isActiveProductFiscalReference = 1 LIMIT 1",
+          [item.idProduct, item.product.idUnitProduct]
+        );
+        let referenceId = refs[0]?.idProductFiscalReference;
+        if (!referenceId) {
+          const [ref] = await connection.query(
+            `INSERT INTO product_fiscal_references (idProduct, idStockUnit, conversionFactor, descriptionFiscalProductReference, fiscalUnitProductReference)
+             VALUES (?, ?, 1, ?, ?)`,
+            [item.idProduct, item.product.idUnitProduct, item.product.nameProduct, item.product.codeUnit]
+          );
+          referenceId = ref.insertId;
+        }
+        const [docItem] = await connection.query(
+          `INSERT INTO fiscal_document_items
+           (idFiscalDocument, lineNumberFiscalDocumentItem, descriptionFiscalDocumentItem, fiscalUnitFiscalDocumentItem,
+            quantityFiscalDocumentItem, unitPriceFiscalDocumentItem, totalFiscalDocumentItem, taxableUnitFiscalDocumentItem)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [locked[0].idFiscalDocument, index + 1, item.product.nameProduct, item.product.codeUnit, item.quantity.toFixed(4), item.unitPrice.toFixed(2), (item.quantity * item.unitPrice).toFixed(2), item.product.codeUnit]
+        );
+        await connection.query("INSERT INTO fiscal_entry_items (idFiscalEntry, idFiscalDocumentItem, idProductFiscalReference, selected, status) VALUES (?, ?, ?, 1, 'linked')", [Number(manualEntryWriteMatch[1]), docItem.insertId, referenceId]);
+      }
+      for (const payment of normalized.payments) await connection.query("INSERT INTO fiscal_entry_payments (idFiscalEntry, paymentDescriptionFiscalEntryPayment, amountFiscalEntryPayment) VALUES (?, ?, ?)", [Number(manualEntryWriteMatch[1]), payment.description, payment.amount.toFixed(2)]);
+      await connection.query("UPDATE fiscal_entries SET statusFiscalEntry = ? WHERE idFiscalEntry = ?", [payload.status === "open" ? "open" : "draft", Number(manualEntryWriteMatch[1])]);
+      await connection.commit(); connection.release(); connection = null;
+      json(response, 200, { idFiscalEntry: Number(manualEntryWriteMatch[1]), statusFiscalEntry: payload.status === "open" ? "open" : "draft" });
+    } catch (error) {
+      if (connection) { await connection.rollback().catch(() => {}); connection.release(); }
+      handleError(response, error, { log: "Falha ao atualizar entrada manual:", message: "Não foi possível atualizar a entrada manual.", duplicate: "" });
+    }
+    return;
+  }
   const fiscalEntriesUrl = new URL(request.url, "http://localhost");
   if (request.method === "GET" && fiscalEntriesUrl.pathname === "/api/stock/fiscal-entries") {
     try {
@@ -4093,6 +4373,7 @@ const server = createServer(async (request, response) => {
       const fiscalEntryStatusFilter = includeCompletedEntries
         ? ""
         : " AND e.statusFiscalEntry IN ('draft', 'open')";
+      const importedOnlyFilter = " AND COALESCE(d.originFiscalDocument, 'imported') <> 'manual'";
       const [[fiscalEntries], [missingSupplierRows]] = await Promise.all([
         pool.query(
           `SELECT e.idFiscalEntry, e.statusFiscalEntry, e.createdAtFiscalEntry,
@@ -4103,7 +4384,7 @@ const server = createServer(async (request, response) => {
                   d.totalFiscalDocument
            FROM fiscal_entries e
            JOIN fiscal_documents d ON d.idFiscalDocument = e.idFiscalDocument
-           WHERE 1 = 1${fiscalEntryStatusFilter}
+           WHERE 1 = 1${fiscalEntryStatusFilter}${importedOnlyFilter}
            ORDER BY e.updatedAtFiscalEntry DESC, e.idFiscalEntry DESC`
         ),
         pool.query(
@@ -4117,7 +4398,7 @@ const server = createServer(async (request, response) => {
              ON s.documentSupplier COLLATE utf8mb4_unicode_ci =
                 d.issuerDocumentFiscalDocument COLLATE utf8mb4_unicode_ci
             AND s.typeSupplier = IF(CHAR_LENGTH(TRIM(d.issuerDocumentFiscalDocument)) = 11, 'fisica', 'juridica')
-           WHERE 1 = 1${fiscalEntryStatusFilter}
+           WHERE 1 = 1${fiscalEntryStatusFilter}${importedOnlyFilter}
              AND s.idSupplier IS NULL
            GROUP BY d.issuerDocumentFiscalDocument
            ORDER BY companyNameSupplier, documentSupplier`

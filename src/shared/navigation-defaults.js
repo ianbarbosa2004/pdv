@@ -76,7 +76,7 @@ export const DEFAULT_NAVIGATION = Object.freeze({
     item("cadastros", "consumers", "Consumidores", "consumers", 6, null, "bar", "Cadastre e consulte consumidores para identificar atendimentos e vínculos com clientes."),
     item("stock", "fiscal-document-queue", "Fila de Documentos", "fiscal-document-queue", 1, null, "bar", "Importe documentos fiscais e acompanhe as entradas em estado Em Aberto."),
     item("stock", "fiscal-entry-xml", "Entrada de NF-e / NFC-e", "fiscal-entry-xml", 2, null, "bar", "Revise entradas de NF-e e NFC-e, itens, vínculos, conversões e pagamentos."),
-    item("stock", "fiscal-entry-design", "Entrada de NF-e / NFC-e (Teste)", "fiscal-entry-design", 3, null, "bar", "Teste visual da entrada com formulário e documentos em aberto."),
+    item("stock", "fiscal-entry-design", "Entrada Manual", "fiscal-entry-design", 3, null, "bar", "Registre entradas manuais por Nota fiscal ou Pedido."),
     item("stock", "product-fiscal-references", "Produtos Vinculados", "product-fiscal-references", 4, null, "bar", "Consulte os produtos comerciais vinculados a descrições fiscais de documentos."),
     item("stock", "inventory", "Inventário", "inventory", 5, null, "bar", "Conte quantidades físicas e registre ajustes auditáveis de estoque."),
     item("settings", "settings", "Impressoras", "settings", 1, null, "bar", "Defina as impressoras padrão usadas pelo PDV em cupons, comprovantes e relatórios."),
@@ -201,6 +201,10 @@ export const mergeNavigationDefaults = (navigation) => {
     if (definition.keyNavigationItem === "fiscal-entry-xml") {
       merged.labelNavigationItem = "Entrada de NF-e / NFC-e";
       merged.descriptionNavigationItem = "Revise entradas de NF-e e NFC-e, itens, vínculos, conversões e pagamentos.";
+    }
+    if (definition.keyNavigationItem === "fiscal-entry-design") {
+      merged.labelNavigationItem = "Entrada Manual";
+      merged.descriptionNavigationItem = "Registre entradas manuais por Nota fiscal ou Pedido.";
     }
     if (definition.keyNavigationItem === "fiscal-document-queue") {
       merged.descriptionNavigationItem = "Importe documentos fiscais e acompanhe as entradas em estado Em Aberto.";

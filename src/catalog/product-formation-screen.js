@@ -368,6 +368,7 @@ export function createProductFormationScreen({ onBack, onRecipes, ...menuHandler
     return `<form class="classic-form-panel formation-editor-panel" data-formation-form>
       <div class="classic-panel-header">${initial ? "Ficha Técnica" : readOnly ? "Visualização" : "Editar Ficha Técnica"}</div>
       <div class="classic-form-body">
+        ${error ? `<p class="error-message formation-form-error" role="alert">${escapeHtml(error)}</p>` : ""}
         <label class="form-field"><span>Produto Comercial</span><input readonly disabled placeholder="Selecione um produto na listagem" value="${escapeHtml(selectedProduct ? productLabel(selectedProduct) : "")}" /></label>
         <label class="form-field"><span>Observações</span><textarea maxlength="500" data-formation-notes rows="4" ${readOnly ? "readonly" : ""}>${escapeHtml(form.notesRecipe || "")}</textarea></label>
         <div class="classic-panel-header nested-panel-header">Componente</div>
@@ -422,7 +423,6 @@ export function createProductFormationScreen({ onBack, onRecipes, ...menuHandler
       </div>
       <section class="classic-content formation-content">
         ${renderSuccessFeedback(message, escapeHtml)}
-        ${error ? `<p class="error-message">${escapeHtml(error)}</p>` : ""}
         ${renderForm()}
         <section class="classic-grid-panel formation-list-panel recipe-list-panel">
           <div class="classic-panel-header classic-list-header"><span>Produtos a venda</span><input class="classic-list-search" data-formation-search type="search" placeholder="Pesquisar..." aria-label="Pesquisar produtos a venda" value="${escapeHtml(searchTerm)}" /></div>
