@@ -9,6 +9,7 @@ export const confirmAction = ({
   title = "Confirmar ação",
   message,
   detail = "",
+  detailItems = [],
   confirmLabel = "Confirmar",
   cancelLabel = "Cancelar"
 }) => new Promise((resolve) => {
@@ -24,6 +25,11 @@ export const confirmAction = ({
         <div class="confirmation-modal-icon" aria-hidden="true">!</div>
         <p id="confirmation-modal-message" class="modal-help-text">${escapeHtml(message)}</p>
         ${detail ? `<p class="confirmation-modal-detail">${escapeHtml(detail)}</p>` : ""}
+        ${detailItems.length ? `<div class="confirmation-modal-detail-list">${detailItems.map((item) => `
+          <div class="confirmation-modal-detail-item">
+            <strong>${escapeHtml(item.title)}</strong>
+            <span>${escapeHtml(item.summary)}</span>
+          </div>`).join("")}</div>` : ""}
       </div>
       <div class="classic-form-actions confirmation-modal-actions">
         <button class="classic-button primary danger" data-confirmation-confirm type="button">${escapeHtml(confirmLabel)}</button>

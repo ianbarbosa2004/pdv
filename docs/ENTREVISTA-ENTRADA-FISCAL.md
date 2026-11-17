@@ -129,16 +129,23 @@ produto e da conversão no contexto da própria nota.
   itens e autorização; o HTML original é preservado na mesma origem documental.
 - Persistência transacional do XML importado como pré-entrada **Em Aberto**.
 - Consulta da pré-entrada persistida para a futura tela de revisão.
-- Tela direta **Estoque → Entrada de NF-e / NFC-e**, separada da fila, com revisão dos
+- Tela direta **Estoque → Pré-entrada de NF-e / NFC-e**, separada da fila, com revisão dos
   itens, seleção parcial, vínculo por clique na linha, conversão, pagamentos e
   gravação explícita da pré-entrada em estado **Em Digitação** ou **Em Aberto**.
 - A tela também lista as pré-entradas iniciadas em **Em Digitação** ou
   **Em Aberto**, permitindo
   reabrir uma delas e continuar a revisão.
-- A tela **Entrada de NF-e / NFC-e** reúne a revisão das pré-entradas XML e
+- A tela **Pré-entrada de NF-e / NFC-e** reúne a revisão das pré-entradas XML e
   HTML, identifica cada registro pela coluna **Tipo** e divide abaixo o
   trabalho entre a lista à esquerda e a revisão selecionada à direita; em
   telas estreitas, os painéis ficam empilhados.
+- A tela **Estoque → Entrada de NF-e / NFC-e (Teste)** é separada da revisão de
+  pré-entradas e copia visualmente o formulário de **Nova Receita ou
+    Composição** e a listagem de **Documentos na Fila**, com pesquisa local e sem
+    dados da API.
+    Após abrir um documento, o cabeçalho fiscal da **Pré-entrada em aberto**
+    ocupa os campos superiores do formulário, mantendo o painel de componentes
+    para edição visual.
 - A conversão informa a unidade fiscal, a unidade de estoque e o fator
   explícito. Exemplo: `2 Dz × 12 = 24 Un`; o fator sugerido para dúzia/unidade
   é `12`, mas permanece editável na revisão.
@@ -157,6 +164,31 @@ produto e da conversão no contexto da própria nota.
 4. Adicionar testes para ambiguidade, duplicidade, cancelamento e confirmação.
 5. Analisar posteriormente o vídeo da entrada manual e compatibilizar os dois
    fluxos sem duplicar regras de domínio.
+
+## Decisões operacionais para estoque e custos
+
+As decisões abaixo foram fechadas para orientar o desenho técnico:
+
+- A confirmação acontece na tela **Estoque → Pré-entrada de NF-e / NFC-e**.
+  A tela **Entrada de NF-e / NFC-e (Teste)** permanece como protótipo visual.
+- O cadastro do Produto comercial terá uma **Política de custo**, com padrão
+  inicial **Último custo** para produtos existentes e novos.
+- A Pré-entrada mostrará a política aplicada, o custo atual e o novo custo
+  estimado. Uma substituição por item ficará disponível somente para operador
+  com permissão de estoque.
+- **Revisar impacto** mostrará somente itens selecionados e vinculados. A
+  confirmação ficará bloqueada enquanto houver item selecionado sem vínculo.
+- **Confirmar entrada** atualizará quantidade e custo na mesma transação. O
+  custo usará somente o valor dos produtos dividido pela quantidade convertida
+  para a unidade de estoque.
+- O **Inventário** será recorrente, em tela própria, e ajustará somente
+  quantidades. Cada contagem registrará a diferença, operador, data e motivo.
+- O **Histórico de movimentos** reunirá entradas, inventários e desfazimentos.
+- Receitas e Composições dependentes terão seus custos estimados recalculados
+  automaticamente, sem criar nova versão.
+- Entradas confirmadas poderão ser desfeitas por supervisor ou administrador,
+  com motivo obrigatório e registro auditável, mesmo após outros movimentos.
+  Divergências resultantes deverão ficar visíveis para revisão operacional.
 
 ## Regra de continuidade
 

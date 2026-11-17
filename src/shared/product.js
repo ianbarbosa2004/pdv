@@ -58,6 +58,7 @@ export const buildDuplicatedProductDraft = (product, {
   packageQuantityProduct: String(product?.packageQuantityProduct ?? "1"),
   priceProduct: String(product?.priceProduct ?? "0,00"),
   costPriceProduct: String(product?.costPriceProduct ?? "0,00"),
+  costPolicyProduct: String(product?.costPolicyProduct || "last"),
   stockQuantityProduct: "0",
   controlsStockProduct: Number(product?.controlsStockProduct) !== 0,
   isBuffetProduct: Number(product?.isBuffetProduct) !== 0,

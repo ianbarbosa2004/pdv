@@ -14,6 +14,7 @@ import {
   formatProductStockForInput,
   normalizeProductPackageQuantity
 } from "../shared/product.js";
+import { normalizeCostPolicy } from "../shared/inventory.js";
 
 const escapeHtml = (value) =>
   String(value ?? "")
@@ -38,6 +39,13 @@ const normalizeStockValue = (value, product) => {
     ? normalized.split(".")[0]
     : normalized;
 };
+
+const renderCostPolicyOptions = (selectedValue) => {
+  const policy = normalizeCostPolicy(selectedValue);
+  return `<option value="last" ${policy === "last" ? "selected" : ""}>Último custo</option><option value="average" ${policy === "average" ? "selected" : ""}>Custo médio</option>`;
+};
+
+const renderCostPolicyField = (product) => `<label class="form-field"><span class="field-label-with-help">Cálculo do custo <button class="field-help-trigger" type="button" aria-label="Ajuda sobre cálculo do custo" aria-describedby="views-cost-policy-help">?<span class="field-help-tooltip" id="views-cost-policy-help" role="tooltip"><strong>Último custo:</strong> usa o valor unitário da entrada mais recente. <strong>Custo médio:</strong> recalcula o valor pela média ponderada do estoque atual e da nova entrada.</span></button></span><select name="costPolicyProduct">${renderCostPolicyOptions(product.costPolicyProduct)}</select></label>`;
 
 const renderPhysicalStateOptions = (physicalStates, selectedId) =>
   `<option value="">Sem estado físico</option>${physicalStates.map((state) =>
@@ -131,6 +139,7 @@ const renderEditor = (product, groups, physicalStates, fiscalOperations, units, 
           </div>`}
           <div class="classic-form-grid product-cost-stock-row">
             <label class="form-field"><span>Preço de custo</span><input name="costPriceProduct" data-number-mask inputmode="decimal" required value="${escapeHtml(formatMaskedNumber(product.costPriceProduct ?? product.priceProduct))}" /></label>
+            ${renderCostPolicyField(product)}
             <label class="form-field"><span>Estoque</span><input name="stockQuantityProduct" type="${product.isFractionalProduct ? "text" : "number"}" inputmode="decimal" min="0" step="${product.isFractionalProduct ? "0.001" : "1"}" ${Number(product.controlsStockProduct) ? "" : "readonly disabled"} required value="${escapeHtml(formatProductStockForInput(product.stockQuantityProduct, product.isFractionalProduct))}" /></label>
           </div>
           <div class="classic-form-grid">
@@ -286,6 +295,7 @@ export function createProductViewsScreen({
           cestProduct: formData.get("cestProduct") || null,
           priceProduct: parseMoney(formData.get("priceProduct") || editingProduct.priceProduct),
           costPriceProduct: parseMoney(formData.get("costPriceProduct")),
+          costPolicyProduct: normalizeCostPolicy(formData.get("costPolicyProduct")),
           stockQuantityProduct: normalizeStockValue(formData.get("stockQuantityProduct"), editingProduct),
           controlsStockProduct: formData.get("controlsStockProduct") === "on",
           isBuffetProduct: formData.get("isBuffetProduct") === "on",

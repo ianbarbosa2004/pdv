@@ -91,7 +91,9 @@ export function createCostDivergenceScreen(menuHandlers = {}) {
       if (Number(payload.costPriceProduct).toFixed(2) !== expectedCost) {
         throw new Error("O preço de custo retornado pelo cadastro não corresponde ao valor atualizado.");
       }
-      message = "Preço de custo atualizado com sucesso.";
+      message = payload.updatedRecipeCount
+        ? `Preço de custo atualizado. ${payload.updatedRecipeCount} Receita(s)/Ficha(s) recalculada(s).`
+        : "Preço de custo atualizado com sucesso.";
       selectedProduct = null;
       await load();
     } catch (updateError) {

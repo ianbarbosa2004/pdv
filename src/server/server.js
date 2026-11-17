@@ -61,6 +61,16 @@ import {
   normalizePrintPlace
 } from "../shared/print-place.js";
 import { findRecipeCycles, validateRecipeDefinition } from "../shared/recipe.js";
+import {
+  calculateCostUpdate,
+  calculateFiscalItemImpact,
+  calculateInventoryAdjustment,
+  normalizeCostPolicy
+} from "../shared/inventory.js";
+import {
+  propagateRecipeCosts,
+  RecipeCostPropagationError
+} from "./recipe-cost-propagation.js";
 
 const culinaryBaseForUnit = (unit = {}) => {
   const value = `${unit.codeUnit || ""} ${unit.descriptionUnit || ""}`.toLocaleLowerCase("pt-BR");
@@ -114,6 +124,7 @@ const {
   ensureSaleFiscalSchema,
   ensureFiscalDocumentQueueSchema,
   ensureFiscalEntrySchema,
+  ensureInventorySchema,
   ensureFiscalOperationSchema,
   ensureNcmCestSchema,
   ensureProductFiscalSchema,
@@ -566,6 +577,8 @@ const catalogValues = async (catalog) => {
 const handleError = (response, error, fallback) => {
   if (error instanceof SaleValidationError) {
     json(response, error.status, { error: error.message });
+  } else if (error instanceof RecipeCostPropagationError) {
+    json(response, 409, { error: error.message });
   } else if (error.code === "ER_DUP_ENTRY") {
     json(response, 409, { error: fallback.duplicate });
   } else {
@@ -577,7 +590,12 @@ const handleError = (response, error, fallback) => {
         ? `message=${error.sqlMessage || error.message}` : ""
     ].filter(Boolean).join(" ");
     console.error(`${fallback.log} ${details}`.trim());
-    json(response, 503, { error: fallback.message });
+    json(response, 503, {
+      error: fallback.message,
+      diagnosticCode: error?.code || error?.name || "UNEXPECTED_ERROR",
+      diagnosticDetail: fallback.diagnosticDetail
+        || (error?.name === "TypeError" ? String(error.message || "").slice(0, 240) : undefined)
+    });
   }
 };
 
@@ -2414,6 +2432,7 @@ const server = createServer(async (request, response) => {
                 products.idFiscalOperationSaleProduct, products.idProductTypeProduct,
                 products.idPhysicalStateProduct, products.idUnitProduct, products.packageQuantityProduct, products.ncmProduct,
                 products.cestProduct, products.priceProduct, products.costPriceProduct,
+                products.costPolicyProduct,
                 products.stockQuantityProduct, products.controlsStockProduct,
                 products.isBuffetProduct,
                 products.isFractionalProduct, products.printsPlace,
@@ -2496,6 +2515,7 @@ const server = createServer(async (request, response) => {
                   units.descriptionUnit AS componentDescriptionUnit,
                   nested.nameRecipe AS componentRecipeName,
                   products.costPriceProduct, products.controlsStockProduct,
+                  nested.kindRecipe AS componentRecipeKind,
                   unified_unit.descriptionUnit AS culinaryUnitName,
                   unified_conversion.factorUnitConversion AS factorCulinaryUnitConversion,
                   CONCAT(from_unit.descriptionUnit, ' → ', to_unit.descriptionUnit) AS conversionLabel
@@ -2573,7 +2593,7 @@ const server = createServer(async (request, response) => {
       );
       const formationIds = products.map(({ formationId }) => formationId).filter(Boolean);
       const [recipes] = await pool.query(
-        `SELECT recipes.idRecipe, recipes.nameRecipe, recipes.idUnitYieldRecipe,
+        `SELECT recipes.idRecipe, recipes.nameRecipe, recipes.kindRecipe, recipes.idResultProductRecipe, recipes.idUnitYieldRecipe,
         recipes.unitCostRecipe, recipes.unitCostFormation,
                 yield_unit.codeUnit AS yieldUnitCode,
                 yield_unit.descriptionUnit AS yieldUnitDescription
@@ -2594,6 +2614,7 @@ const server = createServer(async (request, response) => {
                   units.codeUnit AS componentCodeUnit,
                   units.descriptionUnit AS componentDescriptionUnit,
                   nested.nameRecipe AS componentRecipeName,
+                  nested.kindRecipe AS componentRecipeKind,
                   nestedUnit.codeUnit AS componentRecipeUnitCode,
                   nestedUnit.descriptionUnit AS componentRecipeUnitDescription
            FROM recipe_components components
@@ -2730,8 +2751,13 @@ const server = createServer(async (request, response) => {
             costFormationComponent]
         );
       }
+      const propagation = await propagateRecipeCosts(connection, [], [recipeId]);
       await connection.commit();
-      json(response, 200, { ok: true, idRecipe: recipeId });
+      json(response, 200, {
+        ok: true,
+        idRecipe: recipeId,
+        updatedRecipeCount: propagation.updatedRecipeCount
+      });
     } catch (error) {
       if (connection) await connection.rollback();
       handleError(response, error, {
@@ -3141,8 +3167,14 @@ const server = createServer(async (request, response) => {
           ]
         );
       }
+      const propagation = await propagateRecipeCosts(connection, [], [result.insertId]);
       await connection.commit();
-      json(response, request.method === "PUT" ? 200 : 201, { ok: true, idRecipe: result.insertId, statusRecipe: requestedStatus });
+      json(response, request.method === "PUT" ? 200 : 201, {
+        ok: true,
+        idRecipe: result.insertId,
+        statusRecipe: requestedStatus,
+        updatedRecipeCount: propagation.updatedRecipeCount
+      });
     } catch (error) {
       if (connection) await connection.rollback();
       handleError(response, error, {
@@ -4207,6 +4239,475 @@ const server = createServer(async (request, response) => {
       handleError(response, error, {
         log: "Falha ao consultar pré-entrada fiscal:",
         message: "Não foi possível carregar a pré-entrada fiscal.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
+  const fiscalEntryConfirmMatch = request.method === "POST"
+    ? request.url.match(/^\/api\/stock\/fiscal-entries\/(\d+)\/confirm$/)
+    : null;
+  const fiscalEntryImpactMatch = request.method === "GET"
+    ? request.url.match(/^\/api\/stock\/fiscal-entries\/(\d+)\/impact$/)
+    : null;
+  if (fiscalEntryImpactMatch) {
+    try {
+      await requireOperatorSession(request);
+      await ensureInventorySchema();
+      const idFiscalEntry = parsePositiveId(fiscalEntryImpactMatch[1]);
+      if (!idFiscalEntry) throw new SaleValidationError("Pré-entrada inválida.");
+      const [items] = await pool.query(
+        `SELECT ei.idFiscalEntryItem, ei.selected, ei.status,
+                i.lineNumberFiscalDocumentItem, i.descriptionFiscalDocumentItem,
+                i.quantityFiscalDocumentItem, i.totalFiscalDocumentItem,
+                p.idProduct, p.nameProduct, p.costPriceProduct,
+                p.costPolicyProduct, p.stockQuantityProduct,
+                p.controlsStockProduct, pfr.conversionFactor
+         FROM fiscal_entry_items ei
+         JOIN fiscal_document_items i
+           ON i.idFiscalDocumentItem = ei.idFiscalDocumentItem
+         LEFT JOIN product_fiscal_references pfr
+           ON pfr.idProductFiscalReference = ei.idProductFiscalReference
+         LEFT JOIN products p ON p.idProduct = pfr.idProduct
+         WHERE ei.idFiscalEntry = ? AND ei.selected = 1
+         ORDER BY i.lineNumberFiscalDocumentItem`,
+        [idFiscalEntry]
+      );
+      const impact = [];
+      let pendingCount = 0;
+      for (const item of items) {
+        if (!item.idProduct || item.status !== "linked") {
+          pendingCount += 1;
+          continue;
+        }
+        const fiscalImpact = calculateFiscalItemImpact({
+          sourceQuantity: item.quantityFiscalDocumentItem,
+          sourceTotal: item.totalFiscalDocumentItem,
+          conversionFactor: item.conversionFactor
+        });
+        const costUpdate = calculateCostUpdate({
+          policy: item.costPolicyProduct,
+          previousStock: item.stockQuantityProduct,
+          previousCost: item.costPriceProduct,
+          receivedQuantity: fiscalImpact.quantity,
+          receivedUnitCost: fiscalImpact.unitCost
+        });
+        impact.push({
+          idFiscalEntryItem: item.idFiscalEntryItem,
+          lineNumberFiscalDocumentItem: item.lineNumberFiscalDocumentItem,
+          descriptionFiscalDocumentItem: item.descriptionFiscalDocumentItem,
+          idProduct: item.idProduct,
+          nameProduct: item.nameProduct,
+          quantityConverted: fiscalImpact.quantity,
+          unitCost: fiscalImpact.unitCost,
+          costPolicy: costUpdate.policy,
+          currentCost: costUpdate.previousCost,
+          estimatedCost: costUpdate.nextCost,
+          currentStock: costUpdate.previousStock,
+          estimatedStock: item.controlsStockProduct ? costUpdate.nextStock : costUpdate.previousStock
+        });
+      }
+      json(response, 200, { idFiscalEntry, items: impact, pendingCount });
+    } catch (error) {
+      handleError(response, error, {
+        log: "Falha ao calcular impacto da entrada fiscal:",
+        message: "Não foi possível calcular o impacto da entrada.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
+  if (fiscalEntryConfirmMatch) {
+    let connection = null;
+    try {
+      const session = requireOperatorSession(request);
+      await ensureInventorySchema();
+      const idFiscalEntry = parsePositiveId(fiscalEntryConfirmMatch[1]);
+      if (!idFiscalEntry) throw new SaleValidationError("Pré-entrada inválida.");
+      const payload = await readJsonBody(request);
+      const overrideItems = new Map(
+        (Array.isArray(payload?.items) ? payload.items : [])
+          .map((item) => [parsePositiveId(item?.idFiscalEntryItem), item?.costPolicy])
+          .filter(([id, policy]) => id && policy)
+      );
+      if (overrideItems.size && !["supervisor", "admin"].includes(session.roleOperator)) {
+        throw new SaleValidationError("Somente supervisor ou admin pode substituir a política de custo.", 403);
+      }
+      connection = await pool.getConnection();
+      await connection.beginTransaction();
+      const [entries] = await connection.query(
+        `SELECT idFiscalEntry, statusFiscalEntry
+         FROM fiscal_entries
+         WHERE idFiscalEntry = ?
+         FOR UPDATE`,
+        [idFiscalEntry]
+      );
+      if (!entries.length) throw new SaleValidationError("Pré-entrada fiscal não encontrada.", 404);
+      if (entries[0].statusFiscalEntry === "confirmed") {
+        await connection.rollback();
+        connection.release();
+        connection = null;
+        json(response, 200, { idFiscalEntry, statusFiscalEntry: "confirmed", alreadyConfirmed: true });
+        return;
+      }
+      if (entries[0].statusFiscalEntry === "cancelled") {
+        throw new SaleValidationError("A pré-entrada fiscal está cancelada.", 409);
+      }
+      const [[selectedRows], [pendingRows]] = await Promise.all([
+        connection.query(
+          `SELECT ei.idFiscalEntryItem, ei.idProductFiscalReference,
+                  i.quantityFiscalDocumentItem, i.totalFiscalDocumentItem,
+                  pfr.idProduct, pfr.conversionFactor,
+                  p.costPriceProduct, p.costPolicyProduct,
+                  p.stockQuantityProduct, p.controlsStockProduct
+           FROM fiscal_entry_items ei
+           JOIN fiscal_document_items i
+             ON i.idFiscalDocumentItem = ei.idFiscalDocumentItem
+           JOIN product_fiscal_references pfr
+             ON pfr.idProductFiscalReference = ei.idProductFiscalReference
+           JOIN products p ON p.idProduct = pfr.idProduct
+           WHERE ei.idFiscalEntry = ? AND ei.selected = 1
+           FOR UPDATE`,
+          [idFiscalEntry]
+        ),
+        connection.query(
+          `SELECT idFiscalEntryItem
+           FROM fiscal_entry_items
+           WHERE idFiscalEntry = ? AND selected = 1
+             AND (idProductFiscalReference IS NULL OR status <> 'linked')`,
+          [idFiscalEntry]
+        )
+      ]);
+      if (pendingRows.length) {
+        throw new SaleValidationError("Todos os itens selecionados devem estar vinculados antes da confirmação.", 409);
+      }
+      if (!selectedRows.length) {
+        throw new SaleValidationError("Selecione ao menos um item vinculado para confirmar a entrada.");
+      }
+      for (const row of selectedRows) {
+        const override = overrideItems.get(Number(row.idFiscalEntryItem));
+        const policy = normalizeCostPolicy(override || row.costPolicyProduct);
+        const impact = calculateFiscalItemImpact({
+          sourceQuantity: row.quantityFiscalDocumentItem,
+          sourceTotal: row.totalFiscalDocumentItem,
+          conversionFactor: row.conversionFactor
+        });
+        const update = calculateCostUpdate({
+          policy,
+          previousStock: row.stockQuantityProduct,
+          previousCost: row.costPriceProduct,
+          receivedQuantity: impact.quantity,
+          receivedUnitCost: impact.unitCost
+        });
+        const nextStock = row.controlsStockProduct ? update.nextStock : update.previousStock;
+        await connection.query(
+          `UPDATE products
+           SET stockQuantityProduct = ?, costPriceProduct = ?
+           WHERE idProduct = ?`,
+          [nextStock.toFixed(4), update.nextCost.toFixed(4), row.idProduct]
+        );
+        await connection.query(
+          `INSERT INTO inventory_movements
+            (idProduct, idFiscalEntry, typeInventoryMovement,
+             quantityDeltaInventoryMovement, previousStockInventoryMovement,
+             nextStockInventoryMovement, previousCostInventoryMovement,
+             nextCostInventoryMovement, costPolicyInventoryMovement,
+             reasonInventoryMovement, idOperator)
+           VALUES (?, ?, 'fiscal_entry', ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            row.idProduct,
+            idFiscalEntry,
+            row.controlsStockProduct ? impact.quantity : 0,
+            update.previousStock,
+            nextStock,
+            update.previousCost,
+            update.nextCost,
+            policy,
+            "Confirmação de entrada fiscal",
+            session.idOperator
+          ]
+        );
+      }
+      const propagation = await propagateRecipeCosts(
+        connection,
+        selectedRows.map((row) => row.idProduct)
+      );
+      await connection.query(
+        `UPDATE fiscal_entries
+         SET statusFiscalEntry = 'confirmed',
+             confirmedAtFiscalEntry = CURRENT_TIMESTAMP,
+             confirmedByOperator = ?
+         WHERE idFiscalEntry = ?`,
+        [session.idOperator, idFiscalEntry]
+      );
+      await connection.commit();
+      connection.release();
+      connection = null;
+      json(response, 200, {
+        idFiscalEntry,
+        statusFiscalEntry: "confirmed",
+        updatedItemCount: selectedRows.length,
+        updatedRecipeCount: propagation.updatedRecipeCount
+      });
+    } catch (error) {
+      if (connection) {
+        await connection.rollback().catch(() => {});
+        connection.release();
+      }
+      handleError(response, error, {
+        log: "Falha ao confirmar entrada fiscal:",
+        message: "Não foi possível confirmar a entrada fiscal.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
+  const fiscalEntryReverseMatch = request.method === "POST"
+    ? request.url.match(/^\/api\/stock\/fiscal-entries\/(\d+)\/reverse$/)
+    : null;
+  if (fiscalEntryReverseMatch) {
+    let connection = null;
+    try {
+      const session = requireOperatorSession(request);
+      if (!["supervisor", "admin"].includes(session.roleOperator)) {
+        throw new SaleValidationError("Somente supervisor ou admin pode desfazer uma entrada confirmada.", 403);
+      }
+      await ensureInventorySchema();
+      const idFiscalEntry = parsePositiveId(fiscalEntryReverseMatch[1]);
+      const payload = await readJsonBody(request);
+      const reason = String(payload?.reason ?? "").trim();
+      if (!idFiscalEntry) throw new SaleValidationError("Entrada inválida.");
+      if (reason.length < 3 || reason.length > 500) {
+        throw new SaleValidationError("Informe o motivo do desfazimento.");
+      }
+      connection = await pool.getConnection();
+      await connection.beginTransaction();
+      const [entries] = await connection.query(
+        `SELECT idFiscalEntry, statusFiscalEntry
+         FROM fiscal_entries
+         WHERE idFiscalEntry = ?
+         FOR UPDATE`,
+        [idFiscalEntry]
+      );
+      if (!entries.length) throw new SaleValidationError("Entrada fiscal não encontrada.", 404);
+      if (entries[0].statusFiscalEntry === "cancelled") {
+        await connection.rollback();
+        connection.release();
+        connection = null;
+        json(response, 200, { idFiscalEntry, statusFiscalEntry: "cancelled", alreadyReversed: true });
+        return;
+      }
+      if (entries[0].statusFiscalEntry !== "confirmed") {
+        throw new SaleValidationError("Somente entradas confirmadas podem ser desfeitas.", 409);
+      }
+      const [movements] = await connection.query(
+        `SELECT idInventoryMovement, idProduct,
+                previousStockInventoryMovement, nextStockInventoryMovement,
+                previousCostInventoryMovement, nextCostInventoryMovement
+         FROM inventory_movements
+         WHERE idFiscalEntry = ? AND typeInventoryMovement = 'fiscal_entry'
+         ORDER BY idInventoryMovement DESC
+         FOR UPDATE`,
+        [idFiscalEntry]
+      );
+      for (const movement of movements) {
+        await connection.query(
+          `UPDATE products
+           SET stockQuantityProduct = ?, costPriceProduct = ?
+           WHERE idProduct = ?`,
+          [
+            movement.previousStockInventoryMovement,
+            movement.previousCostInventoryMovement,
+            movement.idProduct
+          ]
+        );
+        await connection.query(
+          `INSERT INTO inventory_movements
+            (idProduct, idFiscalEntry, typeInventoryMovement,
+             quantityDeltaInventoryMovement, previousStockInventoryMovement,
+             nextStockInventoryMovement, previousCostInventoryMovement,
+             nextCostInventoryMovement, reasonInventoryMovement, idOperator)
+           VALUES (?, ?, 'fiscal_entry_reversal', ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            movement.idProduct,
+            idFiscalEntry,
+            Number(movement.previousStockInventoryMovement) - Number(movement.nextStockInventoryMovement),
+            movement.nextStockInventoryMovement,
+            movement.previousStockInventoryMovement,
+            movement.nextCostInventoryMovement,
+            movement.previousCostInventoryMovement,
+            reason,
+            session.idOperator
+          ]
+        );
+      }
+      await connection.query(
+        `UPDATE fiscal_entries
+         SET statusFiscalEntry = 'cancelled',
+             cancelledAtFiscalEntry = CURRENT_TIMESTAMP,
+             cancelledByOperator = ?
+         WHERE idFiscalEntry = ?`,
+        [session.idOperator, idFiscalEntry]
+      );
+      await connection.commit();
+      connection.release();
+      connection = null;
+      json(response, 200, {
+        idFiscalEntry,
+        statusFiscalEntry: "cancelled",
+        reversedItemCount: movements.length
+      });
+    } catch (error) {
+      if (connection) {
+        await connection.rollback().catch(() => {});
+        connection.release();
+      }
+      handleError(response, error, {
+        log: "Falha ao desfazer entrada fiscal:",
+        message: "Não foi possível desfazer a entrada fiscal.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/api/stock/inventory") {
+    let connection = null;
+    try {
+      const session = requireOperatorSession(request);
+      await ensureInventorySchema();
+      const payload = await readJsonBody(request);
+      const reason = String(payload?.reason ?? "").trim();
+      const items = Array.isArray(payload?.items) ? payload.items : [];
+      if (reason.length < 3 || reason.length > 500) {
+        throw new SaleValidationError("Informe o motivo do inventário.");
+      }
+      if (!items.length) throw new SaleValidationError("Informe ao menos um produto.");
+      const normalizedItems = items.map((item) => {
+        const idProduct = parsePositiveId(item?.idProduct);
+        const countedQuantity = Number(String(item?.countedQuantity ?? "").replace(",", "."));
+        if (!idProduct || !Number.isFinite(countedQuantity) || countedQuantity < 0) {
+          throw new SaleValidationError("Produto ou quantidade contada inválidos.");
+        }
+        return { idProduct, countedQuantity };
+      });
+      if (new Set(normalizedItems.map(({ idProduct }) => idProduct)).size !== normalizedItems.length) {
+        throw new SaleValidationError("Não repita produtos no mesmo inventário.");
+      }
+      connection = await pool.getConnection();
+      await connection.beginTransaction();
+      const [countResult] = await connection.query(
+        `INSERT INTO inventory_counts (idOperator, reasonInventoryCount)
+         VALUES (?, ?)`,
+        [session.idOperator, reason]
+      );
+      for (const item of normalizedItems) {
+        const [products] = await connection.query(
+          `SELECT idProduct, stockQuantityProduct, costPriceProduct, controlsStockProduct
+           FROM products
+           WHERE idProduct = ? AND isActiveProduct = 1
+           FOR UPDATE`,
+          [item.idProduct]
+        );
+        if (!products.length) throw new SaleValidationError("Produto não encontrado.", 404);
+        if (!products[0].controlsStockProduct) {
+          throw new SaleValidationError("Produtos sem controle de estoque não participam do inventário.", 409);
+        }
+        const adjustment = calculateInventoryAdjustment({
+          previousStock: products[0].stockQuantityProduct,
+          countedQuantity: item.countedQuantity
+        });
+        await connection.query(
+          `UPDATE products SET stockQuantityProduct = ? WHERE idProduct = ?`,
+          [adjustment.countedQuantity.toFixed(4), item.idProduct]
+        );
+        await connection.query(
+          `INSERT INTO inventory_count_items
+            (idInventoryCount, idProduct, previousStockInventoryCountItem,
+             countedQuantityInventoryCountItem, quantityDeltaInventoryCountItem)
+           VALUES (?, ?, ?, ?, ?)`,
+          [
+            countResult.insertId,
+            item.idProduct,
+            adjustment.previousStock,
+            adjustment.countedQuantity,
+            adjustment.quantityDelta
+          ]
+        );
+        await connection.query(
+          `INSERT INTO inventory_movements
+            (idProduct, typeInventoryMovement,
+             quantityDeltaInventoryMovement, previousStockInventoryMovement,
+             nextStockInventoryMovement, previousCostInventoryMovement,
+             nextCostInventoryMovement, reasonInventoryMovement, idOperator)
+           VALUES (?, 'inventory', ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            item.idProduct,
+            adjustment.quantityDelta,
+            adjustment.previousStock,
+            adjustment.countedQuantity,
+            products[0].costPriceProduct,
+            products[0].costPriceProduct,
+            reason,
+            session.idOperator
+          ]
+        );
+      }
+      await connection.commit();
+      connection.release();
+      connection = null;
+      json(response, 201, {
+        idInventoryCount: countResult.insertId,
+        itemCount: normalizedItems.length
+      });
+    } catch (error) {
+      if (connection) {
+        await connection.rollback().catch(() => {});
+        connection.release();
+      }
+      handleError(response, error, {
+        log: "Falha ao registrar inventário:",
+        message: "Não foi possível registrar o inventário.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && request.url.startsWith("/api/stock/inventory/movements")) {
+    try {
+      requireOperatorSession(request);
+      await ensureInventorySchema();
+      const url = new URL(request.url, "http://localhost");
+      const idProduct = parsePositiveId(url.searchParams.get("idProduct"));
+      const type = String(url.searchParams.get("type") || "").trim();
+      const conditions = [];
+      const values = [];
+      if (idProduct) {
+        conditions.push("m.idProduct = ?");
+        values.push(idProduct);
+      }
+      if (["fiscal_entry", "inventory", "fiscal_entry_reversal"].includes(type)) {
+        conditions.push("m.typeInventoryMovement = ?");
+        values.push(type);
+      }
+      const [movements] = await pool.query(
+        `SELECT m.*, p.nameProduct, p.skuProduct
+         FROM inventory_movements m
+         JOIN products p ON p.idProduct = m.idProduct
+         ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
+         ORDER BY m.idInventoryMovement DESC
+         LIMIT 500`,
+        values
+      );
+      json(response, 200, { movements });
+    } catch (error) {
+      handleError(response, error, {
+        log: "Falha ao listar movimentos de estoque:",
+        message: "Não foi possível carregar o histórico de movimentos.",
         duplicate: ""
       });
     }
@@ -5347,6 +5848,7 @@ const server = createServer(async (request, response) => {
       await ensureRecipeSchema();
       const allowNegativeStock = await getGeneralSettingBoolean("allowNegativeStock");
       const costPriceProduct = parseMoney(payload.costPriceProduct ?? "0", "Preço de custo");
+      const costPolicyProduct = normalizeCostPolicy(payload.costPolicyProduct);
       const controlsStockProduct = parseBooleanFlag(payload.controlsStockProduct, "Controla estoque", true);
       const isBuffetProduct = parseBooleanFlag(payload.isBuffetProduct, "Produto Buffet", false);
       const isFractionalProduct = parseBooleanFlag(payload.isFractionalProduct, "Produto fracionado");
@@ -5413,18 +5915,18 @@ const server = createServer(async (request, response) => {
       const [result] = await pool.query(
         `INSERT INTO products
          (idGroup, skuProduct, nameProduct, idFiscalOperationSaleProduct,
-           idProductTypeProduct, idPhysicalStateProduct, idUnitProduct, packageQuantityProduct, ncmProduct, cestProduct, priceProduct, costPriceProduct,
+           idProductTypeProduct, idPhysicalStateProduct, idUnitProduct, packageQuantityProduct, ncmProduct, cestProduct, priceProduct, costPriceProduct, costPolicyProduct,
            stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct, printsPlace,
            showsInPdvProduct, isActiveProduct)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
         [idGroup, skuProduct, nameProduct, idFiscalOperationSaleProduct,
           idProductTypeProduct, normalizedPhysicalStateProduct, idUnitProduct, packageQuantityProduct, ncmProduct || null, cestProduct || null,
-          priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct,
+          priceProduct, costPriceProduct, costPolicyProduct, stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct,
           printsPlace, showsInPdvProduct, isActiveProduct]
       );
       const pdvCodeProduct = String(result.insertId);
       await pool.query("UPDATE products SET pdvCodeProduct = ? WHERE idProduct = ?", [pdvCodeProduct, result.insertId]);
-      json(response, 201, { product: { idProduct: result.insertId, idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct, idProductTypeProduct, idPhysicalStateProduct: normalizedPhysicalStateProduct, idUnitProduct, packageQuantityProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct, printsPlace, showsInPdvProduct, isActiveProduct } });
+      json(response, 201, { product: { idProduct: result.insertId, idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct, idProductTypeProduct, idPhysicalStateProduct: normalizedPhysicalStateProduct, idUnitProduct, packageQuantityProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct, costPriceProduct, costPolicyProduct, stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct, printsPlace, showsInPdvProduct, isActiveProduct } });
     } catch (error) {
       handleError(response, error, { log: "Falha ao criar produto:", message: "Não foi possível criar o produto.", duplicate: "SKU já cadastrado." });
     }
@@ -5699,6 +6201,7 @@ const server = createServer(async (request, response) => {
   }
 
   if (request.method === "PUT" && request.url === "/api/products/cost-price") {
+    let connection = null;
     try {
       const payload = await readJsonBody(request);
       const idProduct = parsePositiveId(payload.idProduct);
@@ -5707,24 +6210,35 @@ const server = createServer(async (request, response) => {
         String(payload.costPriceProduct ?? "").trim().replace(",", "."),
         "Preço de custo"
       );
-      const [result] = await pool.query(
+      connection = await pool.getConnection();
+      await connection.beginTransaction();
+      const [result] = await connection.query(
         "UPDATE products SET costPriceProduct = ? WHERE idProduct = ? AND isActiveProduct = 1",
         [costPriceProduct, idProduct]
       );
       if (!result.affectedRows) throw new SaleValidationError("Produto não encontrado.", 404);
-      const [updatedProducts] = await pool.query(
+      const propagation = await propagateRecipeCosts(connection, [idProduct]);
+      const [updatedProducts] = await connection.query(
         "SELECT idProduct, costPriceProduct FROM products WHERE idProduct = ? AND isActiveProduct = 1",
         [idProduct]
       );
       if (!updatedProducts.length) {
         throw new SaleValidationError("Não foi possível confirmar o preço de custo atualizado.", 409);
       }
+      await connection.commit();
+      connection.release();
+      connection = null;
       json(response, 200, {
         ok: true,
         idProduct,
-        costPriceProduct: updatedProducts[0].costPriceProduct
+        costPriceProduct: updatedProducts[0].costPriceProduct,
+        updatedRecipeCount: propagation.updatedRecipeCount
       });
     } catch (error) {
+      if (connection) {
+        await connection.rollback().catch(() => {});
+        connection.release();
+      }
       handleError(response, error, {
         log: "Falha ao atualizar custo do produto:",
         message: "Não foi possível atualizar o preço de custo.",
@@ -5735,6 +6249,7 @@ const server = createServer(async (request, response) => {
   }
 
   if (request.method === "PUT" && request.url === "/api/products") {
+    let connection = null;
     try {
       const payload = await readJsonBody(request);
       const idProduct = parsePositiveId(payload.idProduct);
@@ -5751,8 +6266,10 @@ const server = createServer(async (request, response) => {
       if (!idProduct || !nameProduct || nameProduct.length > 180 || !skuProduct || skuProduct.length > 64 || !idGroup || (ncmProduct && !/^\d{8}$/.test(ncmProduct)) || (cestProduct && !/^\d{7}$/.test(cestProduct))) throw new SaleValidationError("Produto, nome, SKU, grupo, NCM ou CEST inválidos.");
       await ensureProductCatalogSchema();
       await ensureCulinarySchema();
+      await ensureRecipeSchema();
       const allowNegativeStock = await getGeneralSettingBoolean("allowNegativeStock");
       const costPriceProduct = parseMoney(payload.costPriceProduct ?? "0", "Preço de custo");
+      const costPolicyProduct = normalizeCostPolicy(payload.costPolicyProduct);
       const controlsStockProduct = parseBooleanFlag(payload.controlsStockProduct, "Controla estoque", true);
       const isBuffetProduct = parseBooleanFlag(payload.isBuffetProduct, "Produto Buffet", false);
       const isFractionalProduct = parseBooleanFlag(payload.isFractionalProduct, "Produto fracionado");
@@ -5815,27 +6332,37 @@ const server = createServer(async (request, response) => {
       } else if (cestProduct) {
         throw new SaleValidationError("Informe o NCM antes de selecionar o CEST.");
       }
-      const [existingProductRows] = await pool.query(
+      connection = await pool.getConnection();
+      await connection.beginTransaction();
+      const [existingProductRows] = await connection.query(
         "SELECT pdvCodeProduct FROM products WHERE idProduct = ?",
         [idProduct]
       );
       if (!existingProductRows.length) throw new SaleValidationError("Produto não encontrado.", 404);
       const pdvCodeProduct = existingProductRows[0].pdvCodeProduct;
-      const [result] = await pool.query(
+      const [result] = await connection.query(
         `UPDATE products SET idGroup = ?, skuProduct = ?, nameProduct = ?,
           idFiscalOperationSaleProduct = ?, idProductTypeProduct = ?, idPhysicalStateProduct = ?, idUnitProduct = ?, packageQuantityProduct = ?,
-          ncmProduct = ?, cestProduct = ?, priceProduct = ?, costPriceProduct = ?, stockQuantityProduct = ?,
+          ncmProduct = ?, cestProduct = ?, priceProduct = ?, costPriceProduct = ?, costPolicyProduct = ?, stockQuantityProduct = ?,
           controlsStockProduct = ?, isBuffetProduct = ?, isFractionalProduct = ?, printsPlace = ?,
           showsInPdvProduct = ?
          WHERE idProduct = ?`,
         [idGroup, skuProduct, nameProduct, idFiscalOperationSaleProduct,
           idProductTypeProduct, normalizedPhysicalStateProduct, idUnitProduct, packageQuantityProduct, ncmProduct || null, cestProduct || null,
-          priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct,
+          priceProduct, costPriceProduct, costPolicyProduct, stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct,
           printsPlace, showsInPdvProduct, idProduct]
       );
       if (!result.affectedRows) throw new SaleValidationError("Produto não encontrado.", 404);
-      json(response, 200, { product: { idProduct, idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct, idProductTypeProduct, idPhysicalStateProduct: normalizedPhysicalStateProduct, idUnitProduct, packageQuantityProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct, costPriceProduct, stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct, printsPlace, showsInPdvProduct } });
+      const propagation = await propagateRecipeCosts(connection, [idProduct]);
+      await connection.commit();
+      connection.release();
+      connection = null;
+      json(response, 200, { product: { idProduct, idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct, idProductTypeProduct, idPhysicalStateProduct: normalizedPhysicalStateProduct, idUnitProduct, packageQuantityProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct, costPriceProduct, costPolicyProduct, stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct, printsPlace, showsInPdvProduct }, updatedRecipeCount: propagation.updatedRecipeCount });
     } catch (error) {
+      if (connection) {
+        await connection.rollback().catch(() => {});
+        connection.release();
+      }
       handleError(response, error, { log: "Falha ao editar produto:", message: "Não foi possível editar o produto.", duplicate: "SKU já cadastrado." });
     }
     return;

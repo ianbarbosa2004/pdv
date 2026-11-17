@@ -22,8 +22,19 @@ test("a fila fiscal não registra eventos Tauri no navegador", async () => {
   assert.doesNotMatch(source, /CPF\/CNPJ do Destinatário/);
   assert.doesNotMatch(source, /Status da Autorização/);
   assert.match(source, /fiscal-entry-title-status/);
+  assert.match(source, /Entrada de NF-e \/ NFC-e/u);
   assert.match(await readFile(new URL("../../src/styles.css", import.meta.url), "utf8"), /\.fiscal-entry-title-status\s*\{[\s\S]*color: #fff;/);
   assert.match(source, /if \(!isTauriWindow\(\)\) \{\s+fiscalBrowserError = "A consulta fiscal interativa exige o aplicativo Tauri\."/s);
+});
+
+test("a tela de pré-entrada permanece separada do novo desenho de entrada", async () => {
+  const source = await readFile(
+    new URL("../../src/stock/fiscal-document-queue-screen.js", import.meta.url),
+    "utf8"
+  );
+
+  assert.doesNotMatch(source, /data-start-entry-mode="manual"/u);
+  assert.doesNotMatch(source, /Rascunho visual ainda não persistido/u);
 });
 
 test("a listagem da fila consulta documentos e fornecedores ausentes em paralelo", async () => {
@@ -210,7 +221,7 @@ test("copia a chave sem exibi-la na coluna Documento", async () => {
 
   assert.match(source, /data-copy-access-key="\$\{escapeHtml\(entry\.accessKeyFiscalDocument\)\}"/u);
   assert.match(source, /data-lucide="notebook-tabs"/u);
-  assert.match(source, /: "Documento fiscal"\)/u);
+  assert.match(source, /"Documento fiscal"/u);
   assert.match(source, /fiscal-access-key-button/u);
   assert.match(source, /Chave de acesso copiada para a área de transferência/u);
 });
@@ -237,7 +248,7 @@ test("destaca a pré-entrada atualmente editada sem alterar a ordenação", asyn
   assert.match(styles, /\.classic-table tbody tr\.fiscal-entry-current > td[\s\S]*?background: #e3eef9 !important;/u);
 });
 
-test("exibe até 50 pré-entradas antes de iniciar a paginação", async () => {
+test("exibe até 25 entradas antes de iniciar a paginação", async () => {
   const source = await readFile(
     new URL("../../src/stock/fiscal-document-queue-screen.js", import.meta.url),
     "utf8"
@@ -247,6 +258,63 @@ test("exibe até 50 pré-entradas antes de iniciar a paginação", async () => {
     "utf8"
   );
 
-  assert.match(source, /classic-grid-wrapper" data-default-page-size="50"/u);
+  assert.match(source, /classic-grid-wrapper" data-default-page-size="25"/u);
   assert.match(paginationSource, /Number\(wrapper\.dataset\.defaultPageSize\) \|\| DEFAULT_PAGE_SIZE/u);
+});
+
+test("aplica o layout solicitado à lista de entradas", async () => {
+  const source = await readFile(
+    new URL("../../src/stock/fiscal-document-queue-screen.js", import.meta.url),
+    "utf8"
+  );
+  const styles = await readFile(
+    new URL("../../src/styles.css", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /renderFiscalEntryListHeader\("Entradas iniciadas"\)/u);
+  assert.match(source, /<td>\$\{escapeHtml\(entry\.numberFiscalDocument \|\| "Documento fiscal"\)\}<\/td>/u);
+  assert.match(styles, /fiscal-document-queue-layout[\s\S]*?nth-child\(2\)[\s\S]*?width: 75px/u);
+  assert.match(styles, /fiscal-entry-only-screen[\s\S]*?nth-child\(2\)[\s\S]*?width: 75px/u);
+  assert.match(styles, /fiscal-document-queue-layout[\s\S]*?nth-child\(6\)[\s\S]*?width: 95px/u);
+  assert.match(styles, /fiscal-entry-only-screen[\s\S]*?nth-child\(6\)[\s\S]*?width: 95px/u);
+  assert.match(styles, /fiscal-document-queue-layout[\s\S]*?text-align: center/u);
+  assert.match(styles, /fiscal-entry-only-screen[\s\S]*?text-align: center/u);
+});
+
+test("usa exclusão com estorno para entradas confirmadas", async () => {
+  const source = await readFile(
+    new URL("../../src/stock/fiscal-document-queue-screen.js", import.meta.url),
+    "utf8"
+  );
+  const removeStart = source.indexOf("const removeEntry = async");
+  const removeEnd = source.indexOf("\n  render();", removeStart);
+  const removeBlock = source.slice(removeStart, removeEnd);
+
+  assert.match(removeBlock, /statusFiscalEntry === "confirmed"/u);
+  assert.match(removeBlock, /confirmAction\(/u);
+  assert.match(removeBlock, /\/reverse/u);
+  assert.match(removeBlock, /method: isConfirmed \? "POST" : "DELETE"/u);
+  assert.match(source, /data-delete-current-entry/u);
+  assert.match(source, /currentEntry\.fiscalEntry\.statusFiscalEntry === "confirmed"/u);
+});
+
+test("adapta o texto e a listagem de produtos ao estado da entrada", async () => {
+  const source = await readFile(
+    new URL("../../src/stock/fiscal-document-queue-screen.js", import.meta.url),
+    "utf8"
+  );
+  const styles = await readFile(
+    new URL("../../src/styles.css", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /statusFiscalEntry === "confirmed"[\s\S]*?Esta entrada está confirmada/u);
+  assert.match(source, /fiscal-entry-items-table/u);
+  assert.match(source, /toLocaleUpperCase\("pt-BR"\)/u);
+  assert.match(styles, /\.fiscal-entry-items-table th[\s\S]*?text-align: center/u);
+  assert.match(styles, /\.fiscal-entry-items-table td:nth-child\(1\)[\s\S]*?text-align: center/u);
+  assert.match(styles, /\.fiscal-entry-items-table td:nth-child\(4\)[\s\S]*?text-align: right/u);
+  assert.match(styles, /\.fiscal-entry-items-table td:nth-child\(6\)[\s\S]*?text-align: right/u);
+  assert.match(styles, /\.fiscal-entry-items-table td:nth-child\(7\)[\s\S]*?text-align: center/u);
 });

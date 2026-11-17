@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { normalizeDecimalInput, normalizeMaskedNumber } from "../../src/ui/number-mask.js";
+import { propagateRecipeCosts } from "../../src/server/recipe-cost-propagation.js";
 
 test("a consulta de componentes de receitas usa IDs canônicos sem mapas legados", async () => {
   const source = await readFile("src/server/server.js", "utf8");
@@ -15,11 +16,22 @@ test("a consulta de componentes de receitas usa IDs canônicos sem mapas legados
   assert.doesNotMatch(componentQuery, /unit_migration_map|unit_conversion_migration_map/u);
 });
 
-test("quantidades de receita usam a mesma máscara de centavos dos preços", async () => {
+test("a Formação de Produtos recebe o tipo da Receita para rotular composições", async () => {
+  const source = await readFile("src/server/server.js", "utf8");
+  assert.match(
+    source,
+    /SELECT recipes\.idRecipe, recipes\.nameRecipe, recipes\.kindRecipe, recipes\.idResultProductRecipe,\s+recipes\.idUnitYieldRecipe/u
+  );
+  assert.match(source, /nested\.kindRecipe AS componentRecipeKind/u);
+  assert.match(source, /products\.costPriceProduct, products\.controlsStockProduct,[\s\S]*nested\.kindRecipe AS componentRecipeKind/u);
+});
+
+test("quantidades e rendimento de receita aceitam três casas decimais", async () => {
   const source = await readFile("src/catalog/recipe-screen.js", "utf8");
-  assert.match(source, /data-component-quantity data-number-mask(?:\s|>)/u);
+  assert.match(source, /data-component-quantity data-number-mask="fractional-3"/u);
   assert.match(source, /data-component-loss data-number-mask(?:\s|>)/u);
-  assert.match(source, /data-recipe-yield data-number-mask(?:\s|>)/u);
+  assert.match(source, /data-recipe-yield data-number-mask="fractional-3"/u);
+  assert.match(source, /formatBrazilianDecimal\(component\.quantity, 3\)/u);
   assert.doesNotMatch(source, /data-component-quantity data-number-mask="decimal"/u);
   assert.doesNotMatch(source, /data-component-loss data-number-mask="decimal"/u);
   assert.doesNotMatch(source, /data-recipe-yield data-number-mask="decimal"/u);
@@ -29,6 +41,7 @@ test("quantidades de receita usam a mesma máscara de centavos dos preços", asy
   assert.equal(normalizeDecimalInput("1500"), "1.500");
   assert.equal(normalizeDecimalInput("1500,5"), "1.500,5");
   assert.equal(normalizeDecimalInput("1.234,567"), "1.234,56");
+  assert.equal(normalizeDecimalInput("1.234,567", 3), "1.234,567");
   assert.equal(normalizeMaskedNumber("3"), "0.03");
   assert.equal(normalizeMaskedNumber("300"), "3.00");
   assert.match(
@@ -62,8 +75,8 @@ test("editor de componente mantém os campos visíveis e bloqueados sem seleçã
   const source = await readFile("src/catalog/recipe-screen.js", "utf8");
   const styles = await readFile("src/styles.css", "utf8");
   assert.match(source, /<div class="recipe-component-input-grid">\$\{renderComponentUnits\(\)\}<\/div>/u);
-  assert.match(source, /data-component-culinary-unit required \$\{hasProduct \? "" : "disabled"\}/u);
-  assert.match(source, /data-component-quantity data-number-mask inputmode="decimal" \$\{hasTarget \? "" : "readonly disabled"\}/u);
+  assert.match(source, /data-component-culinary-unit required \$\{hasCulinaryTarget \? "" : "disabled"\}/u);
+  assert.match(source, /data-component-quantity data-number-mask="fractional-3" inputmode="decimal" \$\{hasTarget \? "" : "readonly disabled"\}/u);
   assert.match(source, /data-component-conversion required \$\{hasProduct && componentDraft\.culinaryUnitId \? "" : "disabled"\}/u);
   assert.match(source, /data-component-loss data-number-mask inputmode="decimal" \$\{hasTarget \? "" : "readonly disabled"\}/u);
   assert.match(source, /data-add-component type="button" \$\{componentDraft\.target \? "" : "disabled"\}/u);
@@ -154,15 +167,15 @@ test("Unidade Final exibe somente a descrição e Unidades Culinárias usam o ca
   assert.doesNotMatch(source, /apiFetch\(`\$\{getApiUrl\(\)\}\/api\/units\?includeInactive=1`\),\s+apiFetch\(`\$\{getApiUrl\(\)\}\/api\/units\?includeInactive=1`\)/u);
 });
 
-test("edição de componente preserva a conversão escolhida e exibe quantidade com duas casas", async () => {
+test("edição de componente preserva a conversão escolhida e exibe quantidade com três casas", async () => {
   const source = await readFile("src/catalog/recipe-screen.js", "utf8");
   assert.match(source, /const componentEditorRoot = root\.querySelector\("\[data-component-editor-modal\]"\) \|\| root/u);
   assert.match(
     source,
     /const conversionSelect = componentEditorRoot\.querySelector\("\[data-component-conversion\]"\)[\s\S]*?conversionSelect \? conversionSelect\.value : componentDraft\.conversionId/u
   );
-  assert.match(source, /formatBrazilianDecimal\(component\.quantity, 2\)/u);
-  assert.match(source, /formatMaskedNumber\(componentDraft\.quantity\)/u);
+  assert.match(source, /formatBrazilianDecimal\(component\.quantity, 3\)/u);
+  assert.match(source, /formatMaskedNumber\(componentDraft\.quantity, 3\)/u);
   assert.match(source, /data-component-quantity[\s\S]*?addEventListener\("blur"/u);
 });
 
@@ -180,6 +193,261 @@ test("modal de componente alinha o X no cabeçalho e a aplicação instala ESC g
   assert.match(styles, /\.recipe-component-modal \.classic-panel-header[\s\S]*?justify-content: space-between/u);
   assert.match(mainSource, /installGlobalModalEscape\(\)/u);
   assert.match(modalSource, /event\.key !== "Escape"/u);
+});
+
+test("salvar Receita e Ficha Técnica propaga custos para dependências em cascata", async () => {
+  const serverSource = await readFile("src/server/server.js", "utf8");
+  const propagationSource = await readFile("src/server/recipe-cost-propagation.js", "utf8");
+  const recipeScreenSource = await readFile("src/catalog/recipe-screen.js", "utf8");
+  const formationScreenSource = await readFile("src/catalog/product-formation-screen.js", "utf8");
+  assert.match(propagationSource, /changedRecipeIds = \[\]/u);
+  assert.match(propagationSource, /parentsByRecipe\.get\(String\(dependency\.id\)\)/u);
+  assert.match(serverSource, /propagateRecipeCosts\(connection, \[\], \[result\.insertId\]\)/u);
+  assert.match(serverSource, /propagateRecipeCosts\(connection, \[\], \[recipeId\]\)/u);
+  assert.match(serverSource, /error instanceof RecipeCostPropagationError/u);
+  assert.match(propagationSource, /class RecipeCostPropagationError extends Error/u);
+  assert.match(recipeScreenSource, /payload\.updatedRecipeCount > 1/u);
+  assert.match(formationScreenSource, /payload\.updatedRecipeCount > 1/u);
+});
+
+test("sincroniza o custo do produto resultante e propaga para fichas dependentes", async () => {
+  const updates = [];
+  const connection = {
+    async query(sql, params) {
+      if (sql.includes("FROM recipe_definitions")) {
+        return [[
+          { idRecipe: 1, kindRecipe: "production", idResultProductRecipe: 100, yieldQuantityRecipe: 1 },
+          { idRecipe: 2, kindRecipe: "production", idResultProductRecipe: 200, yieldQuantityRecipe: 1 }
+        ]];
+      }
+      if (sql.includes("FROM recipe_components")) {
+        return [[
+          {
+            idRecipeComponent: 11,
+            idRecipe: 1,
+            componentTypeRecipe: "product",
+            idComponentProductRecipe: 10,
+            idCulinaryUnitRecipeComponent: 1,
+            idCulinaryUnitConversionRecipeComponent: null,
+            quantityRecipeComponent: 2,
+            lossPercentRecipeComponent: 0
+          },
+          {
+            idRecipeComponent: 21,
+            idRecipe: 2,
+            componentTypeRecipe: "product",
+            idComponentProductRecipe: 100,
+            idCulinaryUnitRecipeComponent: 1,
+            idCulinaryUnitConversionRecipeComponent: null,
+            quantityRecipeComponent: 1,
+            lossPercentRecipeComponent: 0
+          }
+        ]];
+      }
+      if (sql.includes("FROM products")) {
+        return [[
+          { idProduct: 10, costPriceProduct: 5, packageQuantityProduct: 1, idUnitProduct: 1, idPhysicalStateProduct: null },
+          { idProduct: 100, costPriceProduct: 1, packageQuantityProduct: 1, idUnitProduct: 1, idPhysicalStateProduct: null },
+          { idProduct: 200, costPriceProduct: 1, packageQuantityProduct: 1, idUnitProduct: 1, idPhysicalStateProduct: null }
+        ]];
+      }
+      if (sql.includes("FROM unit_conversions")) return [[]];
+      updates.push({ sql, params });
+      return [{ affectedRows: 1 }];
+    }
+  };
+
+  const result = await propagateRecipeCosts(connection, [10]);
+
+  assert.equal(result.updatedRecipeCount, 2);
+  assert.deepEqual(
+    updates
+      .filter(({ sql }) => sql.includes("UPDATE products SET costPriceProduct"))
+      .map(({ params }) => params),
+    [[10, 100], [10, 200]]
+  );
+});
+
+test("salvar Receita de Produção independente atualiza o custo de Receita", async () => {
+  const updates = [];
+  const connection = {
+    async query(sql, params) {
+      if (sql.includes("FROM recipe_definitions")) {
+        return [[
+          { idRecipe: 1, kindRecipe: "production", idResultProductRecipe: null, yieldQuantityRecipe: 1 }
+        ]];
+      }
+      if (sql.includes("FROM recipe_components")) {
+        return [[
+          {
+            idRecipeComponent: 11,
+            idRecipe: 1,
+            componentTypeRecipe: "product",
+            idComponentProductRecipe: 10,
+            idCulinaryUnitRecipeComponent: 1,
+            idCulinaryUnitConversionRecipeComponent: null,
+            quantityRecipeComponent: 1,
+            lossPercentRecipeComponent: 0
+          }
+        ]];
+      }
+      if (sql.includes("FROM products")) {
+        return [[
+          { idProduct: 10, costPriceProduct: 5, packageQuantityProduct: 1, idUnitProduct: 1, idPhysicalStateProduct: null }
+        ]];
+      }
+      if (sql.includes("FROM unit_conversions")) return [[]];
+      updates.push({ sql, params });
+      return [{ affectedRows: 1 }];
+    }
+  };
+
+  await propagateRecipeCosts(connection, [], [1]);
+
+  assert.ok(updates.some(({ sql, params }) =>
+    sql.includes("UPDATE recipe_definitions")
+    && sql.includes("totalCostRecipe")
+    && sql.includes("unitCostRecipe")
+    && params[0] === 5
+  ));
+  assert.equal(
+    updates.some(({ sql }) => sql.includes("UPDATE products SET costPriceProduct")),
+    false
+  );
+});
+
+test("recalcula a Ficha Técnica com Receita atual e componente atualizado", async () => {
+  const updates = [];
+  const connection = {
+    async query(sql, params) {
+      if (sql.includes("FROM recipe_definitions")) {
+        return [[
+          { idRecipe: 1, kindRecipe: "production", idResultProductRecipe: null, yieldQuantityRecipe: 1 },
+          { idRecipe: 2, kindRecipe: "production", idResultProductRecipe: 900, yieldQuantityRecipe: 1 }
+        ]];
+      }
+      if (sql.includes("FROM recipe_components")) {
+        return [[
+          {
+            idRecipeComponent: 11,
+            idRecipe: 1,
+            componentTypeRecipe: "product",
+            idComponentProductRecipe: 427,
+            idCulinaryUnitRecipeComponent: 1,
+            idCulinaryUnitConversionRecipeComponent: null,
+            quantityRecipeComponent: 1,
+            lossPercentRecipeComponent: 0
+          },
+          {
+            idRecipeComponent: 21,
+            idRecipe: 2,
+            componentTypeRecipe: "recipe",
+            idComponentRecipe: 1,
+            idCulinaryUnitRecipeComponent: null,
+            idCulinaryUnitConversionRecipeComponent: null,
+            quantityRecipeComponent: 1,
+            lossPercentRecipeComponent: 0
+          },
+          {
+            idRecipeComponent: 22,
+            idRecipe: 2,
+            componentTypeRecipe: "product",
+            idComponentProductRecipe: 428,
+            idCulinaryUnitRecipeComponent: 1,
+            idCulinaryUnitConversionRecipeComponent: null,
+            quantityRecipeComponent: 1,
+            lossPercentRecipeComponent: 0
+          }
+        ]];
+      }
+      if (sql.includes("FROM products")) {
+        return [[
+          { idProduct: 427, costPriceProduct: 5.72, packageQuantityProduct: 1, idUnitProduct: 1, idPhysicalStateProduct: null },
+          { idProduct: 428, costPriceProduct: 5.17, packageQuantityProduct: 1, idUnitProduct: 1, idPhysicalStateProduct: null },
+          { idProduct: 900, costPriceProduct: 10.84, packageQuantityProduct: 1, idUnitProduct: 1, idPhysicalStateProduct: null }
+        ]];
+      }
+      if (sql.includes("FROM unit_conversions")) return [[]];
+      updates.push({ sql, params });
+      return [{ affectedRows: 1 }];
+    }
+  };
+
+  await propagateRecipeCosts(connection, [427]);
+
+  assert.ok(updates.some(({ sql, params }) =>
+    sql.includes("UPDATE recipe_definitions")
+    && sql.includes("totalCostRecipe")
+    && sql.includes("unitCostRecipe")
+    && params[0] === 5.72
+  ));
+  assert.deepEqual(
+    updates
+      .filter(({ sql }) => sql.includes("UPDATE products SET costPriceProduct"))
+      .map(({ params }) => params),
+    [[10.89, 900]]
+  );
+});
+
+test("propaga custos para Receitas e Composições não arquivadas", async () => {
+  const propagationSource = await readFile("src/server/recipe-cost-propagation.js", "utf8");
+  assert.match(propagationSource, /WHERE statusRecipe <> 'archived'/u);
+  assert.doesNotMatch(propagationSource, /WHERE statusRecipe = 'active'/u);
+});
+
+test("calcula custos atuais dos componentes ao visualizar Receita e Ficha Técnica", async () => {
+  const recipeSource = await readFile("src/catalog/recipe-screen.js", "utf8");
+  const formationSource = await readFile("src/catalog/product-formation-screen.js", "utf8");
+  assert.doesNotMatch(
+    recipeSource,
+    /if \(viewingRecipe && !editingRecipe && Number\.isFinite\(Number\(component\.costRecipeComponent\)\)\)/u
+  );
+  assert.doesNotMatch(
+    formationSource,
+    /if \(form\.readOnly && Number\.isFinite\(Number\(component\.costFormationComponent\)\)\)/u
+  );
+  assert.doesNotMatch(
+    recipeSource,
+    /viewingRecipe && !editingRecipe && Number\.isFinite\(Number\(form\.totalCostRecipe\)\)/u
+  );
+  assert.doesNotMatch(
+    formationSource,
+    /form\.readOnly && Number\.isFinite\(Number\(form\.totalCostFormation\)\)/u
+  );
+});
+
+test("recarrega custos dos produtos antes de abrir uma Ficha Técnica", async () => {
+  const formationSource = await readFile("src/catalog/product-formation-screen.js", "utf8");
+  assert.match(formationSource, /const openProductFresh = async/u);
+  assert.match(formationSource, /await load\(\);[\s\S]*?openProduct\(productById/u);
+  assert.match(formationSource, /void openProductFresh\(productById\(button\.dataset\.editFormationProduct\)/u);
+});
+
+test("usa o custo de Receita para estruturas independentes e de Formação para Fichas vinculadas", async () => {
+  const formationSource = await readFile("src/catalog/product-formation-screen.js", "utf8");
+  const serverSource = await readFile("src/server/server.js", "utf8");
+  assert.match(
+    formationSource,
+    /recipe\?\.idResultProductRecipe != null[\s\S]*?recipe\.unitCostFormation[\s\S]*?recipe\?\.unitCostRecipe/u
+  );
+  assert.doesNotMatch(formationSource, /recipe\?\.kindRecipe === "production"[\s\S]*?recipe\.unitCostFormation/u);
+  assert.match(serverSource, /recipes\.idResultProductRecipe, recipes\.idUnitYieldRecipe/u);
+  assert.match(formationSource, /form\.readOnly && Number\.isFinite\(snapshotCost\)/u);
+});
+
+test("exibe detalhe seguro para TypeError ao salvar Receita", async () => {
+  const serverSource = await readFile("src/server/server.js", "utf8");
+  const recipeScreenSource = await readFile("src/catalog/recipe-screen.js", "utf8");
+  assert.match(serverSource, /diagnosticDetail: fallback\.diagnosticDetail/u);
+  assert.match(serverSource, /error\?\.name === "TypeError" \? String\(error\.message/u);
+  assert.match(serverSource, /\.slice\(0, 240\)/u);
+  assert.match(recipeScreenSource, /payload\.diagnosticDetail \? `: \$\{payload\.diagnosticDetail\}`/u);
+});
+
+test("converte IDs de receitas para array antes de mapear na propagação", async () => {
+  const source = await readFile("src/server/recipe-cost-propagation.js", "utf8");
+  assert.match(source, /\[\.\.\.new Set\(changedRecipeIds\.map\(Number\)\.filter\(Boolean\)\)\]\s*\.map/u);
+  assert.doesNotMatch(source, /\\.\\.\\.new Set\(changedRecipeIds\.map\(Number\)\.filter\(Boolean\)\)\s*\\.map/u);
 });
 
 test("prepara o identificador do caixa sem estourar o limite de TINYINT", async () => {

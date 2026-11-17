@@ -32,7 +32,9 @@ import { createCulinaryReferenceScreen } from "./catalog/culinary-reference-scre
 import { createRecipeScreen } from "./catalog/recipe-screen.js";
 import { createProductFormationScreen } from "./catalog/product-formation-screen.js";
 import { createFiscalDocumentQueueScreen } from "./stock/fiscal-document-queue-screen.js";
+import { createFiscalEntryDesignScreen } from "./stock/fiscal-entry-design-screen.js";
 import { createProductFiscalReferenceScreen } from "./stock/product-fiscal-reference-screen.js";
+import { createInventoryScreen } from "./stock/inventory-screen.js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { loadProjectIcon } from "./ui/project-icon.js";
 import { installTablePagination } from "./ui/table-pagination.js";
@@ -169,6 +171,9 @@ const common = () => ({
   "fiscal-document-queue": showFiscalDocumentQueue,
   onFiscalEntryXml: showFiscalEntryXml,
   "fiscal-entry-xml": showFiscalEntryXml,
+  onFiscalEntryDesign: showFiscalEntryDesign,
+  "fiscal-entry-design": showFiscalEntryDesign,
+  "inventory": showInventory,
   "product-fiscal-references": showProductFiscalReferences,
   exit: requestExit,
   sair: requestExit
@@ -325,10 +330,14 @@ const showFiscalEntryXml = (initialEntryId = null) =>
     initialEntryId,
     ...common()
   }));
+const showFiscalEntryDesign = () =>
+  mount(createFiscalEntryDesignScreen({ onBack: showBackoffice, ...common() }));
 const showProductFiscalReferences = () =>
   mount(createProductFiscalReferenceScreen({
     ...common()
   }));
+const showInventory = () =>
+  mount(createInventoryScreen({ onBack: showBackoffice, ...common() }));
 const showFiscalOperations = () =>
   mount(createFiscalOperationScreen({
     onBack: showBackoffice,

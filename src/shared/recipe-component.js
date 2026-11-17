@@ -109,6 +109,14 @@ export const formatRecipeComponentUnit = (unit) => {
   return [canonicalCode, description].filter(Boolean).join(" - ");
 };
 
+export const formatRecipeComponentLabel = (recipe) => {
+  const kind = String(recipe?.kindRecipe ?? recipe?.kind ?? "")
+    .trim()
+    .toLocaleLowerCase("pt-BR");
+  const prefix = kind === "composition" ? "Composição" : "Receita";
+  return `${prefix} - ${recipe?.nameRecipe || "Receita não encontrada"}`;
+};
+
 export const formatCulinaryUnit = (unit) => {
   if (!unit) return "Unidade culinária não informada";
   const name = unit.nameCulinaryUnit || unit.codeCulinaryUnit || "Unidade";
