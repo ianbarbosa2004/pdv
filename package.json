@@ -1,6 +1,6 @@
 {
   "name": "pdv",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -30,6 +30,7 @@
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",
     "@tauri-apps/plugin-fs": "^2.7.1",
+    "air-datepicker": "^3.6.0",
     "keytar": "^7.9.0",
     "lucide": "^1.61.0",
     "mysql2": "^3.15.3",

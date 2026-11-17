@@ -3106,6 +3106,10 @@ h2 {
   align-items: start;
 }
 
+.product-formation-screen .formation-form-error {
+  margin: 0 0 12px;
+}
+
 .formation-editor-panel {
   grid-column: span 2;
   min-width: 0;
@@ -4471,6 +4475,93 @@ h2 {
 .fiscal-entry-test-layout .fiscal-entry-list-panel .classic-table th:nth-child(7),
 .fiscal-entry-test-layout .fiscal-entry-list-panel .classic-table td:nth-child(7) {
   width: 12%;
+}
+
+.fiscal-entry-test-screen .fiscal-entry-list-panel .classic-table th,
+.fiscal-entry-test-screen .fiscal-entry-list-panel .classic-table .table-sort-button {
+  text-align: center;
+}
+
+.fiscal-entry-test-screen .fiscal-entry-list-panel .classic-table .table-sort-button {
+  justify-content: center;
+}
+
+.fiscal-entry-test-screen .fiscal-entry-list-panel .classic-table td:nth-child(1),
+.fiscal-entry-test-screen .fiscal-entry-list-panel .classic-table td:nth-child(3),
+.fiscal-entry-test-screen .fiscal-entry-list-panel .classic-table td:nth-child(5),
+.fiscal-entry-test-screen .fiscal-entry-list-panel .classic-table td:nth-child(6) {
+  text-align: center;
+}
+
+.fiscal-entry-test-screen .fiscal-entry-list-panel .classic-table td:nth-child(2) {
+  text-align: left;
+}
+
+.fiscal-entry-test-screen .fiscal-entry-list-panel .classic-table th:nth-child(3),
+.fiscal-entry-test-screen .fiscal-entry-list-panel .classic-table td:nth-child(3) {
+  width: 90px;
+  min-width: 90px;
+  max-width: 90px;
+}
+
+.fiscal-entry-test-screen .fiscal-entry-list-panel .classic-table th:nth-child(1),
+.fiscal-entry-test-screen .fiscal-entry-list-panel .classic-table td:nth-child(1) {
+  width: 60px;
+  min-width: 60px;
+  max-width: 60px;
+}
+
+.fiscal-entry-test-screen .fiscal-entry-list-panel .classic-table th:nth-child(2),
+.fiscal-entry-test-screen .fiscal-entry-list-panel .classic-table td:nth-child(2) {
+  width: auto;
+  min-width: 0;
+  max-width: none;
+}
+
+.fiscal-entry-test-screen .fiscal-entry-list-panel .classic-table th:nth-child(4),
+.fiscal-entry-test-screen .fiscal-entry-list-panel .classic-table td:nth-child(4),
+.fiscal-entry-test-screen .fiscal-entry-list-panel .classic-table th:nth-child(5),
+.fiscal-entry-test-screen .fiscal-entry-list-panel .classic-table td:nth-child(5) {
+  width: 90px;
+  min-width: 90px;
+  max-width: 90px;
+}
+
+.fiscal-entry-test-screen .fiscal-entry-list-panel .classic-table th:nth-child(6),
+.fiscal-entry-test-screen .fiscal-entry-list-panel .classic-table td:nth-child(6) {
+  width: 100px;
+  min-width: 100px;
+  max-width: 100px;
+}
+
+.fiscal-entry-test-screen .fiscal-entry-list-panel [data-open-entry] {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  padding: 4px;
+}
+
+.fiscal-entry-test-screen .fiscal-entry-list-panel [data-open-entry] svg {
+  width: 18px;
+  height: 18px;
+}
+
+.fiscal-entry-test-screen .fiscal-entry-list-panel .classic-table td.supplier-column,
+.fiscal-entry-test-screen .fiscal-entry-list-panel .classic-table th.supplier-column {
+  width: 25%;
+  min-width: 0;
+  max-width: 25%;
+  white-space: normal;
+  overflow: visible;
+}
+
+.fiscal-entry-test-screen .fiscal-entry-list-panel .classic-table th.supplier-column {
+  white-space: nowrap;
+}
+
+.fiscal-entry-test-screen .fiscal-entry-list-panel .value-column {
+  white-space: nowrap;
+  text-align: right;
 }
 
 .fiscal-document-queue-layout .fiscal-entry-list-panel [data-open-entry],
@@ -6161,10 +6252,221 @@ h2 {
   align-items: start;
 }
 
+.fiscal-entry-test-layout > .recipe-editor-panel {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.fiscal-entry-test-layout > .fiscal-entry-list-panel {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.manual-entry-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.manual-entry-status {
+  padding: 3px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.manual-entry-status-draft {
+  background: #7d8c9c;
+}
+
+.manual-entry-status-open {
+  background: #23689b;
+}
+
+.manual-entry-status-confirmed {
+  background: #2f855a;
+}
+
+.manual-entry-status-cancelled {
+  background: #9b3e3e;
+}
+
+.manual-entry-meta-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  height: auto;
+  margin-bottom: 0;
+}
+
+.manual-entry-supplier-picker {
+  margin-bottom: 0;
+}
+
+.manual-entry-supplier-picker .recipe-component-picker.is-open {
+  z-index: 30;
+}
+
+.manual-entry-supplier-picker > .form-field-label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 700;
+}
+
+.manual-entry-supplier-picker .classic-combobox,
+.manual-entry-item-primary-grid .classic-combobox {
+  width: 100%;
+}
+
+.manual-entry-item-primary-grid,
+.manual-entry-item-values-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  height: auto;
+  margin-bottom: 0;
+}
+
+.manual-entry-item-primary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.manual-entry-product-field {
+  grid-column: span 3;
+}
+
+.manual-entry-unit-field {
+  grid-column: span 1;
+}
+
+.manual-entry-payment-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  height: auto;
+}
+
+.nested-form-panel {
+  margin-bottom: 0;
+}
+
+.nested-form-panel .classic-button {
+  margin-top: 0;
+}
+
+.fiscal-entry-test-screen input[type="date"] {
+  font-family: inherit !important;
+  font-size: inherit !important;
+  font-weight: inherit !important;
+  color: inherit;
+}
+
+.fiscal-entry-test-screen input[type="date"]::-webkit-datetime-edit,
+.fiscal-entry-test-screen input[type="date"]::-webkit-datetime-edit-fields-wrapper,
+.fiscal-entry-test-screen input[type="date"]::-webkit-datetime-edit-text,
+.fiscal-entry-test-screen input[type="date"]::-webkit-datetime-edit-month-field,
+.fiscal-entry-test-screen input[type="date"]::-webkit-datetime-edit-day-field,
+.fiscal-entry-test-screen input[type="date"]::-webkit-datetime-edit-year-field {
+  font-family: inherit !important;
+  font-size: inherit !important;
+  font-weight: inherit !important;
+  color: inherit;
+}
+
+.air-datepicker.manual-entry-datepicker {
+  --adp-font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  --adp-font-size: 12px;
+  --adp-day-cell-height: 28px;
+  --adp-nav-height: 28px;
+  --adp-nav-action-size: 28px;
+}
+
+.manual-entry-payments-list {
+  padding-left: 20px;
+}
+
+.manual-entry-payments-list li {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.manual-entry-remove-payment {
+  margin-left: 2px;
+  padding: 2px 8px;
+}
+
+.manual-entry-supplier-summary {
+  margin: 0 0 16px;
+  padding: 12px;
+  border: 1px solid #d6dee7;
+  background: #f7f9fb;
+}
+
+.fiscal-entry-test-screen .fiscal-entry-items-table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+.fiscal-entry-test-screen .fiscal-entry-items-table th {
+  text-align: center;
+}
+
+.fiscal-entry-test-screen .fiscal-entry-items-table th:nth-child(4),
+.fiscal-entry-test-screen .fiscal-entry-items-table td:nth-child(4),
+.fiscal-entry-test-screen .fiscal-entry-items-table th:nth-child(5),
+.fiscal-entry-test-screen .fiscal-entry-items-table td:nth-child(5),
+.fiscal-entry-test-screen .fiscal-entry-items-table th:nth-child(6),
+.fiscal-entry-test-screen .fiscal-entry-items-table td:nth-child(6),
+.fiscal-entry-test-screen .fiscal-entry-items-table th:nth-child(7),
+.fiscal-entry-test-screen .fiscal-entry-items-table td:nth-child(7) {
+  width: 80px;
+  min-width: 80px;
+  max-width: 80px;
+}
+
+.fiscal-entry-test-screen .fiscal-entry-items-table th:nth-child(1),
+.fiscal-entry-test-screen .fiscal-entry-items-table td:nth-child(1) {
+  width: 40px;
+  min-width: 40px;
+  max-width: 40px;
+}
+
+.fiscal-entry-test-screen .fiscal-entry-items-table th:nth-child(3),
+.fiscal-entry-test-screen .fiscal-entry-items-table td:nth-child(3) {
+  width: 90px;
+  min-width: 90px;
+  max-width: 90px;
+}
+
+.fiscal-entry-test-screen .fiscal-entry-items-table th:nth-child(2),
+.fiscal-entry-test-screen .fiscal-entry-items-table td:nth-child(2) {
+  width: auto;
+  min-width: 0;
+  text-align: left;
+}
+
+.fiscal-entry-test-screen .fiscal-entry-items-table td:nth-child(1),
+.fiscal-entry-test-screen .fiscal-entry-items-table td:nth-child(4),
+.fiscal-entry-test-screen .fiscal-entry-items-table td:nth-child(7) {
+  text-align: center;
+}
+
+.fiscal-entry-test-screen .fiscal-entry-items-table td:nth-child(3),
+.fiscal-entry-test-screen .fiscal-entry-items-table td:nth-child(5),
+.fiscal-entry-test-screen .fiscal-entry-items-table td:nth-child(6),
+.fiscal-entry-test-screen .fiscal-entry-items-table tfoot th[colspan="5"],
+.fiscal-entry-test-screen .fiscal-entry-items-table tfoot th:nth-child(2) {
+  text-align: right;
+}
+
 .fiscal-entry-test-layout > .fiscal-entry-test-recipe-panel,
 .fiscal-entry-test-layout > .fiscal-entry-test-queue-panel {
   grid-column: auto !important;
   grid-row: auto;
+}
+
+.fiscal-entry-test-layout > .recipe-editor-panel {
+  grid-column: 2 !important;
+  grid-row: 1;
 }
 
 .fiscal-entry-test-recipe-panel,
@@ -6253,6 +6555,20 @@ h2 {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
+  .manual-entry-meta-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .fiscal-entry-test-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .fiscal-entry-test-layout > .recipe-editor-panel,
+  .fiscal-entry-test-layout > .fiscal-entry-list-panel {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
   .fiscal-entry-mode-panel,
   .fiscal-entry-design-heading,
   .fiscal-entry-design-footer {
@@ -6316,6 +6632,19 @@ h2 {
 }
 
 @media (max-width: 620px) {
+  .manual-entry-meta-grid,
+  .manual-entry-item-primary-grid,
+  .manual-entry-item-values-grid,
+  .manual-entry-payment-grid,
+  .manual-entry-supplier-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .manual-entry-product-field,
+  .manual-entry-unit-field {
+    grid-column: auto;
+  }
+
   .fiscal-entry-test-recipe-grid {
     grid-template-columns: 1fr;
   }

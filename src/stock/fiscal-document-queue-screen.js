@@ -145,8 +145,8 @@ const renderFiscalEntryHeader = (entry) => {
 };
 
 const fiscalEntryStatusLabel = (status) => ({
-  draft: "Em Digitação",
-  open: "Em Aberto",
+  draft: "Digitação",
+  open: "Aberta",
   confirmed: "Confirmada",
   cancelled: "Cancelada"
 }[status] || status || "Não informado");
@@ -277,11 +277,11 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
   };
 
   const statusFilterOptions = [
-    ["all", "Todos"],
-    ["draft", "Em Digitação"],
-    ["open", "Em Aberto"],
-    ["confirmed", "Confirmadas"],
-    ["cancelled", "Canceladas"]
+    ["all", "Todas"],
+    ["draft", "Digitação"],
+    ["open", "Aberta"],
+    ["confirmed", "Confirmada"],
+    ["cancelled", "Cancelada"]
   ];
 
   const renderFiscalEntryListHeader = (title) => `
@@ -377,7 +377,7 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
       ${renderScreenContextBar(entryOnly ? "Entrada de NF-e / NFC-e" : "Fila de Documentos")}
       <section class="classic-content">
         ${renderSuccessFeedback(message, escapeHtml)}
-        ${renderNavigationIntro(entryOnly ? "fiscal-entry-xml" : "fiscal-document-queue", entryOnly ? "Entrada de NF-e / NFC-e" : "Fila de Documentos", entryOnly ? "Revise entradas de NF-e e NFC-e, seus itens, vínculos, conversões e pagamentos." : "Importe documentos fiscais e acompanhe as entradas em estado Em Aberto.")}
+        ${renderNavigationIntro(entryOnly ? "fiscal-entry-xml" : "fiscal-document-queue", entryOnly ? "Entrada de NF-e / NFC-e" : "Fila de Documentos", entryOnly ? "Revise entradas de NF-e e NFC-e, seus itens, vínculos, conversões e pagamentos." : "Importe documentos fiscais e acompanhe as entradas em estado Aberto.")}
         ${!entryOnly ? `
           <div class="fiscal-document-queue-layout" data-queue-only>
             <div class="fiscal-document-import-column">
@@ -394,7 +394,7 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
               <form class="classic-form-panel fiscal-entry-upload-panel" data-xml-form>
                 <div class="classic-panel-header">Importar XML de entrada</div>
                 <div class="classic-form-body">
-                  <p class="form-help">O XML autorizado será validado e salvo como entrada em estado <strong>Em Digitação</strong>. Essa operação não movimenta nem reserva estoque.</p>
+                  <p class="form-help">O XML autorizado será validado e salvo como entrada em estado <strong>Digitação</strong>. Essa operação não movimenta nem reserva estoque.</p>
                   <label class="form-field"><span>Arquivo XML da NF-e/NFC-e</span><input name="xmlFile" type="file" accept=".xml,text/xml,application/xml" required /></label>
                   ${xmlError ? `<p class="payment-error">${escapeHtml(xmlError)}</p>` : ""}
                 </div>

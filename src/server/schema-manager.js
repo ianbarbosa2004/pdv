@@ -724,6 +724,10 @@ const initializeFiscalEntrySchema = async () => {
     ["emissionTypeFiscalDocument", "VARCHAR(80) NOT NULL DEFAULT ''"],
     ["purposeFiscalDocument", "VARCHAR(80) NOT NULL DEFAULT ''"],
     ["digestValueFiscalDocument", "VARCHAR(120) NOT NULL DEFAULT ''"],
+    ["originFiscalDocument", "ENUM('imported', 'manual') NOT NULL DEFAULT 'imported'"],
+    ["manualSourceFiscalDocument", "ENUM('nota_fiscal', 'pedido') NULL"],
+    ["idSupplierFiscalDocument", "BIGINT UNSIGNED NULL"],
+    ["entryDateFiscalDocument", "DATE NULL"],
     ["authorizedAtFiscalDocument", "DATETIME NULL"],
     ["includedAtFiscalDocument", "DATETIME NULL"]
   ];
@@ -2142,8 +2146,8 @@ const synchronizeNavigationDefaults = async () => {
      SET labelNavigationItem = ?, descriptionNavigationItem = ?
      WHERE keyNavigationItem = ?`,
     [
-      "Entrada de NF-e / NFC-e (Teste)",
-      "Teste visual da entrada com formulário e documentos em aberto.",
+      "Entrada Manual",
+      "Registre entradas manuais por Nota fiscal ou Pedido.",
       "fiscal-entry-design"
     ]
   );
