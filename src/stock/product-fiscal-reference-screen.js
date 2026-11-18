@@ -26,8 +26,10 @@ const getFiscalConsistency = (product) => {
   const productCest = normalizeFiscalCode(product.cestProduct);
   const references = product.references.map((reference) => ({
     ...reference,
-    ncmMismatch: productNcm !== normalizeFiscalCode(reference.ncmProductFiscalReference),
-    cestMismatch: productCest !== normalizeFiscalCode(reference.cestProductFiscalReference)
+    ncmMismatch: !Number(reference.isManualEntryReference)
+      && productNcm !== normalizeFiscalCode(reference.ncmProductFiscalReference),
+    cestMismatch: !Number(reference.isManualEntryReference)
+      && productCest !== normalizeFiscalCode(reference.cestProductFiscalReference)
   }));
   return {
     references,
@@ -39,7 +41,10 @@ const getFiscalConsistency = (product) => {
 const isFiscalConsistent = (product) => {
   const productNcm = normalizeFiscalCode(product.ncmProduct);
   const productCest = normalizeFiscalCode(product.cestProduct);
-  return product.references.some((reference) =>
+  const comparableReferences = product.references.filter(
+    (reference) => !Number(reference.isManualEntryReference)
+  );
+  return !comparableReferences.length || comparableReferences.some((reference) =>
     productNcm === normalizeFiscalCode(reference.ncmProductFiscalReference)
     && productCest === normalizeFiscalCode(reference.cestProductFiscalReference)
   );
@@ -52,7 +57,7 @@ export function createProductFiscalReferenceScreen(menuActions) {
   let products = [];
   let selectedProductId = null;
   let search = "";
-  let sortState = { key: "nameProduct", direction: "asc" };
+  let sortState = { key: "fiscalConsistency", direction: "asc" };
   let loading = true;
   let error = "";
   let message = "";
@@ -145,12 +150,12 @@ export function createProductFiscalReferenceScreen(menuActions) {
         const leftValue = sortState.key === "references"
           ? left.references.length
           : sortState.key === "fiscalConsistency"
-            ? (isFiscalConsistent(left) ? 0 : 1)
+            ? (isFiscalConsistent(left) ? 1 : 0)
             : left[sortState.key];
         const rightValue = sortState.key === "references"
           ? right.references.length
           : sortState.key === "fiscalConsistency"
-            ? (isFiscalConsistent(right) ? 0 : 1)
+            ? (isFiscalConsistent(right) ? 1 : 0)
             : right[sortState.key];
         const comparison = sortState.key === "pdvCodeProduct" || sortState.key === "fiscalConsistency"
           ? Number(leftValue || 0) - Number(rightValue || 0)
@@ -181,7 +186,7 @@ export function createProductFiscalReferenceScreen(menuActions) {
               </div>
               <div class="classic-grid-wrapper"><table class="classic-table"><thead><tr>
                 ${[
-                  ["pdvCodeProduct", "# PDV", "text-center"],
+                  ["pdvCodeProduct", "#PDV", "text-center"],
                   ["nameProduct", "Produto"],
                   ["descriptionGroup", "Grupo", "text-center"],
                   ["references", "Vínculos", "text-center"]

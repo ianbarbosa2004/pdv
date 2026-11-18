@@ -18,7 +18,7 @@ test("a tela de entrada manual oferece origem, fornecedor, itens e pagamentos", 
   assert.match(source, /data-product-toggle/u);
   assert.match(source, /data-supplier-search/u);
   assert.match(source, /data-product-search/u);
-  assert.match(source, /# \$\{product\.pdvCodeProduct \|\| product\.idProduct\}/u);
+  assert.match(source, /productLabel\(product\)/u);
   assert.match(source, /toLocaleLowerCase\("pt-BR"\)/u);
   assert.match(source, /api\/product-formations/u);
   assert.match(source, /produto acabado/u);
@@ -46,10 +46,49 @@ test("a tela de entrada manual oferece origem, fornecedor, itens e pagamentos", 
   assert.match(source, /data-save-draft/u);
   assert.match(source, /Salvar rascunho/u);
   assert.match(source, /data-open-entry/u);
+  assert.match(source, /data-save-entry/u);
+  assert.doesNotMatch(source, /data-open-entry>Gravar entrada/u);
   assert.match(source, /Gravar entrada/u);
   assert.match(source, /manualEntryDateFiscalDocument \|\| entry\.entryDateFiscalDocument/u);
   assert.match(source, /data-review-impact/u);
   assert.match(source, /data-reopen/u);
   assert.match(source, /min="0\.01"/u);
+  assert.match(source, /data-lucide="calculator"/u);
+  assert.match(source, /data-open-calculator/u);
+  assert.match(source, /data-transfer-calculator/u);
+  assert.match(source, /manual-entry-calculator-modal/u);
   assert.match(source, /\/api\/stock\/manual-entries/u);
+});
+
+test("a calculadora da entrada manual aceita digitação direta", async () => {
+  const source = await readFile(
+    new URL("../../src/stock/fiscal-entry-design-screen.js", import.meta.url),
+    "utf8"
+  );
+  const styles = await readFile(
+    new URL("../../src/styles.css", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /<input[^>]*data-calculator-display/u);
+  assert.match(source, /inputmode="decimal"/u);
+  assert.match(source, /\[data-calculator-display\].*addEventListener\("input"/u);
+  assert.match(source, /\[data-calculator-display\].*addEventListener\("keydown"/u);
+  assert.match(source, /calculatorDisplayInput\?\.focus\(\)/u);
+  assert.match(source, /calculatorDisplayInput\?\.select\(\)/u);
+  assert.doesNotMatch(source, /<output class="manual-entry-calculator-display"/u);
+  assert.match(styles, /\.manual-entry-calculator-body\s*\{[^}]*padding:\s*12px\s+16px\s+12px\s+12px/su);
+  assert.match(styles, /input\.manual-entry-calculator-display/u);
+});
+
+test("a calculadora mostra e reconhece sinais digitados", async () => {
+  const source = await readFile(
+    new URL("../../src/stock/fiscal-entry-design-screen.js", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /calculatorOperatorLabel/u);
+  assert.match(source, /getCalculatorOperand/u);
+  assert.match(source, /\["\+", "-", "\*", "\/"\]\.includes\(event\.key\)/u);
+  assert.match(source, /\{[^}]*"\/": "÷"/u);
 });

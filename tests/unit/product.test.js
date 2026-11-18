@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildDuplicatedProductDraft,
+  formatProductOptionLabel,
   formatProductStockForInput,
   getDuplicatedProductName,
   normalizeProductPackageQuantity
@@ -69,6 +70,18 @@ test("normaliza conteúdo por unidade e estoque de forma idêntica nos modais", 
   assert.equal(normalizeProductPackageQuantity(null), "1");
   assert.equal(formatProductStockForInput("0.000", false), "0");
   assert.equal(formatProductStockForInput("1.250", true), "1.250");
+});
+
+test("formata produtos para comboboxes com código PDV e unidade em minúsculas", () => {
+  assert.equal(
+    formatProductOptionLabel({
+      pdvCodeProduct: "42",
+      nameProduct: "Arroz",
+      codeUnit: "KG"
+    }),
+    "#42 - Arroz (kg)"
+  );
+  assert.equal(formatProductOptionLabel(null), "Selecione um produto");
 });
 
 test("conteúdo por unidade usa máscara de milésimos", () => {

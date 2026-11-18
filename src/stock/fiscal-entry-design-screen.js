@@ -8,6 +8,7 @@ import { bindNumberMasks, formatMaskedNumber } from "../ui/number-mask.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { apiFetch, getApiUrl } from "../shared/api.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
+import { formatProductOptionLabel } from "../shared/product.js";
 import AirDatepicker from "air-datepicker";
 import "air-datepicker/air-datepicker.css";
 
@@ -56,6 +57,11 @@ export function createFiscalEntryDesignScreen({ onBack, ...handlers }) {
   let listSearch = "", listStatusFilter = "draft", listSort = { key: "issuedAtFiscalDocument", direction: "asc" };
   const scheduleMessageClear = createFeedbackTimer();
   let datepicker = null;
+  let calculatorOpen = false;
+  let calculatorDisplay = "0";
+  let calculatorStored = null;
+  let calculatorOperator = null;
+  let calculatorWaiting = false;
   const supplierPicker = { searchTerm: "", isOpen: false };
   const productPicker = { searchTerm: "", isOpen: false };
   const itemDraft = { product: "", quantity: "0,000", unitPrice: "0,00" };
@@ -80,17 +86,39 @@ export function createFiscalEntryDesignScreen({ onBack, ...handlers }) {
     `${product.nameProduct || ""} ${product.pdvCodeProduct || ""} ${product.skuProduct || ""}`
       .toLocaleLowerCase("pt-BR").includes(productPicker.searchTerm.trim().toLocaleLowerCase("pt-BR"))
   );
-  const productLabel = (product) => {
-    if (!product?.nameProduct) return "Selecione um produto";
-    const unit = String(product.codeUnit || product.descriptionUnit || "unidade")
-      .trim()
-      .toLocaleLowerCase("pt-BR");
-    return `# ${product.pdvCodeProduct || product.idProduct} - ${product.nameProduct} (${unit})`;
-  };
+  const productLabel = formatProductOptionLabel;
   const parseInputNumber = (value) => {
     const text = String(value ?? "").trim().replace(/\./g, "").replace(",", ".");
     const number = Number(text);
     return Number.isFinite(number) ? number : 0;
+  };
+  const formatCalculatorDisplay = (value) => {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return "0";
+    return number.toLocaleString("pt-BR", { maximumFractionDigits: 10 });
+  };
+  const applyCalculatorOperation = (left, right, operator) => {
+    if (operator === "+") return left + right;
+    if (operator === "-") return left - right;
+    if (operator === "*") return left * right;
+    if (operator === "/") return right === 0 ? null : left / right;
+    return right;
+  };
+  const calculatorOperatorLabel = (operator) => ({
+    "+": "+",
+    "-": "-",
+    "*": "×",
+    "/": "÷"
+  })[operator] || "";
+  const getCalculatorOperand = (display) => {
+    const parts = String(display).split(/[+\-×÷*/]/u);
+    return parseInputNumber(parts.at(-1));
+  };
+  const resetCalculator = () => {
+    calculatorDisplay = "0";
+    calculatorStored = null;
+    calculatorOperator = null;
+    calculatorWaiting = false;
   };
   const dateInputValue = (value) => String(value ?? "").match(/^\d{4}-\d{2}-\d{2}/u)?.[0] || "";
   const setMessage = (value) => {
@@ -189,14 +217,32 @@ export function createFiscalEntryDesignScreen({ onBack, ...handlers }) {
                 <div class="form-field manual-entry-product-field"><span>Produto</span><div class="recipe-component-picker classic-combobox${productPicker.isOpen ? " is-open" : ""}">
                   <input type="hidden" name="product" value="${escapeHtml(itemDraft.product)}">
                   <button class="classic-select-trigger" type="button" data-product-toggle ${locked ? "disabled" : ""} aria-expanded="${productPicker.isOpen}">${escapeHtml(productLabel(products.find((product) => String(product.idProduct) === String(itemDraft.product))))}</button>
-                  ${productPicker.isOpen ? `<div class="recipe-component-options"><input data-component-search data-product-search type="search" autocomplete="off" placeholder="Pesquisar produto..." value="${escapeHtml(productPicker.searchTerm)}">${productOptions().map((product) => `<button type="button" class="recipe-component-option" data-product-option="${product.idProduct}">${escapeHtml(productLabel(product))}</button>`).join("") || '<span class="classic-empty">Nenhum produto encontrado.</span>'}</div>` : ""}
+                  ${productPicker.isOpen ? `<div class="recipe-component-options combobox-options-fixed-search"><input data-component-search data-product-search type="search" autocomplete="off" placeholder="Pesquisar produto..." value="${escapeHtml(productPicker.searchTerm)}"><div class="combobox-option-list">${productOptions().map((product) => `<button type="button" class="recipe-component-option" data-product-option="${product.idProduct}">${escapeHtml(productLabel(product))}</button>`).join("") || '<span class="classic-empty">Nenhum produto encontrado.</span>'}</div></div>` : ""}
                 </div></div>
                 <label class="form-field manual-entry-unit-field"><span>Unidade</span><input data-unit-display value="${escapeHtml([products.find((product) => String(product.idProduct) === String(itemDraft.product))?.codeUnit, products.find((product) => String(product.idProduct) === String(itemDraft.product))?.descriptionUnit].filter(Boolean).join(" - ") || "Selecione um produto")}" readonly></label>
               </div>
               <div class="recipe-component-input-grid manual-entry-item-values-grid">
                 <label class="form-field"><span>Quantidade</span><input name="quantity" data-number-mask="fractional-3" inputmode="decimal" min="0.001" value="${escapeHtml(itemDraft.quantity || "0,000")}" ${locked ? "disabled" : ""}></label>
-                <label class="form-field"><span>Preço unitário</span><input name="unitPrice" data-number-mask inputmode="decimal" min="0.01" value="${escapeHtml(itemDraft.unitPrice || "0,00")}" ${locked ? "disabled" : ""}></label>
+                <label class="form-field"><span>Preço unitário</span><div class="manual-entry-unit-price-field"><input name="unitPrice" data-number-mask inputmode="decimal" min="0.01" value="${escapeHtml(itemDraft.unitPrice || "0,00")}" ${locked ? "disabled" : ""}>${locked ? "" : '<button class="icon-button manual-entry-calculator-button" type="button" data-open-calculator aria-label="Abrir calculadora" title="Abrir calculadora"><i data-lucide="calculator"></i></button>'}</div></label>
               </div>
+              ${calculatorOpen ? `
+                <div class="classic-modal-backdrop manual-entry-calculator-backdrop" data-calculator-backdrop>
+                  <section class="classic-modal manual-entry-calculator-modal" role="dialog" aria-modal="true" aria-labelledby="manual-entry-calculator-title">
+                    <div class="classic-panel-header modal-panel-header"><span id="manual-entry-calculator-title">Calculadora</span><button class="modal-close-button" type="button" data-close-calculator aria-label="Fechar" title="Fechar"><i data-lucide="x"></i></button></div>
+                    <div class="manual-entry-calculator-body">
+                      <input class="manual-entry-calculator-display" data-calculator-display type="text" inputmode="decimal" aria-label="Valor da calculadora" value="${escapeHtml(formatCalculatorDisplay(calculatorDisplay))}">
+                      <div class="manual-entry-calculator-grid">
+                        ${["7", "8", "9", "/"].map((key) => `<button type="button" class="classic-button${["/", "*", "-", "+"].includes(key) ? " calculator-operation" : ""}" data-calculator-key="${key}">${key === "/" ? "÷" : key}</button>`).join("")}
+                        ${["4", "5", "6", "*"].map((key) => `<button type="button" class="classic-button${["/", "*", "-", "+"].includes(key) ? " calculator-operation" : ""}" data-calculator-key="${key}">${key === "*" ? "×" : key}</button>`).join("")}
+                        ${["1", "2", "3", "-"].map((key) => `<button type="button" class="classic-button${["/", "*", "-", "+"].includes(key) ? " calculator-operation" : ""}" data-calculator-key="${key}">${key}</button>`).join("")}
+                        ${["0", ",", "=", "+"].map((key) => `<button type="button" class="classic-button${["/", "*", "-", "+"].includes(key) ? " calculator-operation" : ""}" data-calculator-key="${key}">${key === "=" ? "=" : key}</button>`).join("")}
+                      </div>
+                      <button type="button" class="classic-button" data-calculator-clear>Limpar</button>
+                      <button type="button" class="classic-button primary" data-transfer-calculator>Transferir valor</button>
+                    </div>
+                  </section>
+                </div>
+              ` : ""}
               ${locked ? "" : '<button class="classic-button" type="button" data-add-item>Adicionar item</button>'}
               <table class="classic-table fiscal-entry-items-table"><thead><tr><th>#</th><th>Produto</th><th>Quantidade</th><th>Unidade</th><th>Preço</th><th>Total</th><th>Ações</th></tr></thead><tbody>${draft.items.map((item, index) => `<tr><td>${index + 1}</td><td>${escapeHtml(item.name)}</td><td>${formatMaskedNumber(item.quantity, 3)}</td><td>${escapeHtml(item.unit)}</td><td>${money(item.unitPrice)}</td><td>${money(item.quantity * item.unitPrice)}</td><td><button type="button" class="icon-button delete" data-remove-item="${index}" aria-label="Remover item" title="Remover item"><i data-lucide="trash-2"></i></button></td></tr>`).join("") || '<tr><td colspan="7" class="classic-empty">Nenhum item.</td></tr>'}</tbody><tfoot><tr><th colspan="5">Total da entrada</th><th>${money(total())}</th><th></th></tr></tfoot></table>
               <div class="classic-panel-header nested-panel-header">Pagamentos</div>
@@ -204,7 +250,7 @@ export function createFiscalEntryDesignScreen({ onBack, ...handlers }) {
               <ul class="manual-entry-payments-list">${draft.payments.map((payment, index) => `<li><span>${escapeHtml(payment.description)} - R$ ${money(payment.amount)}</span><button class="manual-entry-remove-payment icon-button delete" type="button" data-remove-payment="${index}" aria-label="Remover pagamento" title="Remover pagamento"><i data-lucide="trash-2"></i></button></li>`).join("") || "<li>Nenhum pagamento.</li>"}</ul>
               ${error ? `<p class="payment-error" role="alert">${escapeHtml(error)}</p>` : ""}
             </div>
-            <div class="classic-form-actions">${locked ? "" : '<button class="classic-button primary" type="button" data-save-draft>Salvar rascunho</button><button class="classic-button primary" type="button" data-open-entry>Gravar entrada</button>'}${current?.statusFiscalEntry === "open" ? '<button class="classic-button primary" type="button" data-review-impact>Revisar impacto</button><button class="classic-button" type="button" data-reopen>Voltar para Digitação</button>' : ""}${current?.statusFiscalEntry === "confirmed" ? '<button class="classic-button" type="button" data-cancel-entry>Cancelar entrada</button>' : ""}${["draft", "open"].includes(current?.statusFiscalEntry) ? '<button class="classic-button" type="button" data-delete-entry>Excluir</button>' : ""}${locked ? "" : '<button class="classic-button" type="button" data-clear>Limpar</button>'}</div>
+            <div class="classic-form-actions">${locked ? "" : '<button class="classic-button primary" type="button" data-save-draft>Salvar rascunho</button><button class="classic-button primary" type="button" data-save-entry>Gravar entrada</button>'}${current?.statusFiscalEntry === "open" ? '<button class="classic-button primary" type="button" data-review-impact>Revisar impacto</button><button class="classic-button" type="button" data-reopen>Voltar para Digitação</button>' : ""}${current?.statusFiscalEntry === "confirmed" ? '<button class="classic-button" type="button" data-cancel-entry>Cancelar entrada</button>' : ""}${["draft", "open"].includes(current?.statusFiscalEntry) ? '<button class="classic-button" type="button" data-delete-entry>Excluir</button>' : ""}${locked ? "" : '<button class="classic-button" type="button" data-clear>Limpar</button>'}</div>
           </form>
           <section class="classic-grid-panel fiscal-entry-list-panel">${renderManualEntryListHeader()}<div class="classic-grid-wrapper" data-default-page-size="25">${loading ? '<p class="classic-empty">Carregando entradas...</p>' : visibleEntries().length ? `
             <table class="classic-table">
@@ -295,6 +341,129 @@ export function createFiscalEntryDesignScreen({ onBack, ...handlers }) {
     }));
     root.querySelector("[name=quantity]")?.addEventListener("input", (event) => { itemDraft.quantity = event.currentTarget.value; });
     root.querySelector("[name=unitPrice]")?.addEventListener("input", (event) => { itemDraft.unitPrice = event.currentTarget.value; });
+    root.querySelector("[data-open-calculator]")?.addEventListener("click", () => {
+      const unitPriceInput = root.querySelector("[name=unitPrice]");
+      itemDraft.unitPrice = unitPriceInput?.value || itemDraft.unitPrice;
+      const currentValue = parseInputNumber(itemDraft.unitPrice);
+      resetCalculator();
+      calculatorDisplay = currentValue ? formatCalculatorDisplay(currentValue) : "0";
+      calculatorOpen = true;
+      render();
+      const calculatorDisplayInput = root.querySelector("[data-calculator-display]");
+      calculatorDisplayInput?.focus();
+      calculatorDisplayInput?.select();
+    });
+    root.querySelector("[data-close-calculator]")?.addEventListener("click", () => {
+      calculatorOpen = false;
+      render();
+    });
+    root.querySelector("[data-calculator-backdrop]")?.addEventListener("click", (event) => {
+      if (event.target === event.currentTarget) {
+        calculatorOpen = false;
+        render();
+      }
+    });
+    root.querySelectorAll("[data-calculator-key]").forEach((button) => button.addEventListener("click", () => {
+      const key = button.dataset.calculatorKey;
+      if (/^\d$/u.test(key)) {
+        if (calculatorWaiting) {
+          const left = formatCalculatorDisplay(calculatorStored);
+          calculatorDisplay = `${left} ${calculatorOperatorLabel(calculatorOperator)} ${key}`;
+        } else {
+          calculatorDisplay = calculatorDisplay === "0" ? key : `${calculatorDisplay}${key}`;
+        }
+        calculatorWaiting = false;
+        render();
+        return;
+      }
+      if (key === ",") {
+        if (calculatorWaiting) calculatorDisplay = "0";
+        if (!calculatorDisplay.includes(",")) calculatorDisplay += ",";
+        calculatorWaiting = false;
+        render();
+        return;
+      }
+      if (["+", "-", "*", "/"].includes(key)) {
+        const current = getCalculatorOperand(calculatorDisplay);
+        if (calculatorStored !== null && calculatorOperator && !calculatorWaiting) {
+          const result = applyCalculatorOperation(calculatorStored, current, calculatorOperator);
+          calculatorStored = result;
+          calculatorDisplay = result === null ? "Erro" : formatCalculatorDisplay(result);
+        } else {
+          calculatorStored = current;
+        }
+        calculatorOperator = key;
+        calculatorWaiting = true;
+        calculatorDisplay = `${formatCalculatorDisplay(calculatorStored)} ${calculatorOperatorLabel(key)}`;
+        render();
+        return;
+      }
+      if (key === "=" && calculatorStored !== null && calculatorOperator) {
+        const result = applyCalculatorOperation(calculatorStored, getCalculatorOperand(calculatorDisplay), calculatorOperator);
+        calculatorDisplay = result === null ? "Erro" : formatCalculatorDisplay(result);
+        calculatorStored = null;
+        calculatorOperator = null;
+        calculatorWaiting = true;
+        render();
+      }
+    }));
+    root.querySelector("[data-calculator-clear]")?.addEventListener("click", () => {
+      resetCalculator();
+      render();
+    });
+    root.querySelector("[data-calculator-display]")?.addEventListener("input", (event) => {
+      calculatorDisplay = event.currentTarget.value || "0";
+      calculatorWaiting = false;
+    });
+    root.querySelector("[data-calculator-display]")?.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        calculatorOpen = false;
+        render();
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        if (calculatorStored !== null && calculatorOperator) {
+          const result = applyCalculatorOperation(calculatorStored, getCalculatorOperand(calculatorDisplay), calculatorOperator);
+          calculatorDisplay = result === null ? "Erro" : formatCalculatorDisplay(result);
+          calculatorStored = null;
+          calculatorOperator = null;
+          calculatorWaiting = true;
+          event.currentTarget.value = calculatorDisplay;
+        }
+        return;
+      }
+      if (["+", "-", "*", "/"].includes(event.key)) {
+        event.preventDefault();
+        const current = getCalculatorOperand(calculatorDisplay);
+        if (calculatorStored !== null && calculatorOperator && !calculatorWaiting) {
+          const result = applyCalculatorOperation(calculatorStored, current, calculatorOperator);
+          calculatorStored = result;
+          calculatorDisplay = result === null ? "Erro" : formatCalculatorDisplay(result);
+        } else {
+          calculatorStored = current;
+        }
+        calculatorOperator = event.key;
+        calculatorWaiting = true;
+        calculatorDisplay = `${formatCalculatorDisplay(calculatorStored)} ${calculatorOperatorLabel(event.key)}`;
+        event.currentTarget.value = calculatorDisplay;
+        return;
+      }
+      if (event.key === "Backspace") {
+        event.preventDefault();
+        calculatorDisplay = calculatorDisplay.length > 1 ? calculatorDisplay.slice(0, -1) : "0";
+        calculatorWaiting = false;
+        event.currentTarget.value = calculatorDisplay;
+      }
+    });
+    root.querySelector("[data-transfer-calculator]")?.addEventListener("click", () => {
+      if (calculatorDisplay === "Erro") return;
+      const value = parseInputNumber(calculatorDisplay);
+      itemDraft.unitPrice = value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      calculatorOpen = false;
+      render();
+    });
     root.querySelector("[data-add-item]")?.addEventListener("click", () => {
       const form = root.querySelector("[data-manual-form]"); const product = products.find((item) => String(item.idProduct) === String(itemDraft.product));
       const quantity = parseInputNumber(form.quantity.value); const unitPrice = parseInputNumber(form.unitPrice.value);
@@ -310,7 +479,7 @@ export function createFiscalEntryDesignScreen({ onBack, ...handlers }) {
     root.querySelectorAll("[data-remove-payment]").forEach((button) => button.addEventListener("click", () => { draft.payments.splice(Number(button.dataset.removePayment), 1); render(); }));
     root.querySelector("[data-clear]")?.addEventListener("click", () => { current = null; draft = blank(); resetItemDraft(); error = ""; message = ""; render(); });
     root.querySelector("[data-save-draft]")?.addEventListener("click", () => void save("draft"));
-    root.querySelector("[data-open-entry]")?.addEventListener("click", () => void save("open"));
+    root.querySelector("[data-save-entry]")?.addEventListener("click", () => void save("open"));
     root.querySelector("[data-reopen]")?.addEventListener("click", () => void save("draft"));
     root.querySelector("[data-review-impact]")?.addEventListener("click", () => void reviewImpact());
     root.querySelector("[data-cancel-entry]")?.addEventListener("click", () => void transition("reverse"));

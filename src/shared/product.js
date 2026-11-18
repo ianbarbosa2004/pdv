@@ -24,6 +24,14 @@ export const formatProductStockForInput = (value, isFractionalProduct) =>
     ? String(value ?? "0") || "0"
     : formatIntegerStock(value ?? "0") || "0";
 
+export const formatProductOptionLabel = (product) => {
+  if (!product?.nameProduct) return "Selecione um produto";
+  const unit = String(product.codeUnit || product.descriptionUnit || "unidade")
+    .trim()
+    .toLocaleLowerCase("pt-BR");
+  return `#${product.pdvCodeProduct || product.idProduct} - ${product.nameProduct} (${unit})`;
+};
+
 export const getDuplicatedProductName = (
   productName,
   existingNames = [],

@@ -112,7 +112,7 @@ export function createCostDivergenceScreen(menuHandlers = {}) {
         </div>
         <div class="classic-form-body">
           <div class="classic-form-grid">
-            <label class="form-field"><span># PDV</span><input readonly value="${escapeHtml(selectedProduct.pdvCodeProduct)}" /></label>
+            <label class="form-field"><span>#PDV</span><input readonly value="${escapeHtml(selectedProduct.pdvCodeProduct)}" /></label>
             <label class="form-field"><span>Nome do Produto</span><input readonly value="${escapeHtml(selectedProduct.nameProduct)}" /></label>
           </div>
           <div class="classic-form-grid">
@@ -151,7 +151,7 @@ export function createCostDivergenceScreen(menuHandlers = {}) {
             : error
               ? `<p class="error-message">${escapeHtml(error)}</p>`
               : rows.length
-                ? `<table class="classic-table cost-divergence-table"><thead><tr><th># PDV</th><th>Nome do Produto</th><th>Preço de Custo Atual</th><th>Preço de Custo Sugerido</th><th class="actions-column">Ações</th></tr></thead><tbody>${rows.map((product) => `<tr><td>${escapeHtml(product.pdvCodeProduct)}</td><td>${escapeHtml(product.nameProduct)}</td><td>${escapeHtml(formatMoney(product.costPriceProduct))}</td><td>${escapeHtml(formatMoney(product.suggestedCostPriceProduct))}</td><td class="actions-column"><button class="icon-button cost-divergence-action" data-cost-open="${product.idProduct}" type="button" aria-label="Atualizar custo de ${escapeHtml(product.nameProduct)}" title="Atualizar custo"><i data-lucide="dollar-sign"></i></button></td></tr>`).join("")}</tbody></table>`
+                ? `<table class="classic-table cost-divergence-table"><thead><tr><th>#PDV</th><th>Nome do Produto</th><th>Preço de Custo Atual</th><th>Preço de Custo Sugerido</th><th class="actions-column">Ações</th></tr></thead><tbody>${rows.map((product) => `<tr><td>${escapeHtml(product.pdvCodeProduct)}</td><td>${escapeHtml(product.nameProduct)}</td><td>${escapeHtml(formatMoney(product.costPriceProduct))}</td><td>${escapeHtml(formatMoney(product.suggestedCostPriceProduct))}</td><td class="actions-column"><button class="icon-button cost-divergence-action" data-cost-open="${product.idProduct}" type="button" aria-label="Atualizar custo de ${escapeHtml(product.nameProduct)}" title="Atualizar custo"><i data-lucide="dollar-sign"></i></button></td></tr>`).join("")}</tbody></table>`
                 : '<p class="classic-empty">Nenhuma divergência de custo encontrada.</p>'}
           </div>
         </section>

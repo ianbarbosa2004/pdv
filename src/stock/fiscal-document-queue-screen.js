@@ -9,6 +9,7 @@ import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } fro
 import { apiFetch, getApiUrl } from "../shared/api.js";
 import { fetchWithTimeout } from "../shared/request-timeout.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
+import { formatProductOptionLabel } from "../shared/product.js";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -201,8 +202,7 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
 
   const selectedProductLabel = () => {
     const product = selectedProduct(editingItem);
-    if (!product) return "Selecione";
-    return `${product.nameProduct} (${product.pdvCodeProduct || product.skuProduct || "Sem código"})`;
+    return product ? formatProductOptionLabel(product) : "Selecione";
   };
 
   const productOptions = () => {
@@ -509,13 +509,13 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
                   <span>Produto comercial</span>
                   <input type="hidden" name="idProduct" value="${escapeHtml(editingItem.idProduct || "")}" />
                   <button type="button" class="classic-select-trigger" data-product-toggle aria-haspopup="listbox" aria-expanded="${productPicker.isOpen ? "true" : "false"}">${escapeHtml(selectedProductLabel())}</button>
-                  ${productPicker.isOpen ? `<div class="fiscal-product-options" role="listbox" aria-label="Produtos comerciais">
+                  ${productPicker.isOpen ? `<div class="fiscal-product-options combobox-options-fixed-search" role="listbox" aria-label="Produtos comerciais">
                     <input data-product-search type="search" autocomplete="off" value="${escapeHtml(productPicker.searchTerm)}" placeholder="Pesquisar por descrição ou código PDV..." aria-label="Pesquisar produto comercial" />
-                    ${productOptions().map((product) => `
+                    <div class="combobox-option-list">${productOptions().map((product) => `
                       <button class="fiscal-product-option ${Number(editingItem.idProduct) === Number(product.idProduct) ? "is-selected" : ""}" type="button" data-product-option="${escapeHtml(product.idProduct)}">
-                        ${escapeHtml(product.nameProduct)} (${escapeHtml(product.pdvCodeProduct || product.skuProduct || "Sem código")})
+                        ${escapeHtml(formatProductOptionLabel(product))}
                       </button>
-                    `).join("") || '<span class="classic-empty">Nenhum produto encontrado.</span>'}
+                    `).join("") || '<span class="classic-empty">Nenhum produto encontrado.</span>'}</div>
                   </div>` : ""}
                 </div>
                 <div class="classic-form-grid">

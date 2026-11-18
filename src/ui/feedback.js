@@ -28,5 +28,5 @@ export const renderSuccessFeedback = (message, escapeHtml) =>
     : "";
 
 export const clearRenderedFeedback = (root) => {
-  root.querySelector("[data-success-feedback]")?.remove();
+  root.querySelectorAll("[data-success-feedback]").forEach((feedback) => feedback.remove());
 };

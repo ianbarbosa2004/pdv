@@ -28,7 +28,8 @@ test("Produtos Vinculados expõe consulta fiscal e edição local do produto", a
   ]) {
     assert.match(source, new RegExp(field, "u"));
   }
-  assert.match(source, /sortState = \{ key: "nameProduct", direction: "asc" \}/u);
+  assert.match(source, /sortState = \{ key: "fiscalConsistency", direction: "asc" \}/u);
+  assert.match(source, /isFiscalConsistent\(left\) \? 1 : 0/u);
   assert.match(source, /setSelectionRange/u);
   assert.match(source, /Vínculos Fiscais/u);
   assert.match(source, /data-fiscal-edit-form/u);
@@ -45,10 +46,14 @@ test("Produtos Vinculados expõe consulta fiscal e edição local do produto", a
   assert.doesNotMatch(source, /<div class="feedback success">/u);
   assert.match(server, /request\.method === "PUT" && request\.url === "\/api\/products\/fiscal"/u);
   assert.match(server, /productFiscalReferenceDeleteMatch/u);
+  assert.match(server, /isManualEntryReference/u);
+  assert.match(server, /NOT EXISTS \([\s\S]*manual_document\.originFiscalDocument = 'manual'/u);
   assert.match(server, /SET isActiveProductFiscalReference = 0/u);
   assert.match(server, /UPDATE products SET ncmProduct = \?, cestProduct = \?/u);
   assert.match(server, /ncm_catalog\.descriptionNcm AS descriptionNcm/u);
   assert.match(source, /valueOrDash\(product\.cestProduct\)/u);
+  assert.match(source, /isManualEntryReference/u);
+  assert.match(source, /comparableReferences = product\.references\.filter/u);
   assert.doesNotMatch(source, /data-back/u);
   assert.match(
     styles,

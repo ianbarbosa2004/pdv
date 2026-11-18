@@ -1,6 +1,7 @@
 import {
   ArrowRightCircle,
   Building2,
+  Calculator,
   ArrowDown,
   ArrowUp,
   Check,
@@ -35,6 +36,7 @@ export const renderLucideIcons = (root) => {
     icons: {
       ArrowRightCircle,
       Building2,
+      Calculator,
       ArrowDown,
       ArrowUp,
       Check,

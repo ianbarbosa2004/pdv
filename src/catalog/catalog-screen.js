@@ -185,6 +185,34 @@ export function createCatalogScreen({
     };
   };
 
+  const captureEditingProductDraft = (currentFormData = null) => {
+    if (!editingProduct) return;
+    const form = root.querySelector("[data-edit-product-form]");
+    const formData = currentFormData || (form ? new FormData(form) : null);
+    if (!formData) return;
+    editingProduct = {
+      ...editingProduct,
+      nameProduct: String(formData.get("nameProduct") ?? ""),
+      skuProduct: normalizeSku(formData.get("skuProduct")),
+      pdvCodeProduct: String(formData.get("pdvCodeProduct") ?? editingProduct.pdvCodeProduct ?? ""),
+      idGroup: String(formData.get("idGroup") ?? ""),
+      idFiscalOperationSaleProduct: String(formData.get("idFiscalOperationSaleProduct") ?? ""),
+      idProductTypeProduct: String(formData.get("idProductTypeProduct") ?? ""),
+      idPhysicalStateProduct: String(formData.get("idPhysicalStateProduct") ?? ""),
+      idUnitProduct: String(formData.get("idUnitProduct") ?? ""),
+      packageQuantityProduct: String(formData.get("packageQuantityProduct") ?? "1"),
+      priceProduct: String(formData.get("priceProduct") ?? ""),
+      costPriceProduct: String(formData.get("costPriceProduct") ?? ""),
+      costPolicyProduct: normalizeCostPolicy(formData.get("costPolicyProduct")),
+      stockQuantityProduct: String(formData.get("stockQuantityProduct") ?? editingProduct.stockQuantityProduct ?? "0") || "0",
+      controlsStockProduct: formData.get("controlsStockProduct") === "on",
+      isBuffetProduct: formData.get("isBuffetProduct") === "on",
+      isFractionalProduct: formData.get("isFractionalProduct") === "on",
+      printsPlace: formData.get("printsPlace") || "Não Imprimir",
+      showsInPdvProduct: formData.get("showsInPdvProduct") === "on"
+    };
+  };
+
   const renderProductTypeOptions = (selectedValue) =>
     `<option value="">Selecione</option>${productTypes.map((type) =>
       `<option value="${type.idProductType}" ${String(selectedValue ?? "") === String(type.idProductType) ? "selected" : ""}>${escapeHtml(type.descriptionProductType)}</option>`
@@ -415,7 +443,7 @@ export function createCatalogScreen({
                   ? `<table class="classic-table">
                       <thead><tr>
                         ${[
-                          ["pdvCodeProduct", "# PDV", "product-pdv-column"],
+                          ["pdvCodeProduct", "#PDV", "product-pdv-column"],
                           ["nameProduct", "Produto", "product-name-column"],
                           ["descriptionGroup", "Grupo", "product-group-column"],
                           ...(!isNonSaleCatalog
@@ -607,7 +635,12 @@ export function createCatalogScreen({
     });
     root.querySelectorAll("[data-open-ncm]").forEach((control) => {
       control.addEventListener("click", () => {
-        if (!editingProduct) captureNewProductDraft();
+        if (editingProduct) {
+          const editForm = root.querySelector("[data-edit-product-form]");
+          if (editForm) captureEditingProductDraft(new FormData(editForm));
+        } else {
+          captureNewProductDraft();
+        }
         ncmLookupOpen = true;
         ncmLookupTerm = "";
         ncmLookupField = "code";
@@ -812,8 +845,8 @@ export function createCatalogScreen({
       if (!response.ok) throw new Error(payload.error || "Não foi possível excluir o produto.");
       message = "Produto excluído com sucesso.";
       products = products.filter((product) => String(product.idProduct) !== String(id));
+      await load({ renderState: false });
       render();
-      await load();
       scheduleMessageClear(() => {
         message = "";
         clearRenderedFeedback(root);
@@ -824,9 +857,9 @@ export function createCatalogScreen({
     }
   };
 
-  const load = async () => {
+  const load = async ({ renderState = true } = {}) => {
     loading = true;
-    render();
+    if (renderState) render();
     try {
       const [groupResponse, productResponse, operationResponse, typeResponse, unitResponse, physicalStateResponse, generalSettingsResponse] = await Promise.all([
         apiFetch(`${getApiUrl()}/api/groups?includeInactive=1`),
@@ -896,7 +929,7 @@ export function createCatalogScreen({
       error = loadError instanceof Error ? loadError.message : "Falha ao carregar o catálogo.";
     } finally {
       loading = false;
-      render();
+      if (renderState) render();
     }
   };
 
@@ -972,7 +1005,7 @@ export function createCatalogScreen({
       message = wasEditing ? "Produto alterado com sucesso." : "Produto cadastrado com sucesso.";
       if (!wasEditing) resetNewProductDraft();
       editingProduct = null;
-      await load();
+      await load({ renderState: false });
       if (wasEditing) root.__PDV_FORM_PREVIEW_PENDING__ = products.find((product) => String(product.idProduct) === String(productId));
       scheduleMessageClear(() => {
         message = "";
@@ -996,11 +1029,12 @@ export function createCatalogScreen({
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Não foi possível alterar o status do produto.");
       message = isActiveProduct ? "Produto ativado com sucesso." : "Produto inativado com sucesso.";
-      await load();
+      await load({ renderState: false });
       scheduleMessageClear(() => {
         message = "";
         clearRenderedFeedback(root);
       });
+      render();
     } catch (statusError) {
       error = statusError instanceof Error ? statusError.message : "Falha ao alterar o status do produto.";
       render();
@@ -1017,11 +1051,12 @@ export function createCatalogScreen({
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Não foi possível alterar a exibição do produto no PDV.");
       message = showsInPdvProduct ? "Produto exibido no PDV." : "Produto ocultado do PDV.";
-      await load();
+      await load({ renderState: false });
       scheduleMessageClear(() => {
         message = "";
         clearRenderedFeedback(root);
       });
+      render();
     } catch (visibilityError) {
       error = visibilityError instanceof Error ? visibilityError.message : "Falha ao alterar a exibição do produto no PDV.";
       render();

@@ -2185,6 +2185,16 @@ h2 {
   text-align: center;
 }
 
+.recipe-list-panel .classic-table th,
+.recipe-list-panel .classic-table th .table-sort-button {
+  text-align: center;
+}
+
+.recipe-list-panel .classic-table th .table-sort-button {
+  width: 100%;
+  justify-content: center;
+}
+
 .product-fiscal-reference-list .ok-column {
   width: 70px;
   min-width: 70px;
@@ -3174,9 +3184,15 @@ h2 {
 
 .formation-products-table .formation-product-actions-column,
 .formation-products-table col.formation-product-actions-column {
-  width: 70px !important;
-  min-width: 70px;
-  max-width: 70px;
+  width: 100px !important;
+  min-width: 100px;
+  max-width: 100px;
+}
+
+.formation-duplicate-modal {
+  width: min(100%, 560px);
+  min-height: 520px;
+  max-height: calc(100vh - 48px);
 }
 
 .formation-products-table .formation-product-actions-column .icon-button {
@@ -3534,14 +3550,16 @@ h2 {
   z-index: 20;
 }
 
-.recipe-component-options [data-component-search] {
+.recipe-component-options [data-component-search],
+.recipe-component-options [data-duplicate-target-search] {
   position: sticky;
   top: 0;
   width: 100%;
   box-sizing: border-box;
   margin-bottom: 4px;
   background: #fff;
-  z-index: 1;
+  z-index: 3;
+  box-shadow: 0 2px 3px rgb(35 49 64 / 12%);
 }
 
 .recipe-component-option {
@@ -3557,6 +3575,48 @@ h2 {
 .recipe-component-option:hover,
 .recipe-component-option.is-selected {
   background: #e8f0f8;
+}
+
+.formation-component-options {
+  display: flex;
+  flex-direction: column;
+  max-height: none;
+  overflow: visible;
+}
+
+.formation-component-options .formation-component-option-list {
+  display: grid;
+  gap: 2px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.formation-component-options [data-component-search],
+.formation-component-options [data-duplicate-target-search] {
+  position: relative;
+  flex: 0 0 auto;
+  z-index: 1;
+}
+
+.combobox-options-fixed-search {
+  display: flex;
+  flex-direction: column;
+  max-height: none;
+  overflow: visible;
+}
+
+.combobox-options-fixed-search .combobox-option-list {
+  display: grid;
+  gap: 2px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.combobox-options-fixed-search > [data-component-search],
+.combobox-options-fixed-search > [data-product-search] {
+  position: relative;
+  flex: 0 0 auto;
+  z-index: 1;
 }
 
 .fiscal-product-picker {
@@ -4651,6 +4711,7 @@ h2 {
 
 .classic-modal.product-edit-modal {
   width: min(100%, 620px);
+  overflow-x: hidden;
 }
 
 .classic-modal.payment-method-modal {
@@ -5512,6 +5573,10 @@ h2 {
   word-break: normal;
 }
 
+.recipe-list-panel .classic-table th.recipe-actions-column {
+  text-align: center;
+}
+
 .catalog-screen .classic-table {
   table-layout: auto;
 }
@@ -5779,9 +5844,9 @@ h2 {
 
 .catalog-screen.product-formation-screen .formation-list-panel .formation-products-table th.formation-product-actions-column,
 .catalog-screen.product-formation-screen .formation-list-panel .formation-products-table td.formation-product-actions-column {
-  width: 70px !important;
-  min-width: 70px !important;
-  max-width: 70px !important;
+  width: 100px !important;
+  min-width: 100px !important;
+  max-width: 100px !important;
 }
 
 .icon-button svg {
@@ -6325,6 +6390,66 @@ h2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   height: auto;
   margin-bottom: 0;
+}
+
+.manual-entry-unit-price-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 6px;
+}
+
+.manual-entry-unit-price-field input {
+  min-width: 0;
+}
+
+.manual-entry-calculator-button {
+  width: 34px;
+  height: 34px;
+}
+
+.manual-entry-calculator-modal {
+  width: min(calc(100vw - 32px), 320px);
+  overflow: hidden;
+}
+
+.manual-entry-calculator-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 12px 16px 12px 12px;
+}
+
+input.manual-entry-calculator-display {
+  grid-column: 1 / -1;
+  min-height: 48px;
+  padding: 8px 12px 8px 10px;
+  border: 1px solid #9aa7b5;
+  border-radius: 3px;
+  background: #fff;
+  font-size: 1.35rem;
+  font-weight: 700;
+  text-align: right;
+}
+
+.manual-entry-calculator-grid {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.manual-entry-calculator-grid .classic-button {
+  min-height: 38px;
+  padding: 6px;
+  font-size: 1rem;
+}
+
+.manual-entry-calculator-grid .calculator-operation {
+  border-color: #315b8a;
+  color: #315b8a;
+  background: #edf3f8;
+  font-weight: 700;
 }
 
 .manual-entry-item-primary-grid {

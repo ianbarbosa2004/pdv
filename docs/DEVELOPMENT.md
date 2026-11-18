@@ -67,8 +67,8 @@ catálogo com registros explícitos para a unidade comercial: `colher_sopa → k
 com fator `0,01` quando a conversão original representa `10 g`. O cálculo continua sendo
 `quantidade × (fator da conversão / conteúdo por unidade) × custo da embalagem`.
 O cadastro usa unidades tributáveis para o rendimento final; receitas existentes
-podem ser visualizadas e editadas no formulário principal e arquivadas pela
-ação de exclusão.
+podem ser visualizadas e editadas no formulário principal. A ação de exclusão
+remove fisicamente o cadastro e não deve ser usada quando houver dependências.
 
 Na listagem, clicar na linha carrega a Receita ou Composição no formulário
 principal em modo somente leitura. A edição ocorre pelo botão **Editar** no
@@ -80,16 +80,15 @@ ação **Editar**.
 
 O campo `statusRecipe` é controlado pelo formulário com os estados `draft`
 (Rascunho), `active` (Ativa) e `review_required` (Requer revisão). O estado
-`archived` é reservado ao arquivamento e não pode ser criado pelo salvamento
-normal. A listagem operacional exibe Nome, Tipo, Status e Ações, incluindo
-arquivados porque a tela usa `includeArchived=1`; Nome ocupa o espaço restante,
-enquanto Tipo e Status ficam limitados a 90px e Ações a 70px. Vínculos com produtos
-continuam aceitando somente receitas `active`.
+`archived` é legado e não pode ser criado pelo salvamento normal. A listagem
+operacional exibe Nome, Tipo, Status e Ações; Nome ocupa o espaço restante,
+enquanto Tipo e Status ficam limitados a 90px e Ações a 70px. Vínculos com
+produtos continuam aceitando somente receitas `active`.
 
-A listagem possui filtros por status para Todas, Rascunho, Ativas, Revisão e
-Arquivadas. O filtro de status é combinado com a pesquisa textual e exibe a
-quantidade atual de registros em cada grupo. Na listagem, os status Rascunho e
-Revisão usam negrito para facilitar a identificação operacional.
+A listagem possui filtros por status para Todas, Rascunho, Ativas e Revisão. O
+filtro de status é combinado com a pesquisa textual e exibe a quantidade atual
+de registros em cada grupo. Na listagem, os status Rascunho e Revisão usam
+negrito para facilitar a identificação operacional.
 
 Durante a edição, o botão de lápis de cada componente abre um modal próprio,
 fora do elemento `<form>`, para alterar componente, unidade culinária,
@@ -98,7 +97,7 @@ Cancelar e a tecla ESC fecham o modal sem aplicar alterações. O fechamento por
 ESC é global para os modais visíveis da aplicação. Se uma conversão antiga já
 estiver persistida, ela continua visível durante a edição para permitir sua
 correção, mesmo que não seja oferecida para novos componentes. O carregamento inicial busca os catálogos
-auxiliares em paralelo; depois de salvar ou arquivar, a tela atualiza somente
+auxiliares em paralelo; depois de salvar ou excluir, a tela atualiza somente
 a listagem de Receitas e mantém esses catálogos em memória. A submissão também
 é protegida contra cliques repetidos para evitar feedback de sucesso duplicado.
 
@@ -124,7 +123,7 @@ componentes em uma única transação.
 Essas definições vinculadas a Produto não aparecem na listagem de Receitas e
 Composições; são exibidas somente em Formação de Produtos.
 
-A listagem reserva 70px para **# PDV** e mantém **Nome** como a coluna
+A listagem reserva 70px para **#PDV** e mantém **Nome** como a coluna
 flexível. O editor permanece visível junto da listagem em telas largas,
 inclusive antes de selecionar um produto. O combobox e o modal de componente
 seguem o padrão visual de Receitas; quantidades e custos usam duas casas
@@ -197,7 +196,7 @@ e de novas sugestões, mas preserva referências já usadas por Pré-entradas.
 O modal usa `PUT /api/products/fiscal`, que altera somente os campos
 fiscais do Produto comercial e valida a relação NCM/CEST no servidor. Após o
 salvamento, a listagem e a visualização do produto selecionado são
-recarregadas. A listagem apresenta `# PDV`, Produto, Grupo e
+recarregadas. A listagem apresenta `#PDV`, Produto, Grupo e
 Vínculos, com ordenação por cabeçalho e pesquisa com preservação do cursor.
 O indicador **Ok** fica confirmado quando existe ao menos um vínculo do produto
 comercial cuja combinação de NCM e CEST coincide com a do produto vinculado;

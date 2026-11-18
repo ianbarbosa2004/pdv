@@ -161,7 +161,8 @@ test("usa combobox pesquisável para o produto comercial do vínculo", async () 
 
   assert.match(source, /installComboboxDismissal/u);
   assert.match(source, /data-product-search/u);
-  assert.match(source, /pdvCodeProduct \|\| product\.skuProduct/u);
+  assert.match(source, /formatProductOptionLabel\(product\)/u);
+  assert.match(source, /product\.pdvCodeProduct \|\| ""/u);
   assert.match(source, /rerenderPreservingInputSelection\([\s\S]*data-product-search/u);
   assert.match(source, /data-product-option/u);
   assert.match(source, /editingItem\.idProduct = Number\(button\.dataset\.productOption\)/u);

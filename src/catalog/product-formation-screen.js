@@ -11,6 +11,7 @@ import { formatBrazilianDecimal, parseBrazilianDecimal, roundCostUpToCents } fro
 import { bindNumberMasks, formatMaskedNumber } from "../ui/number-mask.js";
 import { installComboboxDismissal } from "../ui/combobox.js";
 import { formatRecipeComponentLabel, formatRecipeComponentUnit } from "../shared/recipe-component.js";
+import { formatProductOptionLabel } from "../shared/product.js";
 
 const escapeHtml = (value) => String(value ?? "")
   .replaceAll("&", "&amp;")
@@ -53,13 +54,6 @@ export const calculateFormationComponentCost = ({ quantity, unitCost }) =>
     conversionFactor: 1
   }) || 0;
 
-const productLabel = (product) => {
-  const unit = String(product.codeUnit || product.descriptionUnit || "unidade")
-    .trim()
-    .toLocaleLowerCase("pt-BR");
-  return `# ${product.pdvCodeProduct || product.idProduct} - ${product.nameProduct} (${unit})`;
-};
-
 const formationNavigation = [
   ["technical-sheet", "Formação de Produtos"],
   ["recipes", "Receitas e Composições"],
@@ -81,6 +75,11 @@ export function createProductFormationScreen({ onBack, onRecipes, ...menuHandler
   let saving = false;
   let error = "";
   let message = "";
+  let duplicateSource = null;
+  let duplicateTargetId = "";
+  let duplicateTargetSearchTerm = "";
+  let duplicateTargetOpen = false;
+  let duplicating = false;
   const scheduleMessageClear = createFeedbackTimer();
 
   const productById = (id) => products.find((product) => String(product.idProduct) === String(id));
@@ -128,9 +127,9 @@ export function createProductFormationScreen({ onBack, onRecipes, ...menuHandler
   const totalComponentCost = () => (
     roundCostUpToCents(form.components.reduce((total, component) => total + componentCost(component), 0)) || 0
   );
-  const load = async () => {
+  const load = async ({ renderState = true } = {}) => {
     loading = true;
-    render();
+    if (renderState) render();
     try {
       const response = await apiFetch(`${getApiUrl()}/api/product-formations`);
       const payload = await response.json();
@@ -161,7 +160,7 @@ export function createProductFormationScreen({ onBack, onRecipes, ...menuHandler
       error = loadError instanceof Error ? loadError.message : "Falha ao carregar as Fichas Técnicas.";
     } finally {
       loading = false;
-      render();
+      if (renderState) render();
     }
   };
 
@@ -189,13 +188,64 @@ export function createProductFormationScreen({ onBack, onRecipes, ...menuHandler
     openProduct(productById(product.idProduct) || product, editable);
   };
 
+  const duplicateFormation = async () => {
+    const source = duplicateSource;
+    const target = productById(duplicateTargetId);
+    if (!source || !target || duplicating) return;
+    if (target.formation && !await confirmAction({
+      title: "Substituir Ficha Técnica",
+      detail: `A ficha de "${target.nameProduct}" será substituída pela cópia. Essa ação não pode ser desfeita.`,
+      confirmLabel: "Substituir ficha"
+    })) return;
+    duplicating = true;
+    error = "";
+    render();
+    try {
+      const response = await apiFetch(`${getApiUrl()}/api/product-formations/${target.idProduct}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          components: (source.formation?.components || []).map((component) => ({
+            productId: component.productId,
+            recipeId: component.recipeId,
+            details: component.details || "",
+            quantity: component.quantity,
+            costFormationComponent: component.costFormationComponent
+          })),
+          notesRecipe: source.formation?.notesRecipe || "",
+          totalCostFormation: source.formation?.totalCostFormation || 0,
+          unitCostFormation: source.formation?.unitCostFormation || 0
+        })
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Não foi possível duplicar a Ficha Técnica.");
+      message = `Ficha Técnica duplicada para "${target.nameProduct}".`;
+      duplicateSource = null;
+      duplicateTargetId = "";
+      duplicateTargetSearchTerm = "";
+      duplicateTargetOpen = false;
+      searchTerm = "";
+      await load({ renderState: false });
+      openProduct(productById(target.idProduct), false);
+      scheduleMessageClear(() => {
+        message = "";
+        clearRenderedFeedback(root);
+      });
+    } catch (duplicateError) {
+      error = duplicateError instanceof Error ? duplicateError.message : "Falha ao duplicar a Ficha Técnica.";
+      render();
+    } finally {
+      duplicating = false;
+    }
+  };
+
   const componentOptions = () => {
     const query = componentDraft.searchTerm.trim().toLocaleLowerCase("pt-BR");
     const productOptions = componentProducts
       .filter((product) => String(product.idProduct) !== String(selectedProduct?.idProduct))
       .filter((product) => `${product.nameProduct} ${product.pdvCodeProduct || ""} ${product.skuProduct || ""}`.toLocaleLowerCase("pt-BR").includes(query))
       .slice(0, 100)
-      .map((product) => ({ value: `product:${product.idProduct}`, label: productLabel(product) }));
+      .map((product) => ({ value: `product:${product.idProduct}`, label: formatProductOptionLabel(product) }));
     const recipeOptions = recipes
       .filter((recipe) => String(recipe.idRecipe) !== String(selectedProduct?.formation?.idRecipe))
       .filter((recipe) => recipe.nameRecipe.toLocaleLowerCase("pt-BR").includes(query))
@@ -294,8 +344,9 @@ export function createProductFormationScreen({ onBack, onRecipes, ...menuHandler
       message = payload.updatedRecipeCount > 1
         ? `Ficha Técnica salva com sucesso. ${payload.updatedRecipeCount} Receita(s)/Ficha(s) recalculada(s).`
         : "Ficha Técnica salva com sucesso.";
-      selectedProduct = null;
-      await load();
+      searchTerm = "";
+      form.readOnly = true;
+      await load({ renderState: false });
       scheduleMessageClear(() => {
         message = "";
         clearRenderedFeedback(root);
@@ -321,7 +372,12 @@ export function createProductFormationScreen({ onBack, onRecipes, ...menuHandler
       if (!response.ok) throw new Error(payload.error || "Não foi possível excluir a Ficha Técnica.");
       if (selectedProduct?.idProduct === product.idProduct) selectedProduct = null;
       message = "Ficha Técnica excluída com sucesso.";
-      await load();
+      await load({ renderState: false });
+      scheduleMessageClear(() => {
+        message = "";
+        clearRenderedFeedback(root);
+      });
+      render();
     } catch (removeError) {
       error = removeError instanceof Error ? removeError.message : "Falha ao excluir a Ficha Técnica.";
       render();
@@ -329,6 +385,7 @@ export function createProductFormationScreen({ onBack, onRecipes, ...menuHandler
   };
 
   const renderComponentEntry = (readOnly = false, initial = false) => {
+    const pickerOpen = componentDraft.open && !Number.isInteger(componentDraft.editingIndex);
     const targetProduct = componentDraft.target.startsWith("product:")
       ? componentProductById(componentDraft.target.slice(8))
       : null;
@@ -341,10 +398,10 @@ export function createProductFormationScreen({ onBack, onRecipes, ...menuHandler
           <div class="form-field recipe-component-picker classic-combobox formation-component-picker">
             <span>Componente</span>
             <input type="hidden" data-component-target value="${escapeHtml(componentDraft.target)}" />
-            <button type="button" class="classic-select-trigger" data-component-toggle aria-haspopup="listbox" aria-expanded="${componentDraft.open ? "true" : "false"}" ${readOnly ? "disabled" : ""}>${escapeHtml(targetProduct ? productLabel(targetProduct) : targetRecipe ? formatRecipeComponentLabel(targetRecipe) : "Selecione um componente")}</button>
-            ${!readOnly && componentDraft.open ? `<div class="recipe-component-options">
+            <button type="button" class="classic-select-trigger" data-component-toggle aria-haspopup="listbox" aria-expanded="${pickerOpen ? "true" : "false"}" ${readOnly ? "disabled" : ""}>${escapeHtml(targetProduct ? formatProductOptionLabel(targetProduct) : targetRecipe ? formatRecipeComponentLabel(targetRecipe) : "Selecione um componente")}</button>
+            ${!readOnly && pickerOpen ? `<div class="recipe-component-options formation-component-options">
               <input data-component-search type="search" autocomplete="off" value="${escapeHtml(componentDraft.searchTerm)}" placeholder="Pesquisar componente..." aria-label="Pesquisar componente" />
-              ${componentOptions().map((option) => `<button type="button" class="recipe-component-option" data-component-option="${escapeHtml(option.value)}">${escapeHtml(option.label)}</button>`).join("") || '<span class="classic-empty">Nenhum componente encontrado.</span>'}
+            <div class="formation-component-option-list">${componentOptions().map((option) => `<button type="button" class="recipe-component-option" data-component-option="${escapeHtml(option.value)}">${escapeHtml(option.label)}</button>`).join("") || '<span class="classic-empty">Nenhum componente encontrado.</span>'}</div>
             </div>` : ""}
           </div>
           <label class="form-field"><span>Detalhes</span><input data-component-details maxlength="255" value="${escapeHtml(componentDraft.details)}" placeholder="Ex.: usar frio, 3 colheres" ${readOnly ? "readonly disabled" : ""} /></label>
@@ -369,7 +426,7 @@ export function createProductFormationScreen({ onBack, onRecipes, ...menuHandler
       <div class="classic-panel-header">${initial ? "Ficha Técnica" : readOnly ? "Visualização" : "Editar Ficha Técnica"}</div>
       <div class="classic-form-body">
         ${error ? `<p class="error-message formation-form-error" role="alert">${escapeHtml(error)}</p>` : ""}
-        <label class="form-field"><span>Produto Comercial</span><input readonly disabled placeholder="Selecione um produto na listagem" value="${escapeHtml(selectedProduct ? productLabel(selectedProduct) : "")}" /></label>
+        <label class="form-field"><span>Produto Comercial</span><input readonly disabled placeholder="Selecione um produto na listagem" value="${escapeHtml(selectedProduct ? formatProductOptionLabel(selectedProduct) : "")}" /></label>
         <label class="form-field"><span>Observações</span><textarea maxlength="500" data-formation-notes rows="4" ${readOnly ? "readonly" : ""}>${escapeHtml(form.notesRecipe || "")}</textarea></label>
         <div class="classic-panel-header nested-panel-header">Componente</div>
         ${renderComponentEntry(readOnly, initial)}
@@ -384,6 +441,7 @@ export function createProductFormationScreen({ onBack, onRecipes, ...menuHandler
 
   const renderComponentEditor = () => {
     if (!Number.isInteger(componentDraft.editingIndex)) return "";
+    const pickerOpen = componentDraft.open;
     const targetProduct = componentDraft.target.startsWith("product:")
       ? componentProductById(componentDraft.target.slice(8))
       : null;
@@ -397,8 +455,8 @@ export function createProductFormationScreen({ onBack, onRecipes, ...menuHandler
           <div class="recipe-component-picker-row">
             <div class="form-field recipe-component-picker classic-combobox"><span>Componente</span>
               <input type="hidden" data-component-target value="${escapeHtml(componentDraft.target)}" />
-              <button type="button" class="classic-select-trigger" data-component-toggle aria-haspopup="listbox" aria-expanded="${componentDraft.open ? "true" : "false"}">${escapeHtml(targetProduct ? productLabel(targetProduct) : targetRecipe ? formatRecipeComponentLabel(targetRecipe) : "Selecione um componente")}</button>
-              ${componentDraft.open ? `<div class="recipe-component-options"><input data-component-search type="search" value="${escapeHtml(componentDraft.searchTerm)}" placeholder="Pesquisar componente..." />${componentOptions().map((option) => `<button type="button" class="recipe-component-option" data-component-option="${escapeHtml(option.value)}">${escapeHtml(option.label)}</button>`).join("")}</div>` : ""}
+              <button type="button" class="classic-select-trigger" data-component-toggle aria-haspopup="listbox" aria-expanded="${pickerOpen ? "true" : "false"}">${escapeHtml(targetProduct ? formatProductOptionLabel(targetProduct) : targetRecipe ? formatRecipeComponentLabel(targetRecipe) : "Selecione um componente")}</button>
+              ${pickerOpen ? `<div class="recipe-component-options formation-component-options"><input data-component-search type="search" value="${escapeHtml(componentDraft.searchTerm)}" placeholder="Pesquisar componente..." /><div class="formation-component-option-list">${componentOptions().map((option) => `<button type="button" class="recipe-component-option" data-component-option="${escapeHtml(option.value)}">${escapeHtml(option.label)}</button>`).join("")}</div></div>` : ""}
             </div>
             <label class="form-field"><span>Detalhes</span><input data-component-details maxlength="255" value="${escapeHtml(componentDraft.details)}" placeholder="Ex.: usar frio, 3 colheres" /></label>
           </div>
@@ -427,10 +485,11 @@ export function createProductFormationScreen({ onBack, onRecipes, ...menuHandler
         <section class="classic-grid-panel formation-list-panel recipe-list-panel">
           <div class="classic-panel-header classic-list-header"><span>Produtos a venda</span><input class="classic-list-search" data-formation-search type="search" placeholder="Pesquisar..." aria-label="Pesquisar produtos a venda" value="${escapeHtml(searchTerm)}" /></div>
           <div class="recipe-status-filters formation-filters" role="group" aria-label="Filtrar produtos por ficha">${[["all", "Todos"], ["with", "Com Ficha"], ["without", "Sem Ficha"]].map(([value, label]) => `<button class="recipe-status-filter ${filter === value ? "is-active" : ""}" type="button" data-formation-filter="${value}" aria-pressed="${filter === value ? "true" : "false"}">${label} <span>${value === "all" ? products.filter(isEligibleFormationProduct).length : products.filter((product) => isEligibleFormationProduct(product) && (value === "with" ? product.formation : !product.formation)).length}</span></button>`).join("")}</div>
-          <div class="classic-grid-wrapper">${loading ? '<p class="classic-empty">Carregando produtos...</p>' : `<table class="classic-table formation-products-table"><colgroup><col class="formation-product-pdv-column" /><col class="formation-product-name-column" /><col class="formation-product-actions-column" /></colgroup><thead><tr><th class="formation-product-pdv-column"># PDV</th><th class="formation-product-name-column">Nome</th><th class="actions-column formation-product-actions-column">Ações</th></tr></thead><tbody>${visibleProducts.map((product) => `<tr data-formation-product="${product.idProduct}" class="${product.formation ? "formation-has-sheet" : ""}"><td class="formation-product-pdv-column">${escapeHtml(product.pdvCodeProduct || product.idProduct)}</td><td class="formation-product-name-column">${escapeHtml(product.nameProduct)}</td><td class="actions-column formation-product-actions-column"><button class="icon-button edit" type="button" data-edit-formation-product="${product.idProduct}" title="Editar ficha" aria-label="Editar ficha"><i data-lucide="pencil"></i></button><button class="icon-button delete" type="button" data-delete-formation-product="${product.idProduct}" title="Excluir ficha" aria-label="Excluir ficha" ${product.formation ? "" : "disabled"}><i data-lucide="trash-2"></i></button></td></tr>`).join("") || '<tr><td colspan="3">Nenhum produto encontrado.</td></tr>'}</tbody></table>`}</div>
+          <div class="classic-grid-wrapper">${loading ? '<p class="classic-empty">Carregando produtos...</p>' : `<table class="classic-table formation-products-table"><colgroup><col class="formation-product-pdv-column" /><col class="formation-product-name-column" /><col class="formation-product-actions-column" /></colgroup><thead><tr><th class="formation-product-pdv-column">#PDV</th><th class="formation-product-name-column">Nome</th><th class="actions-column formation-product-actions-column">Ações</th></tr></thead><tbody>${visibleProducts.map((product) => `<tr data-formation-product="${product.idProduct}" class="${product.formation ? "formation-has-sheet" : ""}"><td class="formation-product-pdv-column">${escapeHtml(product.pdvCodeProduct || product.idProduct)}</td><td class="formation-product-name-column">${escapeHtml(product.nameProduct)}</td><td class="actions-column formation-product-actions-column"><button class="icon-button edit" type="button" data-edit-formation-product="${product.idProduct}" title="Editar ficha" aria-label="Editar ficha"><i data-lucide="pencil"></i></button>          <button class="icon-button" type="button" data-duplicate-formation="${product.idProduct}" title="Duplicar ficha" aria-label="Duplicar ficha" ${product.formation ? "" : "disabled"}><i data-lucide="copy"></i></button><button class="icon-button delete" type="button" data-delete-formation-product="${product.idProduct}" title="Excluir ficha" aria-label="Excluir ficha" ${product.formation ? "" : "disabled"}><i data-lucide="trash-2"></i></button></td></tr>`).join("") || '<tr><td colspan="3">Nenhum produto encontrado.</td></tr>'}</tbody></table>`}</div>
         </section>
       </section>
       ${renderComponentEditor()}
+      ${duplicateSource ? `<div class="classic-modal-backdrop formation-duplicate-backdrop" data-formation-duplicate-backdrop><section class="classic-modal formation-duplicate-modal" role="dialog" aria-modal="true" aria-labelledby="formation-duplicate-title"><div class="classic-panel-header modal-panel-header"><span id="formation-duplicate-title">Duplicar Ficha Técnica</span><button class="modal-close-button" type="button" data-close-duplicate-formation aria-label="Fechar" title="Fechar"><i data-lucide="x"></i></button></div><div class="classic-form-body"><p>Escolha o Produto Comercial que receberá a cópia de <strong>${escapeHtml(duplicateSource.nameProduct)}</strong>.</p><div class="form-field classic-combobox recipe-component-picker formation-duplicate-picker"><span>Produto destino</span><button type="button" class="classic-select-trigger" data-duplicate-target-toggle aria-haspopup="listbox" aria-expanded="${duplicateTargetOpen ? "true" : "false"}">${escapeHtml(duplicateTargetId ? formatProductOptionLabel(productById(duplicateTargetId)) : "Selecione um produto")}</button>${duplicateTargetOpen ? `<div class="recipe-component-options formation-component-options"><input data-duplicate-target-search type="search" autocomplete="off" value="${escapeHtml(duplicateTargetSearchTerm)}" placeholder="Pesquisar produto..." aria-label="Pesquisar produto destino" /><div class="formation-component-option-list">${products.filter((product) => product.idProduct !== duplicateSource.idProduct && `${product.nameProduct || ""} ${product.pdvCodeProduct || ""} ${product.skuProduct || ""}`.toLocaleLowerCase("pt-BR").includes(duplicateTargetSearchTerm.trim().toLocaleLowerCase("pt-BR"))).map((product) => `<button type="button" class="recipe-component-option" data-duplicate-target-option="${product.idProduct}">${escapeHtml(formatProductOptionLabel(product))}</button>`).join("") || '<span class="classic-empty">Nenhum produto encontrado.</span>'}</div></div>` : ""}</div>${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}</div><div class="classic-form-actions"><button class="classic-button primary" type="button" data-confirm-duplicate-formation ${duplicateTargetId && !duplicating ? "" : "disabled"}>${duplicating ? "Duplicando..." : "Duplicar ficha"}</button><button class="classic-button" type="button" data-close-duplicate-formation>Cancelar</button></div></section></div>` : ""}
     `;
     renderLucideIcons(root);
     bindMainMenu(root, menuHandlers);
@@ -454,6 +513,52 @@ export function createProductFormationScreen({ onBack, onRecipes, ...menuHandler
       event.stopPropagation();
       void openProductFresh(productById(button.dataset.editFormationProduct), true);
     }));
+    root.querySelectorAll("[data-duplicate-formation]").forEach((button) => button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const product = productById(button.dataset.duplicateFormation);
+      if (!product?.formation) return;
+      duplicateSource = product;
+      duplicateTargetId = "";
+      duplicateTargetSearchTerm = "";
+      duplicateTargetOpen = false;
+      error = "";
+      render();
+    }));
+    root.querySelectorAll("[data-duplicate-target-toggle]").forEach((toggle) => toggle.addEventListener("click", () => {
+      duplicateTargetOpen = !duplicateTargetOpen;
+      render();
+      root.querySelector("[data-duplicate-target-search]")?.focus();
+    }));
+    root.querySelector("[data-duplicate-target-search]")?.addEventListener("input", (event) => {
+      duplicateTargetSearchTerm = event.currentTarget.value;
+      rerenderPreservingInputSelection(event.currentTarget, render, () => root.querySelector("[data-duplicate-target-search]"));
+    });
+    root.querySelectorAll("[data-duplicate-target-option]").forEach((button) => button.addEventListener("click", () => {
+      duplicateTargetId = button.dataset.duplicateTargetOption;
+      duplicateTargetSearchTerm = "";
+      duplicateTargetOpen = false;
+      render();
+    }));
+    root.querySelectorAll("[data-confirm-duplicate-formation]").forEach((button) => button.addEventListener("click", () => {
+      void duplicateFormation();
+    }));
+    root.querySelectorAll("[data-close-duplicate-formation]").forEach((button) => button.addEventListener("click", () => {
+      duplicateSource = null;
+      duplicateTargetId = "";
+      duplicateTargetSearchTerm = "";
+      duplicateTargetOpen = false;
+      error = "";
+      render();
+    }));
+    root.querySelector("[data-formation-duplicate-backdrop]")?.addEventListener("click", (event) => {
+      if (event.target !== event.currentTarget) return;
+      duplicateSource = null;
+      duplicateTargetId = "";
+      duplicateTargetSearchTerm = "";
+      duplicateTargetOpen = false;
+      error = "";
+      render();
+    });
     root.querySelectorAll("[data-delete-formation-product]").forEach((button) => button.addEventListener("click", (event) => {
       event.stopPropagation();
       const product = productById(button.dataset.deleteFormationProduct);
@@ -539,9 +644,10 @@ export function createProductFormationScreen({ onBack, onRecipes, ...menuHandler
   };
 
   installComboboxDismissal(root, {
-    isOpen: () => componentDraft.open,
+    isOpen: () => componentDraft.open || duplicateTargetOpen,
     close: () => {
       componentDraft.open = false;
+      duplicateTargetOpen = false;
       render();
     }
   });

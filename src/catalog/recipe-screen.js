@@ -19,6 +19,7 @@ import {
   getProductTargetCulinaryUnitId,
   resolveRecipeComponentConversionFactor
 } from "../shared/recipe-component.js";
+import { formatProductOptionLabel } from "../shared/product.js";
 
 const escapeHtml = (value) => String(value ?? "")
   .replaceAll("&", "&amp;")
@@ -26,6 +27,18 @@ const escapeHtml = (value) => String(value ?? "")
   .replaceAll(">", "&gt;")
   .replaceAll('"', "&quot;")
   .replaceAll("'", "&#039;");
+
+const duplicatedRecipeName = (name, existingNames) => {
+  const base = String(name || "Receita").trim();
+  const normalized = new Set(existingNames.map((item) => String(item || "").trim().toLocaleLowerCase("pt-BR")));
+  const first = `${base} - cópia`;
+  if (!normalized.has(first.toLocaleLowerCase("pt-BR"))) return first;
+  for (let index = 2; index <= existingNames.length + 1; index += 1) {
+    const candidate = `${base} - cópia ${index}`;
+    if (!normalized.has(candidate.toLocaleLowerCase("pt-BR"))) return candidate;
+  }
+  return first;
+};
 
 const recipeNavigation = [
   ["technical-sheet", "Formação de Produtos"],
@@ -62,6 +75,7 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
   let physicalStates = [];
   let searchTerm = "";
   let statusFilter = "all";
+  let sortState = { key: "nameRecipe", direction: "asc" };
   let loading = true;
   let submitting = false;
   let editingRecipe = null;
@@ -97,6 +111,11 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
     componentDraft.isOpen = false;
     render();
     }
+  });
+  root.addEventListener("click", () => {
+    if (!message) return;
+    message = "";
+    clearRenderedFeedback(root);
   });
 
   const load = async () => {
@@ -322,6 +341,18 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
     render();
   };
 
+  const duplicateRecipe = (recipe) => {
+    if (!recipe) return;
+    editingRecipe = null;
+    viewingRecipe = null;
+    populateForm(recipe);
+    form.nameRecipe = duplicatedRecipeName(recipe.nameRecipe, recipes.map((item) => item.nameRecipe));
+    form.statusRecipe = "draft";
+    message = "";
+    error = "";
+    render();
+  };
+
   const removeRecipe = async (id) => {
     const response = await apiFetch(`${getApiUrl()}/api/recipes/${id}`, { method: "DELETE" });
     const payload = await response.json();
@@ -380,7 +411,7 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
   const componentOptions = () => filterRecipeComponentOptions([
     ...products.map((product) => ({
       value: `product:${product.idProduct}`,
-      label: `${product.nameProduct}${product.pdvCodeProduct || product.skuProduct ? ` (${product.pdvCodeProduct || product.skuProduct})` : ""}`,
+      label: formatProductOptionLabel(product),
       searchText: `${product.nameProduct} ${product.pdvCodeProduct || ""} ${product.skuProduct || ""} ${product.codeUnit || ""} ${product.descriptionUnit || ""}`
     })),
     ...recipes.map((recipe) => ({
@@ -394,7 +425,7 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
     const option = [
       ...products.map((product) => ({
         value: `product:${product.idProduct}`,
-        label: `${product.nameProduct}${product.pdvCodeProduct || product.skuProduct ? ` (${product.pdvCodeProduct || product.skuProduct})` : ""}`
+        label: formatProductOptionLabel(product)
       })),
       ...recipes.map((recipe) => ({ value: `recipe:${recipe.idRecipe}`, label: formatRecipeComponentLabel(recipe) }))
     ].find((item) => item.value === componentDraft.target);
@@ -495,11 +526,11 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
           <div class="recipe-component-picker-row">
             <div class="form-field recipe-component-picker classic-combobox"><span>Componente</span>
               <button type="button" class="classic-select-trigger" data-component-toggle aria-haspopup="listbox" aria-expanded="${componentDraft.isOpen ? "true" : "false"}">${escapeHtml(selectedComponentLabel())}</button>
-              ${editingComponentIndex !== null && componentDraft.isOpen ? `<div class="recipe-component-options" role="listbox" aria-label="Componentes">
+              ${editingComponentIndex !== null && componentDraft.isOpen ? `<div class="recipe-component-options combobox-options-fixed-search" role="listbox" aria-label="Componentes">
                 <input data-component-search type="search" autocomplete="off" value="${escapeHtml(componentDraft.searchTerm)}" placeholder="Pesquisar componente..." aria-label="Pesquisar componente" />
-                ${componentOptions().map((option) =>
+                <div class="combobox-option-list">${componentOptions().map((option) =>
                   `<button class="recipe-component-option ${componentDraft.target === option.value ? "is-selected" : ""}" type="button" data-component-option="${escapeHtml(option.value)}">${escapeHtml(option.label)}</button>`
-                ).join("") || '<span class="classic-empty">Nenhum componente encontrado.</span>'}
+                ).join("") || '<span class="classic-empty">Nenhum componente encontrado.</span>'}</div>
               </div>` : ""}
             </div>
             <label class="form-field"><span>Detalhes</span><input data-component-details maxlength="255" value="${escapeHtml(componentDraft.details)}" placeholder="Ex.: usar frio, 3 colheres" /></label>
@@ -522,11 +553,11 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
           <div class="form-field recipe-component-picker classic-combobox"><span>Componente</span>
           <input type="hidden" data-component-target value="${escapeHtml(componentDraft.target)}" />
           <button type="button" class="classic-select-trigger" data-component-toggle aria-haspopup="listbox" aria-expanded="${componentDraft.isOpen ? "true" : "false"}">${escapeHtml(selectedComponentLabel())}</button>
-          ${editingComponentIndex === null && componentDraft.isOpen ? `<div class="recipe-component-options" role="listbox" aria-label="Componentes">
+          ${editingComponentIndex === null && componentDraft.isOpen ? `<div class="recipe-component-options combobox-options-fixed-search" role="listbox" aria-label="Componentes">
             <input data-component-search type="search" autocomplete="off" value="${escapeHtml(componentDraft.searchTerm)}" placeholder="Pesquisar componente..." aria-label="Pesquisar componente" />
-            ${componentOptions().map((option) =>
+            <div class="combobox-option-list">${componentOptions().map((option) =>
               `<button class="recipe-component-option ${componentDraft.target === option.value ? "is-selected" : ""}" type="button" data-component-option="${escapeHtml(option.value)}">${escapeHtml(option.label)}</button>`
-            ).join("") || '<span class="classic-empty">Nenhum componente encontrado.</span>'}
+            ).join("") || '<span class="classic-empty">Nenhum componente encontrado.</span>'}</div>
           </div>` : ""}
           </div>
           <label class="form-field"><span>Detalhes</span><input data-component-details maxlength="255" value="${escapeHtml(componentDraft.details)}" placeholder="Ex.: usar frio, 3 colheres" /></label>
@@ -592,17 +623,27 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
   };
 
   const render = () => {
-    const visibleRecipes = recipes.filter((recipe) =>
-      (statusFilter === "all" || recipe.statusRecipe === statusFilter)
-      && `${recipe.nameRecipe} ${recipe.kindRecipe} ${recipe.statusRecipe}`.toLocaleLowerCase("pt-BR")
-        .includes(searchTerm.trim().toLocaleLowerCase("pt-BR"))
-    );
+    const visibleRecipes = recipes
+      .filter((recipe) =>
+        (statusFilter === "all" || recipe.statusRecipe === statusFilter)
+        && `${recipe.nameRecipe} ${recipe.kindRecipe} ${recipe.statusRecipe}`.toLocaleLowerCase("pt-BR")
+          .includes(searchTerm.trim().toLocaleLowerCase("pt-BR"))
+      )
+      .sort((left, right) => {
+        const comparison = String(left[sortState.key] || "").localeCompare(
+          String(right[sortState.key] || ""),
+          "pt-BR",
+          { sensitivity: "base" }
+        );
+        return sortState.direction === "asc" ? comparison : -comparison;
+      });
+    const sortIndicator = (key) =>
+      sortState.key === key ? (sortState.direction === "asc" ? "↑" : "↓") : "↕";
     const statusFilters = [
       ["all", "Todas"],
       ["draft", "Rascunho"],
       ["active", "Ativas"],
-      ["review_required", "Revisão"],
-      ["archived", "Arquivadas"]
+      ["review_required", "Revisão"]
     ];
     root.className = "catalog-screen recipe-screen";
     root.innerHTML = `
@@ -617,7 +658,11 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
           <div class="recipe-status-filters" role="group" aria-label="Filtrar receitas por status">
             ${statusFilters.map(([value, label]) => `<button class="recipe-status-filter ${statusFilter === value ? "is-active" : ""}" type="button" data-recipe-status-filter="${value}" aria-pressed="${statusFilter === value ? "true" : "false"}">${label} <span>${value === "all" ? recipes.length : recipes.filter((recipe) => recipe.statusRecipe === value).length}</span></button>`).join("")}
           </div>
-          <div class="classic-grid-wrapper">${loading ? '<p class="classic-empty">Carregando receitas...</p>' : loadError ? `<p class="error-message">${escapeHtml(loadError)}</p>` : visibleRecipes.length ? `<table class="classic-table"><thead><tr><th>Nome</th><th class="recipe-kind-column">Tipo</th><th class="recipe-status-column">Status</th><th class="actions-column recipe-actions-column">Ações</th></tr></thead><tbody>${visibleRecipes.map((recipe) => `<tr class="${recipe.statusRecipe === "archived" ? "is-inactive" : ""}" data-view-recipe="${recipe.idRecipe}" tabindex="0"><td>${escapeHtml(recipe.nameRecipe)}</td><td class="recipe-kind-column">${recipe.kindRecipe === "production" ? "Receita de Produção" : "Composição de Produto"}</td><td class="recipe-status-column ${recipe.statusRecipe === "draft" || recipe.statusRecipe === "review_required" ? "recipe-status-emphasis" : ""}">${recipe.statusRecipe === "active" ? "Ativa" : recipe.statusRecipe === "review_required" ? "Revisão" : recipe.statusRecipe === "archived" ? "Arquivada" : "Rascunho"}</td><td class="actions-column recipe-actions-column"><button class="icon-button edit" type="button" data-edit-recipe="${recipe.idRecipe}" aria-label="Editar receita" title="Editar receita"><i data-lucide="pencil"></i></button><button class="icon-button delete" type="button" data-delete-recipe="${recipe.idRecipe}" aria-label="Arquivar receita" title="Arquivar receita"><i data-lucide="trash-2"></i></button></td></tr>`).join("")}</tbody></table>` : '<p class="classic-empty">Nenhuma Receita ou Composição cadastrada.</p>'}</div>
+          <div class="classic-grid-wrapper">${loading ? '<p class="classic-empty">Carregando receitas...</p>' : loadError ? `<p class="error-message">${escapeHtml(loadError)}</p>` : visibleRecipes.length ? `<table class="classic-table"><thead><tr>${[
+            ["nameRecipe", "Nome", ""],
+            ["kindRecipe", "Tipo", "recipe-kind-column"],
+            ["statusRecipe", "Status", "recipe-status-column"]
+          ].map(([key, label, className]) => `<th class="text-center ${className}" aria-sort="${sortState.key === key ? (sortState.direction === "asc" ? "ascending" : "descending") : "none"}"><button class="table-sort-button" type="button" data-recipe-sort="${key}">${label} <span aria-hidden="true">${sortIndicator(key)}</span></button></th>`).join("")}<th class="text-center actions-column recipe-actions-column">Ações</th></tr></thead><tbody>${visibleRecipes.map((recipe) => `<tr class="${recipe.statusRecipe === "archived" ? "is-inactive" : ""}" data-view-recipe="${recipe.idRecipe}" tabindex="0"><td>${escapeHtml(recipe.nameRecipe)}</td><td class="recipe-kind-column">${recipe.kindRecipe === "production" ? "Receita de Produção" : "Composição de Produto"}</td><td class="recipe-status-column ${recipe.statusRecipe === "draft" || recipe.statusRecipe === "review_required" ? "recipe-status-emphasis" : ""}">${recipe.statusRecipe === "active" ? "Ativa" : recipe.statusRecipe === "review_required" ? "Revisão" : recipe.statusRecipe === "archived" ? "Arquivada" : "Rascunho"}</td><td class="actions-column recipe-actions-column"><button class="icon-button edit" type="button" data-edit-recipe="${recipe.idRecipe}" aria-label="Editar receita" title="Editar receita"><i data-lucide="pencil"></i></button><button class="icon-button" type="button" data-duplicate-recipe="${recipe.idRecipe}" aria-label="Duplicar receita" title="Duplicar receita"><i data-lucide="copy"></i></button><button class="icon-button delete" type="button" data-delete-recipe="${recipe.idRecipe}" aria-label="Excluir receita" title="Excluir receita"><i data-lucide="trash-2"></i></button></td></tr>`).join("")}</tbody></table>` : '<p class="classic-empty">Nenhuma Receita ou Composição cadastrada.</p>'}</div>
         </section>
       </section>
       ${editingComponentIndex !== null ? renderComponentEditor() : ""}
@@ -634,6 +679,14 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
     root.querySelectorAll("[data-recipe-status-filter]").forEach((button) => {
       button.addEventListener("click", () => {
         statusFilter = button.dataset.recipeStatusFilter || "all";
+        render();
+      });
+    });
+    root.querySelectorAll("[data-recipe-sort]").forEach((button) => {
+      button.addEventListener("click", () => {
+        sortState = sortState.key === button.dataset.recipeSort
+          ? { key: sortState.key, direction: sortState.direction === "asc" ? "desc" : "asc" }
+          : { key: button.dataset.recipeSort, direction: "asc" };
         render();
       });
     });
@@ -878,6 +931,11 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
       const recipe = recipes.find((item) => String(item.idRecipe) === button.dataset.editRecipe);
       if (recipe) startEditing(recipe);
     }));
+    root.querySelectorAll("[data-duplicate-recipe]").forEach((button) => button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const recipe = recipes.find((item) => String(item.idRecipe) === button.dataset.duplicateRecipe);
+      if (recipe) duplicateRecipe(recipe);
+    }));
     root.querySelectorAll("[data-view-recipe]").forEach((row) => {
       row.addEventListener("click", (event) => {
         if (event.target.closest("button")) return;
@@ -895,10 +953,10 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
       const recipe = recipes.find((item) => String(item.idRecipe) === button.dataset.deleteRecipe);
       if (!recipe) return;
       void confirmAction({
-        title: "Arquivar Receita ou Composição",
-        message: `Arquivar "${recipe.nameRecipe}"?`,
-        detail: "O registro deixará de aparecer nas listagens ativas, mas será preservado para histórico.",
-        confirmLabel: "Arquivar",
+        title: "Excluir Receita ou Composição",
+        message: `Excluir "${recipe.nameRecipe}"?`,
+        detail: "O registro será removido permanentemente e não poderá ser recuperado.",
+        confirmLabel: "Excluir",
         cancelLabel: "Cancelar"
       }).then((confirmed) => {
         if (!confirmed) return;
