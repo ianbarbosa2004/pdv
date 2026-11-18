@@ -44,6 +44,26 @@ export default defineConfig(({ command, mode }) => {
         ? { "import.meta.env.VITE_PDV_API_TOKEN": JSON.stringify(developmentApiToken) }
         : {})
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            const normalizedId = id.replaceAll("\\", "/");
+            if (normalizedId.includes("/node_modules/")) return "vendor";
+            if (normalizedId.includes("/src/catalog/")) return "catalog";
+            if (normalizedId.includes("/src/stock/")) return "stock";
+            if (normalizedId.includes("/src/tools/")) return "tools";
+            if (normalizedId.includes("/src/settings/")) return "settings";
+            if (normalizedId.includes("/src/operator/")) return "operator";
+            if (normalizedId.includes("/src/sales/")) return "sales";
+            if (normalizedId.includes("/src/backoffice/")) return "backoffice";
+            if (normalizedId.includes("/src/shared/")) return "shared";
+            if (normalizedId.includes("/src/ui/")) return "ui";
+            return undefined;
+          }
+        }
+      }
+    },
     server: {
       watch: {
         ignored: ["**/src-tauri/target/**"]

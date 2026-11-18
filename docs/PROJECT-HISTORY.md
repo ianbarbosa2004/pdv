@@ -7,6 +7,19 @@ inicial do produto até o estado atual do workspace. Ele complementa o
 
 ## 0. Estado mais recente
 
+### Otimização permanente do bundle e entrevista de margem — 2026-11-18
+
+O empacotamento do cliente passou a separar os módulos por áreas funcionais e
+dependências externas no `vite.config.js`. O maior chunk JavaScript caiu de
+608 kB para aproximadamente 244 kB, eliminando o aviso de chunk grande do
+Vite sem aumentar artificialmente o limite de alerta.
+
+A sabatina dos balizadores de margem de lucro foi registrada em
+`docs/ENTREVISTA-BALIZADORES-MARGEM.md` e permanece pausada na primeira
+decisão de negócio. Esta etapa foi versionada como **0.18.2**. Como não houve
+alteração na API ou no schema, não é necessário reiniciar a API; os terminais
+devem receber o novo bundle.
+
 ### Consolidação de Receitas e entradas — 2026-11-18
 
 A exclusão de Receitas e Composições passou a remover fisicamente o cadastro,

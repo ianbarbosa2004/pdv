@@ -4,6 +4,15 @@ Este documento registra as mudanças funcionais e técnicas agrupadas por versã
 O número da versão só deve ser incrementado após pedido explícito. Builds e
 releases não alteram a versão automaticamente.
 
+## 0.18.2 - 2026-11-18
+
+- Dividido o bundle JavaScript do cliente por áreas funcionais e dependências,
+  reduzindo o maior chunk de 608 kB para aproximadamente 244 kB e eliminando
+  o aviso de chunk grande do Vite.
+- Documentada a entrevista pausada dos balizadores de margem de lucro em
+  `docs/ENTREVISTA-BALIZADORES-MARGEM.md`.
+- Alteração somente no frontend e no empacotamento; não exige reinício da API.
+
 ## 0.18.1 - 2026-11-18
 
 - Consolidada a entrada manual, a calculadora de preço unitário e os vínculos
