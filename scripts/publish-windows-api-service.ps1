@@ -4,6 +4,7 @@ param(
   [string]$InstallDirectory = 'C:\ProgramData\PDV\app',
   [string]$ServiceDirectory = 'C:\ProgramData\PDV\service',
   [string]$LogDirectory = 'C:\ProgramData\PDV\logs',
+  [string]$BackupDirectory = 'C:\ProgramData\PDV\backups',
   [string]$DatabaseCredentialFile = ''
 )
 
@@ -119,11 +120,30 @@ $serviceSid = "*$($serviceUser.SID.Value)"
 $localAccount = ".\$ServiceAccount"
 
 $nodePath = (Get-Command node.exe -ErrorAction Stop).Source
-New-Item -ItemType Directory -Force -Path $InstallDirectory, $LogDirectory | Out-Null
+New-Item -ItemType Directory -Force -Path $InstallDirectory, $LogDirectory, $BackupDirectory | Out-Null
 $publishedEnvPath = Join-Path $InstallDirectory '.env'
 if (-not (Test-Path -LiteralPath $publishedEnvPath -PathType Leaf)) {
   throw "Arquivo operacional não encontrado: $publishedEnvPath. Crie-o no diretório publicado antes de executar a publicação."
 }
+$publishedEnvLines = @(Get-Content -LiteralPath $publishedEnvPath)
+foreach ($setting in @(
+  @{ Name = 'PDV_ENV'; Value = 'production' },
+  @{ Name = 'PDV_BACKUP_DIR'; Value = $BackupDirectory }
+)) {
+  $found = $false
+  $publishedEnvLines = @($publishedEnvLines | ForEach-Object {
+    if ($_ -match "^$($setting.Name)=") {
+      $found = $true
+      "$($setting.Name)=$($setting.Value)"
+    } else {
+      $_
+    }
+  })
+  if (-not $found) {
+    $publishedEnvLines += "$($setting.Name)=$($setting.Value)"
+  }
+}
+[System.IO.File]::WriteAllLines($publishedEnvPath, [string[]]$publishedEnvLines, (New-Object System.Text.UTF8Encoding($false)))
 if ((Get-Service -Name $ServiceName -ErrorAction Stop).Status -ne 'Stopped') {
   Write-Step "Parando o serviço $ServiceName antes da atualização..."
   & sc.exe stop $ServiceName | Out-Null
@@ -155,6 +175,8 @@ Write-Step 'Dependências instaladas.'
 if ($LASTEXITCODE -ne 0) { throw 'Não foi possível conceder leitura da API publicada.' }
 & icacls.exe $LogDirectory /grant "$serviceSid`:(OI)(CI)(M)" /T /C | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Não foi possível conceder escrita dos logs.' }
+& icacls.exe $BackupDirectory /grant "$serviceSid`:(OI)(CI)(M)" /T /C | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'Não foi possível conceder escrita dos backups.' }
 
 $passwordAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'
 $newDatabasePassword = -join (1..40 | ForEach-Object {

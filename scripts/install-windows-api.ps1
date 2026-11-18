@@ -7,7 +7,8 @@
   [string]$ServiceAccount = 'PDVApiSvc',
   [string]$InstallDirectory = 'C:\ProgramData\PDV\app',
   [string]$ServiceDirectory = 'C:\ProgramData\PDV\service',
-  [string]$LogDirectory = 'C:\ProgramData\PDV\logs'
+  [string]$LogDirectory = 'C:\ProgramData\PDV\logs',
+  [string]$BackupDirectory = 'C:\ProgramData\PDV\backups'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -74,13 +75,15 @@ $databasePassword = -join (1..40 | ForEach-Object {
   $passwordAlphabet[[System.Security.Cryptography.RandomNumberGenerator]::GetInt32($passwordAlphabet.Length)]
 })
 
-New-Item -ItemType Directory -Force -Path $InstallDirectory, $ServiceDirectory, $LogDirectory | Out-Null
+New-Item -ItemType Directory -Force -Path $InstallDirectory, $ServiceDirectory, $LogDirectory, $BackupDirectory | Out-Null
 Write-Step "Diretórios operacionais preparados em $InstallDirectory."
 $publishedEnvPath = Join-Path $InstallDirectory '.env'
 if (-not (Test-Path -LiteralPath $publishedEnvPath -PathType Leaf)) {
   @(
     'PDV_API_HOST=0.0.0.0'
     'PDV_API_PORT=3000'
+    'PDV_ENV=production'
+    "PDV_BACKUP_DIR=$BackupDirectory"
     "PDV_API_TOKEN=$apiToken"
     'PDV_API_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,tauri://localhost,http://tauri.localhost'
     "PDV_DB_HOST=$DatabaseRootHost"
@@ -94,6 +97,25 @@ if (-not (Test-Path -LiteralPath $publishedEnvPath -PathType Leaf)) {
 } else {
   Write-Step 'Arquivo .env operacional existente preservado.'
 }
+$publishedEnvLines = @(Get-Content -LiteralPath $publishedEnvPath)
+foreach ($setting in @(
+  @{ Name = 'PDV_ENV'; Value = 'production' },
+  @{ Name = 'PDV_BACKUP_DIR'; Value = $BackupDirectory }
+)) {
+  $found = $false
+  $publishedEnvLines = @($publishedEnvLines | ForEach-Object {
+    if ($_ -match "^$($setting.Name)=") {
+      $found = $true
+      "$($setting.Name)=$($setting.Value)"
+    } else {
+      $_
+    }
+  })
+  if (-not $found) {
+    $publishedEnvLines += "$($setting.Name)=$($setting.Value)"
+  }
+}
+[System.IO.File]::WriteAllLines($publishedEnvPath, [string[]]$publishedEnvLines, (New-Object System.Text.UTF8Encoding($false)))
 
 $escapedDatabasePassword = $databasePassword.Replace('\', '\\').Replace("'", "\'")
 $quotedDatabaseName = "``$DatabaseName``"
