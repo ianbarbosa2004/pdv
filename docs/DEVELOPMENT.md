@@ -409,6 +409,28 @@ somente a interface desse módulo. Essas verificações criam
 tabelas ausentes e adicionam colunas novas com `ALTER TABLE`; não devem apagar,
 recriar ou truncar tabelas existentes.
 
+### Balizadores de margem por Grupo
+
+Os balizadores vigentes são separados por margem mínima e margem alvo e ficam
+em `margin_group_overrides`, associados ao `idGroup`. Novos Grupos recebem
+`0/0` por padrão. A resolução não usa balizadores gerais nem overrides próprios
+de Produto; o cadastro efetivo de cada Produto segue o balizador do seu Grupo.
+
+Alterações nos balizadores usam a API autenticada ou SQL externo revisado.
+Ao aplicar SQL externo pelo DBeaver ou outra ferramenta, execute somente
+`UPDATE` sobre grupos já existentes em `margin_group_overrides`; não use
+`INSERT` para preencher uma tabela que já está populada. O SQL não deve conter
+credenciais e precisa preservar os grupos fora do alcance comercial em `0/0`.
+
+A operação comercial atual usa estes patamares:
+
+| Classificação | Margem mínima | Margem alvo |
+|---|---:|---:|
+| Bebidas de revenda | 45% | 55% |
+| Drinks e doses | 72% | 82% |
+| Porções e cozinha | 65% | 72% |
+| Insumos e fora do balizador | 0% | 0% |
+
 A preparação do catálogo NCM/CEST pertence ao módulo
 `src/server/ncm-cest-update.js`, que é a única fonte runtime para as tabelas
 `ncm_catalog`, `cest_catalog`, `ncm_cest_relations` e `ncm_cest_updates`.

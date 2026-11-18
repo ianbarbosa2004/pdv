@@ -60,6 +60,27 @@ test("a tela de entrada manual oferece origem, fornecedor, itens e pagamentos", 
   assert.match(source, /\/api\/stock\/manual-entries/u);
 });
 
+test("a seleção de produto da entrada manual preserva o tab order até quantidade", async () => {
+  const source = await readFile(
+    new URL("../../src/stock/fiscal-entry-design-screen.js", import.meta.url),
+    "utf8"
+  );
+
+  const selectionStart = source.indexOf(
+    'root.querySelectorAll("[data-product-option]").forEach'
+  );
+  const selectionEnd = source.indexOf("\n    }));", selectionStart);
+  const selectionBlock = source.slice(
+    selectionStart,
+    selectionEnd >= 0 ? selectionEnd + 7 : source.length
+  );
+
+  assert.ok(selectionStart >= 0, "handler de seleção de produto deve existir");
+  assert.match(selectionBlock, /rerenderComboboxSelection/u);
+  assert.match(selectionBlock, /data-product-toggle/u);
+  assert.doesNotMatch(selectionBlock, /render\(\);/u);
+});
+
 test("a calculadora da entrada manual aceita digitação direta", async () => {
   const source = await readFile(
     new URL("../../src/stock/fiscal-entry-design-screen.js", import.meta.url),

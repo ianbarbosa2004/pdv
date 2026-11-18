@@ -27,6 +27,11 @@ const escapeHtml = (value) =>
 const formatMoney = (value) =>
   `R$ ${Number(value || 0).toFixed(2).replace(".", ",")}`;
 
+const formatPercent = (value) =>
+  value === null || value === undefined || !Number.isFinite(Number(value))
+    ? "—"
+    : `${Number(value).toFixed(2).replace(".", ",")}%`;
+
 const parseMoney = (value) =>
   Number(String(value ?? "0").replace(/\./g, "").replace(",", ".")) || 0;
 
@@ -54,6 +59,7 @@ const renderPhysicalStateOptions = (physicalStates, selectedId) =>
 
 const viewsNavigation = [
   ["groups-products", "Grupos x Produtos"],
+  ["margin", "Margem"],
   ["no-cost", "Sem Custo"],
   ["no-physical-state", "Sem Estado Físico"],
   ["cost-divergences", "Divergência entre Custos"],
@@ -199,6 +205,7 @@ export function createProductViewsScreen({
   let productTypes = [];
   let cestOptions = [];
   let ncms = [];
+  let marginProducts = [];
   const ncmDescriptions = new Map();
   let ncmsLoading = false;
   let ncmLoadError = "";
@@ -245,6 +252,21 @@ export function createProductViewsScreen({
         throw new Error(productTypePayload.error || "Não foi possível carregar os tipos de produto.");
       }
       products = productPayload.products;
+      try {
+        const marginResponse = await apiFetch(`${getApiUrl()}/api/margin/products`);
+        const marginPayload = await marginResponse.json();
+        if (marginResponse.ok && Array.isArray(marginPayload.products)) {
+          marginProducts = marginPayload.products;
+          products = products.map((product) => ({
+            ...product,
+            marginMetrics: marginProducts.find((marginProduct) =>
+              String(marginProduct.idProduct) === String(product.idProduct)
+            ) || null
+          }));
+        }
+      } catch {
+        marginProducts = [];
+      }
       groups = groupPayload.groups;
       fiscalOperations = fiscalOperationPayload.fiscalOperations.filter(({ typeFiscalOperation }) => typeFiscalOperation === "exit");
       units = unitPayload.units;
@@ -415,6 +437,7 @@ export function createProductViewsScreen({
     bindViewsNavigation(root, {
       back: onBack,
       "groups-products": onGroupsProducts,
+      "margin": menuHandlers.onMargin,
       "no-cost": onNoCost,
       "no-physical-state": menuHandlers.onNoPhysicalState,
       "cost-divergences": onCostDivergences,

@@ -24,6 +24,7 @@ import { createSupplierScreen } from "./catalog/supplier-screen.js";
 import { createCustomerConsumerScreen } from "./catalog/customer-consumer-screen.js";
 import { createBackupScreen } from "./tools/backup-screen.js";
 import { createViewsScreen } from "./tools/views-screen.js";
+import { createMarginScreen } from "./tools/margin-screen.js";
 import { createCostDivergenceScreen } from "./tools/cost-divergence-screen.js";
 import { createNoCostScreen } from "./tools/no-cost-screen.js";
 import { createNoPhysicalStateScreen } from "./tools/no-physical-state-screen.js";
@@ -59,11 +60,13 @@ import {
 } from "./shared/api.js";
 import { installGlobalModalEscape } from "./ui/modal.js";
 import { loadTheme } from "./ui/theme-manager.js";
+import { installTabOrderPreservation } from "./ui/combobox.js";
 
 const app = document.querySelector("#app");
 
 if (!app) throw new Error("Elemento raiz da aplicação não encontrado.");
 installGlobalModalEscape();
+const tabOrderPreservation = installTabOrderPreservation(app);
 
 const normalizeScreenChrome = () => {
   const operatorName = window.__PDV_OPERATOR__?.displayNameOperator || "Operador";
@@ -99,6 +102,7 @@ function requestExit() {
 }
 
 const mount = (screen) => {
+  tabOrderPreservation?.reset();
   for (const child of Array.from(app.children)) {
     if (typeof child.cleanup === "function") {
       child.cleanup();
@@ -137,6 +141,7 @@ const common = () => ({
   onViews: showViews,
   views: showViews,
   "groups-products": showGroupsProducts,
+  margin: showMargin,
   "no-cost": showNoCost,
   "no-physical-state": showNoPhysicalState,
   "cost-divergences": showCostDivergences,
@@ -259,6 +264,17 @@ const showBackup = () =>
 const showGroupsProducts = () =>
   mount(createViewsScreen({
     active: "groups-products",
+    onBack: showBackoffice,
+    onGroupsProducts: showGroupsProducts,
+    onMargin: showMargin,
+    onNoCost: showNoCost,
+    onNoPhysicalState: showNoPhysicalState,
+    onCostDivergences: showCostDivergences,
+    onRecipeRevisions: showRecipeRevisions,
+    ...common()
+  }));
+const showMargin = () =>
+  mount(createMarginScreen({
     onBack: showBackoffice,
     onGroupsProducts: showGroupsProducts,
     onNoCost: showNoCost,

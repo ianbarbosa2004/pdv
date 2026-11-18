@@ -4,6 +4,24 @@ Este documento registra as mudanças funcionais e técnicas agrupadas por versã
 O número da versão só deve ser incrementado após pedido explícito. Builds e
 releases não alteram a versão automaticamente.
 
+## 0.19.0 - 2026-11-18
+
+- Implementada a View de Margem para consulta dos produtos ativos elegíveis,
+  filtros por nome, Grupo e estado, classificação Vermelho/Amarelo/Verde,
+  simulação protegida de CMV e histórico dos últimos snapshots.
+- Implementados balizadores independentes de margem mínima e margem alvo
+  somente por Grupo, com valores iniciais iguais a zero e herança removida
+  de Geral e override próprio de Produto.
+- Persistidos custo, preço, métricas, balizadores efetivos, origem e estado
+  em `margin_product_metrics`; alterações de custo, preço e balizadores
+  produzem snapshots sem alterar preços em lote.
+- Atualização de preço pelo CMV exige supervisor ou administrador, transação,
+  comparação de concorrência e auditoria em `margin_price_audits`.
+- Parametrizados os grupos comerciais da operação pelo banco, sem aplicar
+  balizadores a insumos, matérias-primas, embalagens ou uso e consumo.
+- Alterações em `src/server/`, `src/server/schema-manager.js`,
+  `database/schema.sql` ou migrações exigem reinício da API publicada.
+
 ## 0.18.2 - 2026-11-18
 
 - Dividido o bundle JavaScript do cliente por áreas funcionais e dependências,

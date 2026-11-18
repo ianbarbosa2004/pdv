@@ -169,6 +169,49 @@ incluindo Entradas confirmadas, Inventários e desfazimentos, com filtros por
 produto, período, tipo, documento e operador.
 _Evitar_: saldo atual, log técnico sem contexto operacional.
 
+## Margem e preço
+
+**Balizador de margem**:
+Referência percentual usada para interpretar e comparar a rentabilidade de um
+Produto comercial, sem bloquear venda ou entrada.
+_Evitar_: trava de preço, regra fiscal, margem oficial única.
+
+**Margem mínima**:
+Piso percentual de Margem Bruta usado para classificar um Produto comercial em
+estado amarelo ou vermelho.
+_Evitar_: margem obrigatória, bloqueio de venda.
+
+**Margem alvo**:
+Referência percentual de Margem Bruta usada para planejar o preço e classificar
+um Produto comercial em estado verde.
+_Evitar_: margem mínima, lucro garantido.
+
+**Balizador efetivo**:
+Margem mínima ou margem alvo associada diretamente ao Grupo do Produto
+comercial.
+_Evitar_: valor herdado copiado, margem persistida por duplicação.
+
+**Margem Bruta**:
+Percentual da diferença entre preço de venda e custo sobre o preço de venda.
+_Evitar_: markup, lucro em reais.
+
+**Markup**:
+Percentual da diferença entre preço de venda e custo sobre o custo.
+_Evitar_: margem sobre venda.
+
+**Lucro Unitário**:
+Diferença em valor absoluto entre preço de venda e custo de uma unidade.
+_Evitar_: margem percentual.
+
+**CMV**:
+Percentual do custo sobre o preço de venda.
+_Evitar_: custo unitário, margem bruta.
+
+**Novo CMV**:
+Percentual informado na View de simulação para recalcular em memória o preço
+sugerido e todas as métricas derivadas até uma ação de atualização confirmada.
+_Evitar_: alteração automática de preço, atualização em lote.
+
 ## Catálogo culinário e composição
 
 **Unidade de medida**:

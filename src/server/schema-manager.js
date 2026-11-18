@@ -1268,6 +1268,689 @@ const ensureProductCatalogSchema = () => {
   return productCatalogSchemaPromise;
 };
 
+let marginSchemaPromise = null;
+
+const ensureMarginSchema = () => {
+  if (marginSchemaPromise) return marginSchemaPromise;
+  marginSchemaPromise = (async () => {
+    await pool.query(`CREATE TABLE IF NOT EXISTS margin_group_overrides (
+      idGroup BIGINT UNSIGNED NOT NULL,
+      minimumMarginPercentage DECIMAL(5,2) NOT NULL DEFAULT 0,
+      targetMarginPercentage DECIMAL(5,2) NOT NULL DEFAULT 0,
+      updatedAtMarginGroup TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (idGroup),
+      CONSTRAINT chkMarginGroupMinimum CHECK (minimumMarginPercentage >= 0 AND minimumMarginPercentage < 100),
+      CONSTRAINT chkMarginGroupTarget CHECK (targetMarginPercentage >= 0 AND targetMarginPercentage < 100),
+      CONSTRAINT fkMarginGroupOverrideGroup FOREIGN KEY (idGroup)
+        REFERENCES \`groups\` (idGroup) ON DELETE CASCADE
+    ) ENGINE=InnoDB`);
+    await pool.query(
+      `ALTER TABLE margin_group_overrides
+       MODIFY COLUMN minimumMarginPercentage DECIMAL(5,2) NOT NULL DEFAULT 0,
+       MODIFY COLUMN targetMarginPercentage DECIMAL(5,2) NOT NULL DEFAULT 0`
+    );
+    await pool.query(
+      `INSERT INTO margin_group_overrides (
+         idGroup,
+         minimumMarginPercentage,
+         targetMarginPercentage
+       )
+       SELECT idGroup, 0, 0
+       FROM \`groups\`
+       ON DUPLICATE KEY UPDATE
+         idGroup = margin_group_overrides.idGroup`
+    );
+
+    await pool.query(`CREATE TABLE IF NOT EXISTS margin_product_metrics (
+      idMarginProductMetric BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      idProduct BIGINT UNSIGNED NOT NULL,
+      pdvCodeSnapshot VARCHAR(64) NULL,
+      costPriceSnapshot DECIMAL(12,2) NOT NULL,
+      priceSnapshot DECIMAL(12,2) NOT NULL,
+      grossMarginPercentage DECIMAL(9,4) NULL,
+      markupPercentage DECIMAL(9,4) NULL,
+      unitProfitSnapshot DECIMAL(12,2) NULL,
+      cmvPercentage DECIMAL(9,4) NULL,
+      minimumMarginSnapshot DECIMAL(5,2) NULL,
+      minimumMarginOrigin ENUM('group') NULL,
+      targetMarginSnapshot DECIMAL(5,2) NULL,
+      targetMarginOrigin ENUM('group') NULL,
+      marginStateSnapshot ENUM('red', 'yellow', 'green') NULL,
+      snapshotSource ENUM(
+        'initial_load',
+        'cost_update',
+        'price_update',
+        'cost_and_price_update',
+        'group_balancer_update'
+      ) NOT NULL,
+      createdAtMarginProductMetric TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (idMarginProductMetric),
+      KEY idxMarginProductMetricProductCreated (
+        idProduct,
+        createdAtMarginProductMetric
+      ),
+      CONSTRAINT fkMarginProductMetricProduct FOREIGN KEY (idProduct)
+        REFERENCES products (idProduct) ON DELETE CASCADE
+    ) ENGINE=InnoDB`);
+
+    await pool.query(`CREATE TABLE IF NOT EXISTS margin_price_audits (
+      idMarginPriceAudit BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      idProduct BIGINT UNSIGNED NOT NULL,
+      previousPrice DECIMAL(12,2) NOT NULL,
+      newPrice DECIMAL(12,2) NOT NULL,
+      previousCmvPercentage DECIMAL(5,2) NULL,
+      newCmvPercentage DECIMAL(5,2) NULL,
+      idOperator BIGINT UNSIGNED NOT NULL,
+      createdAtMarginPriceAudit TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (idMarginPriceAudit),
+      KEY idxMarginPriceAuditProductCreated (idProduct, createdAtMarginPriceAudit),
+      KEY idxMarginPriceAuditOperatorCreated (idOperator, createdAtMarginPriceAudit),
+      CONSTRAINT fkMarginPriceAuditProduct FOREIGN KEY (idProduct)
+        REFERENCES products (idProduct) ON DELETE RESTRICT,
+      CONSTRAINT fkMarginPriceAuditOperator FOREIGN KEY (idOperator)
+        REFERENCES operators (idOperator) ON DELETE RESTRICT
+    ) ENGINE=InnoDB`);
+
+    await pool.query("DROP TRIGGER IF EXISTS trgMarginProductCostOrPrice");
+    await pool.query("DROP TRIGGER IF EXISTS trgMarginGroupBalancerUpdate");
+    await pool.query("DROP TRIGGER IF EXISTS trgMarginGroupBalancerUpdateExisting");
+    await pool.query("DROP TRIGGER IF EXISTS trgMarginGeneralBalancerUpdate");
+    await pool.query("DROP TRIGGER IF EXISTS trgMarginProductBalancerUpdate");
+    await pool.query("DROP TRIGGER IF EXISTS trgMarginProductBalancerUpdateExisting");
+
+    await pool.query(`CREATE TRIGGER trgMarginProductCostOrPrice
+      AFTER UPDATE ON products
+      FOR EACH ROW
+      BEGIN
+        IF NOT (OLD.costPriceProduct <=> NEW.costPriceProduct)
+           OR NOT (OLD.priceProduct <=> NEW.priceProduct) THEN
+          INSERT INTO margin_product_metrics (
+            idProduct, pdvCodeSnapshot, costPriceSnapshot, priceSnapshot,
+            grossMarginPercentage, markupPercentage, unitProfitSnapshot, cmvPercentage,
+            minimumMarginSnapshot, minimumMarginOrigin,
+            targetMarginSnapshot, targetMarginOrigin,
+            marginStateSnapshot, snapshotSource
+          )
+          SELECT p.idProduct, p.pdvCodeProduct, p.costPriceProduct, p.priceProduct,
+                 IF(p.priceProduct = 0, NULL, (p.priceProduct - p.costPriceProduct) / p.priceProduct * 100),
+                 IF(p.costPriceProduct = 0, NULL, (p.priceProduct - p.costPriceProduct) / p.costPriceProduct * 100),
+                 p.priceProduct - p.costPriceProduct,
+                 IF(p.priceProduct = 0, NULL, p.costPriceProduct / p.priceProduct * 100),
+                 COALESCE(go.minimumMarginPercentage, 0),
+                 'group',
+                 COALESCE(go.targetMarginPercentage, 0),
+                 'group',
+                 CASE
+                   WHEN p.priceProduct = 0 THEN NULL
+                   WHEN (p.priceProduct - p.costPriceProduct) / p.priceProduct * 100
+                     < COALESCE(go.minimumMarginPercentage, 0) THEN 'red'
+                   WHEN (p.priceProduct - p.costPriceProduct) / p.priceProduct * 100
+                     < COALESCE(go.targetMarginPercentage, 0) THEN 'yellow'
+                   ELSE 'green'
+                 END,
+                 CASE
+                   WHEN NOT (OLD.costPriceProduct <=> NEW.costPriceProduct)
+                    AND NOT (OLD.priceProduct <=> NEW.priceProduct) THEN 'cost_and_price_update'
+                   WHEN NOT (OLD.costPriceProduct <=> NEW.costPriceProduct) THEN 'cost_update'
+                   ELSE 'price_update'
+                 END
+          FROM products p
+          LEFT JOIN margin_group_overrides go ON go.idGroup = p.idGroup
+          WHERE p.idProduct = NEW.idProduct;
+        END IF;
+      END`);
+
+    await pool.query(`CREATE TRIGGER trgMarginGroupBalancerUpdate
+      AFTER INSERT ON margin_group_overrides
+      FOR EACH ROW
+      BEGIN
+        INSERT INTO margin_product_metrics (
+          idProduct, pdvCodeSnapshot, costPriceSnapshot, priceSnapshot,
+          grossMarginPercentage, markupPercentage, unitProfitSnapshot, cmvPercentage,
+          minimumMarginSnapshot, minimumMarginOrigin,
+          targetMarginSnapshot, targetMarginOrigin,
+          marginStateSnapshot, snapshotSource
+        )
+        SELECT p.idProduct, p.pdvCodeProduct, p.costPriceProduct, p.priceProduct,
+               IF(p.priceProduct = 0, NULL, (p.priceProduct - p.costPriceProduct) / p.priceProduct * 100),
+               IF(p.costPriceProduct = 0, NULL, (p.priceProduct - p.costPriceProduct) / p.costPriceProduct * 100),
+               p.priceProduct - p.costPriceProduct,
+               IF(p.priceProduct = 0, NULL, p.costPriceProduct / p.priceProduct * 100),
+               NEW.minimumMarginPercentage, 'group',
+               NEW.targetMarginPercentage, 'group',
+               CASE
+                 WHEN p.priceProduct = 0 THEN NULL
+                 WHEN (p.priceProduct - p.costPriceProduct) / p.priceProduct * 100
+                   < NEW.minimumMarginPercentage THEN 'red'
+                 WHEN (p.priceProduct - p.costPriceProduct) / p.priceProduct * 100
+                   < NEW.targetMarginPercentage THEN 'yellow'
+                 ELSE 'green'
+               END,
+               'group_balancer_update'
+        FROM products p
+        WHERE p.idGroup = NEW.idGroup;
+      END`);
+
+    await pool.query(`CREATE TRIGGER trgMarginGroupBalancerUpdateExisting
+      AFTER UPDATE ON margin_group_overrides
+      FOR EACH ROW
+      BEGIN
+        INSERT INTO margin_product_metrics (
+          idProduct, pdvCodeSnapshot, costPriceSnapshot, priceSnapshot,
+          grossMarginPercentage, markupPercentage, unitProfitSnapshot, cmvPercentage,
+          minimumMarginSnapshot, minimumMarginOrigin,
+          targetMarginSnapshot, targetMarginOrigin,
+          marginStateSnapshot, snapshotSource
+        )
+        SELECT p.idProduct, p.pdvCodeProduct, p.costPriceProduct, p.priceProduct,
+               IF(p.priceProduct = 0, NULL, (p.priceProduct - p.costPriceProduct) / p.priceProduct * 100),
+               IF(p.costPriceProduct = 0, NULL, (p.priceProduct - p.costPriceProduct) / p.costPriceProduct * 100),
+               p.priceProduct - p.costPriceProduct,
+               IF(p.priceProduct = 0, NULL, p.costPriceProduct / p.priceProduct * 100),
+               NEW.minimumMarginPercentage, 'group',
+               NEW.targetMarginPercentage, 'group',
+               CASE
+                 WHEN p.priceProduct = 0 THEN NULL
+                 WHEN (p.priceProduct - p.costPriceProduct) / p.priceProduct * 100
+                   < NEW.minimumMarginPercentage THEN 'red'
+                 WHEN (p.priceProduct - p.costPriceProduct) / p.priceProduct * 100
+                   < NEW.targetMarginPercentage THEN 'yellow'
+                 ELSE 'green'
+               END,
+               'group_balancer_update'
+        FROM products p
+        WHERE p.idGroup = NEW.idGroup;
+      END`);
+
+    await pool.query("DROP TABLE IF EXISTS margin_product_overrides");
+    await pool.query("DROP TABLE IF EXISTS margin_general_settings");
+  })();
+  marginSchemaPromise.catch(() => {
+    marginSchemaPromise = null;
+  });
+  return marginSchemaPromise;
+};
+
+const ensureMarginSchemaLegacy = () => {
+  if (marginSchemaPromise) return marginSchemaPromise;
+  marginSchemaPromise = (async () => {
+    await pool.query(`CREATE TABLE IF NOT EXISTS margin_general_settings (
+      idMarginGeneralSettings TINYINT UNSIGNED NOT NULL DEFAULT 1,
+      minimumMarginPercentage DECIMAL(5,2) NULL,
+      targetMarginPercentage DECIMAL(5,2) NULL,
+      updatedAtMarginGeneral TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (idMarginGeneralSettings),
+      CONSTRAINT chkMarginGeneralMinimum CHECK (minimumMarginPercentage IS NULL OR (minimumMarginPercentage >= 0 AND minimumMarginPercentage < 100)),
+      CONSTRAINT chkMarginGeneralTarget CHECK (targetMarginPercentage IS NULL OR (targetMarginPercentage >= 0 AND targetMarginPercentage < 100))
+    ) ENGINE=InnoDB`);
+
+    await pool.query(
+      `INSERT INTO margin_general_settings (
+         idMarginGeneralSettings,
+         minimumMarginPercentage,
+         targetMarginPercentage
+       )
+       VALUES (1, NULL, NULL)
+       ON DUPLICATE KEY UPDATE idMarginGeneralSettings = idMarginGeneralSettings`
+    );
+
+    await pool.query(`CREATE TABLE IF NOT EXISTS margin_group_overrides (
+      idGroup BIGINT UNSIGNED NOT NULL,
+      minimumMarginPercentage DECIMAL(5,2) NULL,
+      targetMarginPercentage DECIMAL(5,2) NULL,
+      updatedAtMarginGroup TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (idGroup),
+      CONSTRAINT chkMarginGroupMinimum CHECK (minimumMarginPercentage IS NULL OR (minimumMarginPercentage >= 0 AND minimumMarginPercentage < 100)),
+      CONSTRAINT chkMarginGroupTarget CHECK (targetMarginPercentage IS NULL OR (targetMarginPercentage >= 0 AND targetMarginPercentage < 100)),
+      CONSTRAINT fkMarginGroupOverrideGroup FOREIGN KEY (idGroup)
+        REFERENCES \`groups\` (idGroup) ON DELETE CASCADE
+    ) ENGINE=InnoDB`);
+
+    await pool.query(`CREATE TABLE IF NOT EXISTS margin_product_overrides (
+      idProduct BIGINT UNSIGNED NOT NULL,
+      minimumMarginPercentage DECIMAL(5,2) NULL,
+      targetMarginPercentage DECIMAL(5,2) NULL,
+      updatedAtMarginProduct TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (idProduct),
+      CONSTRAINT chkMarginProductMinimum CHECK (minimumMarginPercentage IS NULL OR (minimumMarginPercentage >= 0 AND minimumMarginPercentage < 100)),
+      CONSTRAINT chkMarginProductTarget CHECK (targetMarginPercentage IS NULL OR (targetMarginPercentage >= 0 AND targetMarginPercentage < 100)),
+      CONSTRAINT fkMarginProductOverrideProduct FOREIGN KEY (idProduct)
+        REFERENCES products (idProduct) ON DELETE CASCADE
+    ) ENGINE=InnoDB`);
+
+    await pool.query(`CREATE TABLE IF NOT EXISTS margin_product_metrics (
+      idMarginProductMetric BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      idProduct BIGINT UNSIGNED NOT NULL,
+      pdvCodeSnapshot VARCHAR(64) NULL,
+      costPriceSnapshot DECIMAL(12,2) NOT NULL,
+      priceSnapshot DECIMAL(12,2) NOT NULL,
+      grossMarginPercentage DECIMAL(9,4) NULL,
+      markupPercentage DECIMAL(9,4) NULL,
+      unitProfitSnapshot DECIMAL(12,2) NULL,
+      cmvPercentage DECIMAL(9,4) NULL,
+      minimumMarginSnapshot DECIMAL(5,2) NULL,
+      minimumMarginOrigin ENUM('general', 'group', 'product') NULL,
+      targetMarginSnapshot DECIMAL(5,2) NULL,
+      targetMarginOrigin ENUM('general', 'group', 'product') NULL,
+      marginStateSnapshot ENUM('red', 'yellow', 'green') NULL,
+      snapshotSource ENUM(
+        'initial_load',
+        'cost_update',
+        'price_update',
+        'cost_and_price_update',
+        'general_balancer_update',
+        'group_balancer_update',
+        'product_balancer_update'
+      ) NOT NULL,
+      createdAtMarginProductMetric TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (idMarginProductMetric),
+      KEY idxMarginProductMetricProductCreated (
+        idProduct,
+        createdAtMarginProductMetric
+      ),
+      CONSTRAINT fkMarginProductMetricProduct FOREIGN KEY (idProduct)
+        REFERENCES products (idProduct) ON DELETE CASCADE
+    ) ENGINE=InnoDB`);
+
+    const [marginMetricColumns] = await pool.query("SHOW COLUMNS FROM margin_product_metrics");
+    const marginMetricColumnNames = new Set(
+      marginMetricColumns.map((column) => String(column.Field))
+    );
+    if (!marginMetricColumnNames.has("pdvCodeSnapshot")) {
+      await pool.query(
+        "ALTER TABLE margin_product_metrics ADD COLUMN pdvCodeSnapshot VARCHAR(64) NULL AFTER idProduct"
+      );
+      await pool.query(
+        `UPDATE margin_product_metrics metrics
+         INNER JOIN products p ON p.idProduct = metrics.idProduct
+         SET metrics.pdvCodeSnapshot = p.pdvCodeProduct
+         WHERE metrics.pdvCodeSnapshot IS NULL`
+      );
+    }
+
+    await pool.query(
+      `INSERT INTO margin_product_metrics (
+         idProduct,
+         pdvCodeSnapshot,
+         costPriceSnapshot,
+         priceSnapshot,
+         grossMarginPercentage,
+         markupPercentage,
+         unitProfitSnapshot,
+         cmvPercentage,
+         minimumMarginSnapshot,
+         minimumMarginOrigin,
+         targetMarginSnapshot,
+         targetMarginOrigin,
+         marginStateSnapshot,
+         snapshotSource
+       )
+       SELECT p.idProduct,
+              p.pdvCodeProduct,
+              p.costPriceProduct,
+              p.priceProduct,
+              IF(p.priceProduct = 0, NULL, (p.priceProduct - p.costPriceProduct) / p.priceProduct * 100),
+              IF(p.costPriceProduct = 0, NULL, (p.priceProduct - p.costPriceProduct) / p.costPriceProduct * 100),
+              p.priceProduct - p.costPriceProduct,
+              IF(p.priceProduct = 0, NULL, p.costPriceProduct / p.priceProduct * 100),
+              COALESCE(po.minimumMarginPercentage, go.minimumMarginPercentage, gs.minimumMarginPercentage),
+              CASE
+                WHEN po.minimumMarginPercentage IS NOT NULL THEN 'product'
+                WHEN go.minimumMarginPercentage IS NOT NULL THEN 'group'
+                ELSE 'general'
+              END,
+              COALESCE(po.targetMarginPercentage, go.targetMarginPercentage, gs.targetMarginPercentage),
+              CASE
+                WHEN po.targetMarginPercentage IS NOT NULL THEN 'product'
+                WHEN go.targetMarginPercentage IS NOT NULL THEN 'group'
+                ELSE 'general'
+              END,
+              CASE
+                WHEN p.priceProduct = 0 THEN NULL
+                WHEN COALESCE(po.minimumMarginPercentage, go.minimumMarginPercentage, gs.minimumMarginPercentage) IS NULL
+                  OR COALESCE(po.targetMarginPercentage, go.targetMarginPercentage, gs.targetMarginPercentage) IS NULL
+                  THEN NULL
+                WHEN (p.priceProduct - p.costPriceProduct) / p.priceProduct * 100
+                  < COALESCE(po.minimumMarginPercentage, go.minimumMarginPercentage, gs.minimumMarginPercentage)
+                  THEN 'red'
+                WHEN (p.priceProduct - p.costPriceProduct) / p.priceProduct * 100
+                  < COALESCE(po.targetMarginPercentage, go.targetMarginPercentage, gs.targetMarginPercentage)
+                  THEN 'yellow'
+                ELSE 'green'
+              END,
+              'initial_load'
+       FROM products p
+       INNER JOIN product_types pt ON pt.idProductType = p.idProductTypeProduct
+       CROSS JOIN margin_general_settings gs
+       LEFT JOIN margin_group_overrides go ON go.idGroup = p.idGroup
+       LEFT JOIN margin_product_overrides po ON po.idProduct = p.idProduct
+       WHERE gs.idMarginGeneralSettings = 1
+         AND p.isActiveProduct = 1
+         AND UPPER(TRIM(pt.descriptionProductType))
+           IN ('MERCADORIA PARA REVENDA', 'PRODUTO ACABADO', 'PRODUTOS ACABADOS')
+         AND NOT EXISTS (
+           SELECT 1
+           FROM margin_product_metrics m
+           WHERE m.idProduct = p.idProduct
+         )`
+    );
+
+    await pool.query(`CREATE TABLE IF NOT EXISTS margin_price_audits (
+      idMarginPriceAudit BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      idProduct BIGINT UNSIGNED NOT NULL,
+      previousPrice DECIMAL(12,2) NOT NULL,
+      newPrice DECIMAL(12,2) NOT NULL,
+      previousCmvPercentage DECIMAL(5,2) NULL,
+      newCmvPercentage DECIMAL(5,2) NULL,
+      idOperator BIGINT UNSIGNED NOT NULL,
+      createdAtMarginPriceAudit TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (idMarginPriceAudit),
+      KEY idxMarginPriceAuditProductCreated (idProduct, createdAtMarginPriceAudit),
+      KEY idxMarginPriceAuditOperatorCreated (idOperator, createdAtMarginPriceAudit),
+      CONSTRAINT fkMarginPriceAuditProduct FOREIGN KEY (idProduct)
+        REFERENCES products (idProduct) ON DELETE RESTRICT,
+      CONSTRAINT fkMarginPriceAuditOperator FOREIGN KEY (idOperator)
+        REFERENCES operators (idOperator) ON DELETE RESTRICT,
+      CONSTRAINT chkMarginPriceAuditPreviousCmv CHECK (previousCmvPercentage IS NULL OR (previousCmvPercentage >= 0 AND previousCmvPercentage <= 100)),
+      CONSTRAINT chkMarginPriceAuditNewCmv CHECK (newCmvPercentage IS NULL OR (newCmvPercentage >= 0 AND newCmvPercentage <= 100))
+    ) ENGINE=InnoDB`);
+
+    await pool.query("DROP TRIGGER IF EXISTS trgMarginProductCostOrPrice");
+    await pool.query("DROP TRIGGER IF EXISTS trgMarginGeneralBalancerUpdate");
+    await pool.query("DROP TRIGGER IF EXISTS trgMarginGroupBalancerUpdate");
+    await pool.query("DROP TRIGGER IF EXISTS trgMarginGroupBalancerUpdateExisting");
+    await pool.query("DROP TRIGGER IF EXISTS trgMarginProductBalancerUpdate");
+    await pool.query("DROP TRIGGER IF EXISTS trgMarginProductBalancerUpdateExisting");
+
+    await pool.query(`CREATE TRIGGER trgMarginProductCostOrPrice
+      AFTER UPDATE ON products
+      FOR EACH ROW
+      BEGIN
+        IF NOT (OLD.costPriceProduct <=> NEW.costPriceProduct)
+           OR NOT (OLD.priceProduct <=> NEW.priceProduct) THEN
+          INSERT INTO margin_product_metrics (
+            idProduct, pdvCodeSnapshot, costPriceSnapshot, priceSnapshot,
+            grossMarginPercentage, markupPercentage, unitProfitSnapshot, cmvPercentage,
+            minimumMarginSnapshot, minimumMarginOrigin,
+            targetMarginSnapshot, targetMarginOrigin,
+            marginStateSnapshot, snapshotSource
+          )
+          SELECT p.idProduct, p.pdvCodeProduct, p.costPriceProduct, p.priceProduct,
+                 IF(p.priceProduct = 0, NULL, (p.priceProduct - p.costPriceProduct) / p.priceProduct * 100),
+                 IF(p.costPriceProduct = 0, NULL, (p.priceProduct - p.costPriceProduct) / p.costPriceProduct * 100),
+                 p.priceProduct - p.costPriceProduct,
+                 IF(p.priceProduct = 0, NULL, p.costPriceProduct / p.priceProduct * 100),
+                 COALESCE(po.minimumMarginPercentage, go.minimumMarginPercentage, gs.minimumMarginPercentage),
+                 CASE WHEN po.minimumMarginPercentage IS NOT NULL THEN 'product'
+                      WHEN go.minimumMarginPercentage IS NOT NULL THEN 'group'
+                      ELSE 'general' END,
+                 COALESCE(po.targetMarginPercentage, go.targetMarginPercentage, gs.targetMarginPercentage),
+                 CASE WHEN po.targetMarginPercentage IS NOT NULL THEN 'product'
+                      WHEN go.targetMarginPercentage IS NOT NULL THEN 'group'
+                      ELSE 'general' END,
+                 CASE
+                   WHEN p.priceProduct = 0 THEN NULL
+                   WHEN COALESCE(po.minimumMarginPercentage, go.minimumMarginPercentage, gs.minimumMarginPercentage) IS NULL
+                     OR COALESCE(po.targetMarginPercentage, go.targetMarginPercentage, gs.targetMarginPercentage) IS NULL THEN NULL
+                   WHEN (p.priceProduct - p.costPriceProduct) / p.priceProduct * 100
+                     < COALESCE(po.minimumMarginPercentage, go.minimumMarginPercentage, gs.minimumMarginPercentage) THEN 'red'
+                   WHEN (p.priceProduct - p.costPriceProduct) / p.priceProduct * 100
+                     < COALESCE(po.targetMarginPercentage, go.targetMarginPercentage, gs.targetMarginPercentage) THEN 'yellow'
+                   ELSE 'green'
+                 END,
+                 CASE
+                   WHEN NOT (OLD.costPriceProduct <=> NEW.costPriceProduct)
+                    AND NOT (OLD.priceProduct <=> NEW.priceProduct) THEN 'cost_and_price_update'
+                   WHEN NOT (OLD.costPriceProduct <=> NEW.costPriceProduct) THEN 'cost_update'
+                   ELSE 'price_update'
+                 END
+          FROM products p
+          INNER JOIN product_types pt ON pt.idProductType = p.idProductTypeProduct
+          CROSS JOIN margin_general_settings gs
+          LEFT JOIN margin_group_overrides go ON go.idGroup = p.idGroup
+          LEFT JOIN margin_product_overrides po ON po.idProduct = p.idProduct
+          WHERE p.idProduct = NEW.idProduct
+            AND gs.idMarginGeneralSettings = 1
+            AND p.isActiveProduct = 1
+            AND UPPER(TRIM(pt.descriptionProductType))
+              IN ('MERCADORIA PARA REVENDA', 'PRODUTO ACABADO', 'PRODUTOS ACABADOS');
+        END IF;
+      END`);
+
+    await pool.query(`CREATE TRIGGER trgMarginGeneralBalancerUpdate
+      AFTER UPDATE ON margin_general_settings
+      FOR EACH ROW
+      BEGIN
+        INSERT INTO margin_product_metrics (
+          idProduct, pdvCodeSnapshot, costPriceSnapshot, priceSnapshot,
+          grossMarginPercentage, markupPercentage, unitProfitSnapshot, cmvPercentage,
+          minimumMarginSnapshot, minimumMarginOrigin,
+          targetMarginSnapshot, targetMarginOrigin,
+          marginStateSnapshot, snapshotSource
+        )
+        SELECT p.idProduct, p.pdvCodeProduct, p.costPriceProduct, p.priceProduct,
+               IF(p.priceProduct = 0, NULL, (p.priceProduct - p.costPriceProduct) / p.priceProduct * 100),
+               IF(p.costPriceProduct = 0, NULL, (p.priceProduct - p.costPriceProduct) / p.costPriceProduct * 100),
+               p.priceProduct - p.costPriceProduct,
+               IF(p.priceProduct = 0, NULL, p.costPriceProduct / p.priceProduct * 100),
+               COALESCE(po.minimumMarginPercentage, go.minimumMarginPercentage, NEW.minimumMarginPercentage),
+               CASE WHEN po.minimumMarginPercentage IS NOT NULL THEN 'product'
+                    WHEN go.minimumMarginPercentage IS NOT NULL THEN 'group'
+                    ELSE 'general' END,
+               COALESCE(po.targetMarginPercentage, go.targetMarginPercentage, NEW.targetMarginPercentage),
+               CASE WHEN po.targetMarginPercentage IS NOT NULL THEN 'product'
+                    WHEN go.targetMarginPercentage IS NOT NULL THEN 'group'
+                    ELSE 'general' END,
+               CASE
+                 WHEN p.priceProduct = 0 THEN NULL
+                 WHEN COALESCE(po.minimumMarginPercentage, go.minimumMarginPercentage, NEW.minimumMarginPercentage) IS NULL
+                   OR COALESCE(po.targetMarginPercentage, go.targetMarginPercentage, NEW.targetMarginPercentage) IS NULL THEN NULL
+                 WHEN (p.priceProduct - p.costPriceProduct) / p.priceProduct * 100
+                   < COALESCE(po.minimumMarginPercentage, go.minimumMarginPercentage, NEW.minimumMarginPercentage) THEN 'red'
+                 WHEN (p.priceProduct - p.costPriceProduct) / p.priceProduct * 100
+                   < COALESCE(po.targetMarginPercentage, go.targetMarginPercentage, NEW.targetMarginPercentage) THEN 'yellow'
+                 ELSE 'green'
+               END,
+               'general_balancer_update'
+        FROM products p
+        INNER JOIN product_types pt ON pt.idProductType = p.idProductTypeProduct
+        LEFT JOIN margin_group_overrides go ON go.idGroup = p.idGroup
+        LEFT JOIN margin_product_overrides po ON po.idProduct = p.idProduct
+        WHERE p.isActiveProduct = 1
+          AND UPPER(TRIM(pt.descriptionProductType))
+            IN ('MERCADORIA PARA REVENDA', 'PRODUTO ACABADO', 'PRODUTOS ACABADOS');
+      END`);
+
+    await pool.query(`CREATE TRIGGER trgMarginGroupBalancerUpdate
+      AFTER INSERT ON margin_group_overrides
+      FOR EACH ROW
+      BEGIN
+        INSERT INTO margin_product_metrics (
+          idProduct, pdvCodeSnapshot, costPriceSnapshot, priceSnapshot,
+          grossMarginPercentage, markupPercentage, unitProfitSnapshot, cmvPercentage,
+          minimumMarginSnapshot, minimumMarginOrigin,
+          targetMarginSnapshot, targetMarginOrigin,
+          marginStateSnapshot, snapshotSource
+        )
+        SELECT p.idProduct, p.pdvCodeProduct, p.costPriceProduct, p.priceProduct,
+               IF(p.priceProduct = 0, NULL, (p.priceProduct - p.costPriceProduct) / p.priceProduct * 100),
+               IF(p.costPriceProduct = 0, NULL, (p.priceProduct - p.costPriceProduct) / p.costPriceProduct * 100),
+               p.priceProduct - p.costPriceProduct,
+               IF(p.priceProduct = 0, NULL, p.costPriceProduct / p.priceProduct * 100),
+               COALESCE(po.minimumMarginPercentage, NEW.minimumMarginPercentage, gs.minimumMarginPercentage),
+               CASE WHEN po.minimumMarginPercentage IS NOT NULL THEN 'product'
+                    WHEN NEW.minimumMarginPercentage IS NOT NULL THEN 'group'
+                    ELSE 'general' END,
+               COALESCE(po.targetMarginPercentage, NEW.targetMarginPercentage, gs.targetMarginPercentage),
+               CASE WHEN po.targetMarginPercentage IS NOT NULL THEN 'product'
+                    WHEN NEW.targetMarginPercentage IS NOT NULL THEN 'group'
+                    ELSE 'general' END,
+               CASE
+                 WHEN p.priceProduct = 0 THEN NULL
+                 WHEN COALESCE(po.minimumMarginPercentage, NEW.minimumMarginPercentage, gs.minimumMarginPercentage) IS NULL
+                   OR COALESCE(po.targetMarginPercentage, NEW.targetMarginPercentage, gs.targetMarginPercentage) IS NULL THEN NULL
+                 WHEN (p.priceProduct - p.costPriceProduct) / p.priceProduct * 100
+                   < COALESCE(po.minimumMarginPercentage, NEW.minimumMarginPercentage, gs.minimumMarginPercentage) THEN 'red'
+                 WHEN (p.priceProduct - p.costPriceProduct) / p.priceProduct * 100
+                   < COALESCE(po.targetMarginPercentage, NEW.targetMarginPercentage, gs.targetMarginPercentage) THEN 'yellow'
+                 ELSE 'green'
+               END,
+               'group_balancer_update'
+        FROM products p
+        INNER JOIN product_types pt ON pt.idProductType = p.idProductTypeProduct
+        CROSS JOIN margin_general_settings gs
+        LEFT JOIN margin_product_overrides po ON po.idProduct = p.idProduct
+        WHERE p.idGroup = NEW.idGroup
+          AND gs.idMarginGeneralSettings = 1
+          AND p.isActiveProduct = 1
+          AND UPPER(TRIM(pt.descriptionProductType))
+            IN ('MERCADORIA PARA REVENDA', 'PRODUTO ACABADO', 'PRODUTOS ACABADOS');
+      END`);
+
+    await pool.query(`CREATE TRIGGER trgMarginProductBalancerUpdate
+      AFTER INSERT ON margin_product_overrides
+      FOR EACH ROW
+      BEGIN
+        INSERT INTO margin_product_metrics (
+          idProduct, pdvCodeSnapshot, costPriceSnapshot, priceSnapshot,
+          grossMarginPercentage, markupPercentage, unitProfitSnapshot, cmvPercentage,
+          minimumMarginSnapshot, minimumMarginOrigin,
+          targetMarginSnapshot, targetMarginOrigin,
+          marginStateSnapshot, snapshotSource
+        )
+        SELECT p.idProduct, p.pdvCodeProduct, p.costPriceProduct, p.priceProduct,
+               IF(p.priceProduct = 0, NULL, (p.priceProduct - p.costPriceProduct) / p.priceProduct * 100),
+               IF(p.costPriceProduct = 0, NULL, (p.priceProduct - p.costPriceProduct) / p.costPriceProduct * 100),
+               p.priceProduct - p.costPriceProduct,
+               IF(p.priceProduct = 0, NULL, p.costPriceProduct / p.priceProduct * 100),
+               COALESCE(NEW.minimumMarginPercentage, go.minimumMarginPercentage, gs.minimumMarginPercentage),
+               CASE WHEN NEW.minimumMarginPercentage IS NOT NULL THEN 'product'
+                    WHEN go.minimumMarginPercentage IS NOT NULL THEN 'group'
+                    ELSE 'general' END,
+               COALESCE(NEW.targetMarginPercentage, go.targetMarginPercentage, gs.targetMarginPercentage),
+               CASE WHEN NEW.targetMarginPercentage IS NOT NULL THEN 'product'
+                    WHEN go.targetMarginPercentage IS NOT NULL THEN 'group'
+                    ELSE 'general' END,
+               CASE
+                 WHEN p.priceProduct = 0 THEN NULL
+                 WHEN COALESCE(NEW.minimumMarginPercentage, go.minimumMarginPercentage, gs.minimumMarginPercentage) IS NULL
+                   OR COALESCE(NEW.targetMarginPercentage, go.targetMarginPercentage, gs.targetMarginPercentage) IS NULL THEN NULL
+                 WHEN (p.priceProduct - p.costPriceProduct) / p.priceProduct * 100
+                   < COALESCE(NEW.minimumMarginPercentage, go.minimumMarginPercentage, gs.minimumMarginPercentage) THEN 'red'
+                 WHEN (p.priceProduct - p.costPriceProduct) / p.priceProduct * 100
+                   < COALESCE(NEW.targetMarginPercentage, go.targetMarginPercentage, gs.targetMarginPercentage) THEN 'yellow'
+                 ELSE 'green'
+               END,
+               'product_balancer_update'
+        FROM products p
+        INNER JOIN product_types pt ON pt.idProductType = p.idProductTypeProduct
+        CROSS JOIN margin_general_settings gs
+        LEFT JOIN margin_group_overrides go ON go.idGroup = p.idGroup
+        WHERE p.idProduct = NEW.idProduct
+          AND gs.idMarginGeneralSettings = 1
+          AND p.isActiveProduct = 1
+          AND UPPER(TRIM(pt.descriptionProductType))
+            IN ('MERCADORIA PARA REVENDA', 'PRODUTO ACABADO', 'PRODUTOS ACABADOS');
+      END`);
+
+    await pool.query(`CREATE TRIGGER trgMarginGroupBalancerUpdateExisting
+      AFTER UPDATE ON margin_group_overrides
+      FOR EACH ROW
+      BEGIN
+        INSERT INTO margin_product_metrics (
+          idProduct, pdvCodeSnapshot, costPriceSnapshot, priceSnapshot,
+          grossMarginPercentage, markupPercentage, unitProfitSnapshot, cmvPercentage,
+          minimumMarginSnapshot, minimumMarginOrigin,
+          targetMarginSnapshot, targetMarginOrigin,
+          marginStateSnapshot, snapshotSource
+        )
+        SELECT p.idProduct, p.pdvCodeProduct, p.costPriceProduct, p.priceProduct,
+               IF(p.priceProduct = 0, NULL, (p.priceProduct - p.costPriceProduct) / p.priceProduct * 100),
+               IF(p.costPriceProduct = 0, NULL, (p.priceProduct - p.costPriceProduct) / p.costPriceProduct * 100),
+               p.priceProduct - p.costPriceProduct,
+               IF(p.priceProduct = 0, NULL, p.costPriceProduct / p.priceProduct * 100),
+               COALESCE(po.minimumMarginPercentage, NEW.minimumMarginPercentage, gs.minimumMarginPercentage),
+               CASE WHEN po.minimumMarginPercentage IS NOT NULL THEN 'product'
+                    WHEN NEW.minimumMarginPercentage IS NOT NULL THEN 'group'
+                    ELSE 'general' END,
+               COALESCE(po.targetMarginPercentage, NEW.targetMarginPercentage, gs.targetMarginPercentage),
+               CASE WHEN po.targetMarginPercentage IS NOT NULL THEN 'product'
+                    WHEN NEW.targetMarginPercentage IS NOT NULL THEN 'group'
+                    ELSE 'general' END,
+               CASE
+                 WHEN p.priceProduct = 0 THEN NULL
+                 WHEN COALESCE(po.minimumMarginPercentage, NEW.minimumMarginPercentage, gs.minimumMarginPercentage) IS NULL
+                   OR COALESCE(po.targetMarginPercentage, NEW.targetMarginPercentage, gs.targetMarginPercentage) IS NULL THEN NULL
+                 WHEN (p.priceProduct - p.costPriceProduct) / p.priceProduct * 100
+                   < COALESCE(po.minimumMarginPercentage, NEW.minimumMarginPercentage, gs.minimumMarginPercentage) THEN 'red'
+                 WHEN (p.priceProduct - p.costPriceProduct) / p.priceProduct * 100
+                   < COALESCE(po.targetMarginPercentage, NEW.targetMarginPercentage, gs.targetMarginPercentage) THEN 'yellow'
+                 ELSE 'green'
+               END,
+               'group_balancer_update'
+        FROM products p
+        INNER JOIN product_types pt ON pt.idProductType = p.idProductTypeProduct
+        CROSS JOIN margin_general_settings gs
+        LEFT JOIN margin_product_overrides po ON po.idProduct = p.idProduct
+        WHERE p.idGroup = NEW.idGroup
+          AND gs.idMarginGeneralSettings = 1
+          AND p.isActiveProduct = 1
+          AND UPPER(TRIM(pt.descriptionProductType))
+            IN ('MERCADORIA PARA REVENDA', 'PRODUTO ACABADO', 'PRODUTOS ACABADOS');
+      END`);
+
+    await pool.query(`CREATE TRIGGER trgMarginProductBalancerUpdateExisting
+      AFTER UPDATE ON margin_product_overrides
+      FOR EACH ROW
+      BEGIN
+        INSERT INTO margin_product_metrics (
+          idProduct, pdvCodeSnapshot, costPriceSnapshot, priceSnapshot,
+          grossMarginPercentage, markupPercentage, unitProfitSnapshot, cmvPercentage,
+          minimumMarginSnapshot, minimumMarginOrigin,
+          targetMarginSnapshot, targetMarginOrigin,
+          marginStateSnapshot, snapshotSource
+        )
+        SELECT p.idProduct, p.pdvCodeProduct, p.costPriceProduct, p.priceProduct,
+               IF(p.priceProduct = 0, NULL, (p.priceProduct - p.costPriceProduct) / p.priceProduct * 100),
+               IF(p.costPriceProduct = 0, NULL, (p.priceProduct - p.costPriceProduct) / p.costPriceProduct * 100),
+               p.priceProduct - p.costPriceProduct,
+               IF(p.priceProduct = 0, NULL, p.costPriceProduct / p.priceProduct * 100),
+               COALESCE(NEW.minimumMarginPercentage, go.minimumMarginPercentage, gs.minimumMarginPercentage),
+               CASE WHEN NEW.minimumMarginPercentage IS NOT NULL THEN 'product'
+                    WHEN go.minimumMarginPercentage IS NOT NULL THEN 'group'
+                    ELSE 'general' END,
+               COALESCE(NEW.targetMarginPercentage, go.targetMarginPercentage, gs.targetMarginPercentage),
+               CASE WHEN NEW.targetMarginPercentage IS NOT NULL THEN 'product'
+                    WHEN go.targetMarginPercentage IS NOT NULL THEN 'group'
+                    ELSE 'general' END,
+               CASE
+                 WHEN p.priceProduct = 0 THEN NULL
+                 WHEN COALESCE(NEW.minimumMarginPercentage, go.minimumMarginPercentage, gs.minimumMarginPercentage) IS NULL
+                   OR COALESCE(NEW.targetMarginPercentage, go.targetMarginPercentage, gs.targetMarginPercentage) IS NULL THEN NULL
+                 WHEN (p.priceProduct - p.costPriceProduct) / p.priceProduct * 100
+                   < COALESCE(NEW.minimumMarginPercentage, go.minimumMarginPercentage, gs.minimumMarginPercentage) THEN 'red'
+                 WHEN (p.priceProduct - p.costPriceProduct) / p.priceProduct * 100
+                   < COALESCE(NEW.targetMarginPercentage, go.targetMarginPercentage, gs.targetMarginPercentage) THEN 'yellow'
+                 ELSE 'green'
+               END,
+               'product_balancer_update'
+        FROM products p
+        INNER JOIN product_types pt ON pt.idProductType = p.idProductTypeProduct
+        CROSS JOIN margin_general_settings gs
+        LEFT JOIN margin_group_overrides go ON go.idGroup = p.idGroup
+        WHERE p.idProduct = NEW.idProduct
+          AND gs.idMarginGeneralSettings = 1
+          AND p.isActiveProduct = 1
+          AND UPPER(TRIM(pt.descriptionProductType))
+            IN ('MERCADORIA PARA REVENDA', 'PRODUTO ACABADO', 'PRODUTOS ACABADOS');
+      END`);
+  })();
+  marginSchemaPromise.catch(() => {
+    marginSchemaPromise = null;
+  });
+  return marginSchemaPromise;
+};
+
 let inventorySchemaPromise = null;
 
 const ensureInventorySchema = () => {
@@ -2505,6 +3188,7 @@ const ensureOperatorCashSchema = async () => {
     ensureNavigationSchema,
     ensurePaymentMethodSchema,
     ensureSupplierSchema,
-    ensureOperatorCashSchema
+    ensureOperatorCashSchema,
+    ensureMarginSchema
   };
 };

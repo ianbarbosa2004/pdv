@@ -14,6 +14,7 @@ const escapeHtml = (value) => String(value ?? "")
 
 const navigation = [
   ["groups-products", "Grupos x Produtos"],
+  ["margin", "Margem"],
   ["no-cost", "Sem Custo"],
   ["no-physical-state", "Sem Estado Físico"],
   ["recipe-revisions", "Revisões de Fichas"]

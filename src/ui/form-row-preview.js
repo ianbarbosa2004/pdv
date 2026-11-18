@@ -15,7 +15,8 @@ export const bindFormRowPreview = (root, {
   rowSelector = "[data-view-record]",
   formSelector = "form",
   titleSelector = ".classic-panel-header",
-  formatValue = (value) => value
+  formatValue = (value) => value,
+  onPreviewRecord = null
 } = {}) => {
   const form = root.querySelector(formSelector);
   if (!form) return;
@@ -26,6 +27,9 @@ export const bindFormRowPreview = (root, {
   const clearPreview = () => {
     previewing = false;
     form.classList.remove("form-preview-mode");
+    form.querySelectorAll("[data-preview-only]").forEach((element) => {
+      element.hidden = true;
+    });
     form.querySelectorAll("input, select, textarea, button").forEach((field) => {
       field.disabled = false;
       if (field.dataset.previewOriginalType !== undefined) {
@@ -56,6 +60,9 @@ export const bindFormRowPreview = (root, {
     }
     previewing = true;
     form.classList.add("form-preview-mode");
+    form.querySelectorAll("[data-preview-only]").forEach((element) => {
+      element.hidden = false;
+    });
     form.querySelectorAll("[name]").forEach((field) => {
       if (Object.prototype.hasOwnProperty.call(record, field.name)) {
         if (field.type === "number") {
@@ -69,6 +76,9 @@ export const bindFormRowPreview = (root, {
     form.querySelectorAll("button:not([data-preview-exit])").forEach((button) => {
       button.disabled = true;
     });
+    if (typeof onPreviewRecord === "function") {
+      onPreviewRecord(record, { form, row });
+    }
     if (title) {
       title.dataset.previewTitle ||= title.textContent;
       title.textContent = "";

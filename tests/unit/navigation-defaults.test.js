@@ -785,10 +785,11 @@ test("inclui Views no menu Ferramentas", () => {
         ({ keyNavigationItem, labelNavigationItem, routeNavigationItem, orderNavigationItem })),
     [
       { keyNavigationItem: "groups-products", labelNavigationItem: "Grupos x Produtos", routeNavigationItem: "groups-products", orderNavigationItem: 1 },
-      { keyNavigationItem: "no-cost", labelNavigationItem: "Sem Custo", routeNavigationItem: "no-cost", orderNavigationItem: 2 },
-      { keyNavigationItem: "no-physical-state", labelNavigationItem: "Sem Estado Físico", routeNavigationItem: "no-physical-state", orderNavigationItem: 3 },
-      { keyNavigationItem: "cost-divergences", labelNavigationItem: "Divergência entre Custos", routeNavigationItem: "cost-divergences", orderNavigationItem: 4 },
-      { keyNavigationItem: "recipe-revisions", labelNavigationItem: "Revisões de Fichas", routeNavigationItem: "recipe-revisions", orderNavigationItem: 5 }
+      { keyNavigationItem: "margin", labelNavigationItem: "Margem", routeNavigationItem: "margin", orderNavigationItem: 2 },
+      { keyNavigationItem: "no-cost", labelNavigationItem: "Sem Custo", routeNavigationItem: "no-cost", orderNavigationItem: 3 },
+      { keyNavigationItem: "no-physical-state", labelNavigationItem: "Sem Estado Físico", routeNavigationItem: "no-physical-state", orderNavigationItem: 4 },
+      { keyNavigationItem: "cost-divergences", labelNavigationItem: "Divergência entre Custos", routeNavigationItem: "cost-divergences", orderNavigationItem: 5 },
+      { keyNavigationItem: "recipe-revisions", labelNavigationItem: "Revisões de Fichas", routeNavigationItem: "recipe-revisions", orderNavigationItem: 6 }
     ]
   );
 });

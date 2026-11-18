@@ -25,6 +25,7 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onP
   let message = "";
   let submitting = false;
   let editingGroup = null;
+  let marginSettings = null;
   const scheduleMessageClear = createFeedbackTimer();
   let sortState = { key: "descriptionGroup", direction: "asc" };
   let searchTerm = "";
@@ -77,6 +78,13 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onP
               <span>Exibir no PDV</span>
               <input name="showsInPdvGroup" type="checkbox" />
             </label>
+            <fieldset class="form-field">
+              <legend>Balizadores de margem do grupo</legend>
+              <div class="classic-form-grid">
+                <label class="form-field"><span>Margem mínima</span><input name="minimumMarginPercentage" inputmode="decimal" value="0" /></label>
+                <label class="form-field"><span>Margem alvo</span><input name="targetMarginPercentage" inputmode="decimal" value="0" /></label>
+              </div>
+            </fieldset>
             ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}
           </div>
           <div class="classic-form-actions">
@@ -152,6 +160,13 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onP
                   <span>Exibir no PDV</span>
                   <input name="showsInPdvGroup" type="checkbox" ${Number(editingGroup.showsInPdvGroup) ? "checked" : ""} />
                 </label>
+                <fieldset class="form-field">
+                  <legend>Balizadores de margem do grupo</legend>
+                  <div class="classic-form-grid">
+                    <label class="form-field"><span>Margem mínima</span><input name="minimumMarginPercentage" inputmode="decimal" value="${escapeHtml(marginSettings?.groups?.find((item) => String(item.idGroup) === String(editingGroup.idGroup))?.minimumMarginPercentage ?? "0")}" /></label>
+                    <label class="form-field"><span>Margem alvo</span><input name="targetMarginPercentage" inputmode="decimal" value="${escapeHtml(marginSettings?.groups?.find((item) => String(item.idGroup) === String(editingGroup.idGroup))?.targetMarginPercentage ?? "0")}" /></label>
+                  </div>
+                </fieldset>
                 ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}
               </div>
               <div class="classic-form-actions">
@@ -260,12 +275,14 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onP
     loading = true;
     render();
     try {
-      const [classResponse, groupResponse] = await Promise.all([
+      const [classResponse, groupResponse, marginResponse] = await Promise.all([
         apiFetch(`${getApiUrl()}/api/classes?includeInactive=1`),
-        apiFetch(`${getApiUrl()}/api/groups?includeInactive=1`)
+        apiFetch(`${getApiUrl()}/api/groups?includeInactive=1`),
+        apiFetch(`${getApiUrl()}/api/margin/settings`)
       ]);
       const classPayload = await classResponse.json();
       const groupPayload = await groupResponse.json();
+      const marginPayload = await marginResponse.json();
       if (!classResponse.ok || !Array.isArray(classPayload.classes)) {
         throw new Error(classPayload.error || "Não foi possível carregar as classes.");
       }
@@ -274,6 +291,7 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onP
       }
       classes = classPayload.classes;
       groups = groupPayload.groups;
+      marginSettings = marginResponse.ok ? marginPayload : null;
       error = "";
     } catch (loadError) {
       error = loadError instanceof Error ? loadError.message : "Falha ao carregar os grupos.";
@@ -296,6 +314,20 @@ export function createGroupScreen({ onBack, onClasses, onGroups, onProducts, onP
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Não foi possível salvar o grupo.");
+      if (idGroup || payload.group?.idGroup) {
+        const savedId = idGroup || payload.group.idGroup;
+        const marginResponse = await apiFetch(`${getApiUrl()}/api/margin/group`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            idGroup: savedId,
+            minimumMarginPercentage: body.minimumMarginPercentage?.trim() === "" ? "0" : body.minimumMarginPercentage,
+            targetMarginPercentage: body.targetMarginPercentage?.trim() === "" ? "0" : body.targetMarginPercentage
+          })
+        });
+        const marginPayload = await marginResponse.json();
+        if (!marginResponse.ok) throw new Error(marginPayload.error || "Não foi possível salvar os balizadores do grupo.");
+      }
       message = idGroup ? "Grupo alterado com sucesso." : "Grupo cadastrado com sucesso.";
       editingGroup = null;
       await load();

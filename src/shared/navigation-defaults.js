@@ -93,10 +93,11 @@ export const DEFAULT_NAVIGATION = Object.freeze({
     item("tools", "backup", "Backup e restauração", "backup", 6, null, "bar", "Crie, baixe e restaure cópias compactadas do banco de dados."),
     item("tools", "views", "Views", null, 7, null, "item", "Consulte e trate listas operacionais de produtos com filtros específicos."),
     item("tools", "groups-products", "Grupos x Produtos", "groups-products", 1, "views", "bar", "Organize, pesquise e mantenha os produtos por classe e grupo."),
-    item("tools", "no-cost", "Sem Custo", "no-cost", 2, "views", "bar", "Localize produtos ativos sem preço de custo informado."),
-    item("tools", "no-physical-state", "Sem Estado Físico", "no-physical-state", 3, "views", "bar", "Localize matérias-primas sem estado físico definido para conversões culinárias."),
-    item("tools", "cost-divergences", "Divergência entre Custos", "cost-divergences", 4, "views", "bar", "Compare o custo atual do Produto com o custo unitário salvo na Formação."),
-    item("tools", "recipe-revisions", "Revisões de Fichas", "recipe-revisions", 5, "views", "bar", "Consulte estruturas de Receita e Composição marcadas para revisão.")
+    item("tools", "margin", "Margem", "margin", 2, "views", "bar", "Consulte métricas, filtre produtos e simule preços por CMV."),
+    item("tools", "no-cost", "Sem Custo", "no-cost", 3, "views", "bar", "Localize produtos ativos sem preço de custo informado."),
+    item("tools", "no-physical-state", "Sem Estado Físico", "no-physical-state", 4, "views", "bar", "Localize matérias-primas sem estado físico definido para conversões culinárias."),
+    item("tools", "cost-divergences", "Divergência entre Custos", "cost-divergences", 5, "views", "bar", "Compare o custo atual do Produto com o custo unitário salvo na Formação."),
+    item("tools", "recipe-revisions", "Revisões de Fichas", "recipe-revisions", 6, "views", "bar", "Consulte estruturas de Receita e Composição marcadas para revisão.")
   ]
 });
 
