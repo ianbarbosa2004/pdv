@@ -13,6 +13,11 @@ test("manual entries preserve the shared transactional lifecycle", async () => {
   assert.match(source, /paymentsTotal = Number\(payments\.reduce\(\(sum, payment\) => sum \+ payment\.amount, 0\)\.toFixed\(2\)\)/u);
   assert.match(source, /item\.quantity \* item\.unitPrice\)\.toFixed\(2\)/u);
   assert.match(source, /unitPrice <= 0/u);
+  assert.match(source, /p\.ncmProduct, p\.cestProduct/u);
+  assert.match(source, /ncmProductFiscalReference, cestProductFiscalReference/u);
+  assert.match(source, /VALUES \(\?, \?, 1, 1, \?, \?, \?, \?\)/u);
+  assert.match(source, /VALUES \(\?, \?, 1, \?, \?, \?, \?\)/u);
+  assert.match(source, /VALUES \(\?, \?, \?, 1, 'linked'\)/u);
   assert.match(source, /fiscalEntryConfirmMatch/u);
   assert.match(source, /fiscalEntryReverseMatch/u);
   assert.match(source, /fiscalEntryDeleteMatch/u);

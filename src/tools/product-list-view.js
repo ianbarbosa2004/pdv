@@ -38,7 +38,7 @@ export const renderProductList = ({
   if (!products.length) return `<p class="classic-empty">${emptyLabel}</p>`;
 
   const columns = [
-    ["pdvCodeProduct", "# PDV"],
+    ["pdvCodeProduct", "#PDV"],
     ["nameProduct", "Produto"],
     ["descriptionGroup", "Grupo"],
     ["priceProduct", "Preço de venda"],

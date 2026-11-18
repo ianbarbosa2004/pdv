@@ -96,9 +96,9 @@ test("does not read or restore file inputs across a render", () => {
 test("clears feedback without rebuilding the form", () => {
   let removed = false;
   const root = {
-    querySelector(selector) {
+    querySelectorAll(selector) {
       assert.equal(selector, "[data-success-feedback]");
-      return { remove: () => { removed = true; } };
+      return [{ remove: () => { removed = true; } }];
     }
   };
 

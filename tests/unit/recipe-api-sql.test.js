@@ -16,6 +16,24 @@ test("a consulta de componentes de receitas usa IDs canônicos sem mapas legados
   assert.doesNotMatch(componentQuery, /unit_migration_map|unit_conversion_migration_map/u);
 });
 
+test("excluir Receita ou Composição remove fisicamente o cadastro e bloqueia dependências", async () => {
+  const source = await readFile("src/server/server.js", "utf8");
+  const deleteRoute = source.match(
+    /if \(request\.method === "DELETE" && \/\^\\\/api\\\/recipes\\\/\\d\+\$\/\.test[\s\S]*?return;\s*\}/u
+  )?.[0];
+
+  assert.ok(deleteRoute, "rota de exclusão de receitas não encontrada");
+  assert.match(deleteRoute, /product_recipe_links WHERE idRecipe = \?/u);
+  assert.match(deleteRoute, /idComponentRecipe = \?/u);
+  assert.match(deleteRoute, /DELETE FROM recipe_definitions WHERE idRecipe = \?/u);
+  assert.doesNotMatch(deleteRoute, /statusRecipe = 'archived'/u);
+  const screenSource = await readFile("src/catalog/recipe-screen.js", "utf8");
+  assert.match(screenSource, /title: "Excluir Receita ou Composição"/u);
+  assert.match(screenSource, /detail: "O registro será removido permanentemente e não poderá ser recuperado\."/u);
+  assert.match(screenSource, /confirmLabel: "Excluir"/u);
+  assert.doesNotMatch(screenSource, /\["archived", "Arquivadas"\]/u);
+});
+
 test("a Formação de Produtos recebe o tipo da Receita para rotular composições", async () => {
   const source = await readFile("src/server/server.js", "utf8");
   assert.match(
@@ -106,7 +124,8 @@ test("combobox de componentes é único, fecha fora e pesquisa pelo código", as
   assert.match(source, /installComboboxDismissal/u);
   assert.match(combobox, /event\.key !== "Escape"/u);
   assert.match(combobox, /event\.target\?\.closest\(containerSelector\)/u);
-  assert.match(source, /pdvCodeProduct \|\| product\.skuProduct/u);
+  assert.match(source, /formatProductOptionLabel\(product\)/u);
+  assert.match(source, /product\.pdvCodeProduct \|\| ""/u);
   assert.match(source, /searchText: `\$\{product\.nameProduct\} \$\{product\.pdvCodeProduct/u);
   assert.match(source, /products\.find\(\(product\) => String\(product\.idProduct\) === String\(component\.productId\)\)\?\.nameProduct/u);
 });
@@ -180,10 +199,18 @@ test("edição de componente preserva a conversão escolhida e exibe quantidade 
 });
 
 test("listagem de receitas prioriza Nome e limita Tipo, Status e Ações", async () => {
+  const source = await readFile("src/catalog/recipe-screen.js", "utf8");
   const styles = await readFile("src/styles.css", "utf8");
+  assert.match(source, /sortState = \{ key: "nameRecipe", direction: "asc" \}/u);
+  assert.match(source, /\["nameRecipe", "Nome", ""\]/u);
+  assert.match(source, /\["kindRecipe", "Tipo", "recipe-kind-column"\]/u);
+  assert.match(source, /\["statusRecipe", "Status", "recipe-status-column"\]/u);
+  assert.match(source, /root\.querySelectorAll\("\[data-recipe-sort\]"\)/u);
   assert.match(styles, /\.recipe-list-panel \.classic-table th:nth-child\(2\)[\s\S]*?max-width: 90px/u);
   assert.match(styles, /\.recipe-list-panel \.classic-table th:nth-child\(3\)[\s\S]*?max-width: 90px/u);
   assert.match(styles, /\.catalog-screen \.recipe-list-panel \.classic-table \.actions-column[\s\S]*?width: 70px[\s\S]*?min-width: 70px[\s\S]*?max-width: 70px/u);
+  assert.match(styles, /\.recipe-list-panel \.classic-table th[\s\S]*?text-align: center/u);
+  assert.match(styles, /\.recipe-list-panel \.classic-table th\.recipe-actions-column\s*\{[\s\S]*?text-align: center/u);
 });
 
 test("modal de componente alinha o X no cabeçalho e a aplicação instala ESC global", async () => {

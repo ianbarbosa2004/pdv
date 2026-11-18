@@ -4,8 +4,20 @@ Este documento registra as mudanças funcionais e técnicas agrupadas por versã
 O número da versão só deve ser incrementado após pedido explícito. Builds e
 releases não alteram a versão automaticamente.
 
+## 0.18.1 - 2026-11-18
+
+- Consolidada a entrada manual, a calculadora de preço unitário e os vínculos
+  fiscais, com validações e feedbacks revisados.
+- Padronizados comboboxes, labels `#PDV`, modais, ordenações e duplicação de
+  Receitas, Composições e Fichas Técnicas.
+- Alterada a exclusão de Receitas e Composições para remoção física, com
+  bloqueio de dependências e sem filtro de registros arquivados.
+
 ## 0.17.0 - 2026-11-17
 
+- Alterada a exclusão de Receitas e Composições para remoção física,
+  bloqueando cadastros vinculados a Produtos ou usados como componentes de
+  outras Receitas.
 - Consolidada a revisão fiscal de Entradas, com confirmação transacional,
   reversão de entradas confirmadas e atualização dos vínculos de estoque.
 - Corrigida a propagação de custos entre Receitas, Formações e Produtos,

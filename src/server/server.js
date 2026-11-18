@@ -2873,6 +2873,16 @@ const server = createServer(async (request, response) => {
            SELECT 1 FROM product_fiscal_references references_for_product
            WHERE references_for_product.idProduct = products.idProduct
              AND references_for_product.isActiveProductFiscalReference = 1
+             AND NOT EXISTS (
+               SELECT 1
+               FROM fiscal_entry_items manual_entry_item
+               JOIN fiscal_document_items manual_document_item
+                 ON manual_document_item.idFiscalDocumentItem = manual_entry_item.idFiscalDocumentItem
+               JOIN fiscal_documents manual_document
+                 ON manual_document.idFiscalDocument = manual_document_item.idFiscalDocument
+               WHERE manual_entry_item.idProductFiscalReference = references_for_product.idProductFiscalReference
+                 AND manual_document.originFiscalDocument = 'manual'
+             )
          )
          ORDER BY products.nameProduct`
       );
@@ -2885,10 +2895,30 @@ const server = createServer(async (request, response) => {
                 references_for_product.fiscalUnitProductReference,
                 references_for_product.cfopProductFiscalReference,
                 references_for_product.ncmProductFiscalReference,
-                references_for_product.cestProductFiscalReference
+                references_for_product.cestProductFiscalReference,
+                EXISTS (
+                  SELECT 1
+                  FROM fiscal_entry_items manual_entry_item
+                  JOIN fiscal_document_items manual_document_item
+                    ON manual_document_item.idFiscalDocumentItem = manual_entry_item.idFiscalDocumentItem
+                  JOIN fiscal_documents manual_document
+                    ON manual_document.idFiscalDocument = manual_document_item.idFiscalDocument
+                  WHERE manual_entry_item.idProductFiscalReference = references_for_product.idProductFiscalReference
+                    AND manual_document.originFiscalDocument = 'manual'
+                ) AS isManualEntryReference
          FROM product_fiscal_references references_for_product
          JOIN products ON products.idProduct = references_for_product.idProduct
          WHERE references_for_product.isActiveProductFiscalReference = 1
+           AND NOT EXISTS (
+             SELECT 1
+             FROM fiscal_entry_items manual_entry_item
+             JOIN fiscal_document_items manual_document_item
+               ON manual_document_item.idFiscalDocumentItem = manual_entry_item.idFiscalDocumentItem
+             JOIN fiscal_documents manual_document
+               ON manual_document.idFiscalDocument = manual_document_item.idFiscalDocument
+             WHERE manual_entry_item.idProductFiscalReference = references_for_product.idProductFiscalReference
+               AND manual_document.originFiscalDocument = 'manual'
+           )
          ORDER BY references_for_product.idProduct, references_for_product.idProductFiscalReference`
       );
       const referencesByProduct = new Map();
@@ -3197,7 +3227,14 @@ const server = createServer(async (request, response) => {
       await connection.beginTransaction();
       const [links] = await connection.query("SELECT idProductRecipeLink FROM product_recipe_links WHERE idRecipe = ? LIMIT 1", [recipeId]);
       if (links.length) throw new SaleValidationError("A receita está vinculada a um produto e não pode ser excluída.", 409);
-      const [result] = await connection.query("UPDATE recipe_definitions SET statusRecipe = 'archived' WHERE idRecipe = ?", [recipeId]);
+      const [nestedLinks] = await connection.query(
+        "SELECT idRecipeComponent FROM recipe_components WHERE idComponentRecipe = ? LIMIT 1",
+        [recipeId]
+      );
+      if (nestedLinks.length) {
+        throw new SaleValidationError("A receita está sendo usada como componente e não pode ser excluída.", 409);
+      }
+      const [result] = await connection.query("DELETE FROM recipe_definitions WHERE idRecipe = ?", [recipeId]);
       if (!result.affectedRows) throw new SaleValidationError("Receita não encontrada.", 404);
       await connection.commit();
       json(response, 200, { ok: true });
@@ -4133,6 +4170,7 @@ const server = createServer(async (request, response) => {
     for (const item of items) {
       const [products] = await connection.query(
         `SELECT p.idProduct, p.nameProduct, p.skuProduct, p.idUnitProduct,
+                p.ncmProduct, p.cestProduct,
                 u.codeUnit, u.descriptionUnit
          FROM products p
          LEFT JOIN units u ON u.idUnit = p.idUnitProduct
@@ -4264,10 +4302,16 @@ const server = createServer(async (request, response) => {
         const [reference] = await connection.query(
           `INSERT INTO product_fiscal_references
              (idProduct, idStockUnit, conversionFactor, isActiveProductFiscalReference,
-              descriptionFiscalProductReference, fiscalUnitProductReference)
-           VALUES (?, ?, 1, 1, ?, ?)
-           ON DUPLICATE KEY UPDATE idStockUnit = VALUES(idStockUnit), isActiveProductFiscalReference = 1`,
-          [item.idProduct, item.product.idUnitProduct, item.product.nameProduct, item.product.codeUnit]
+              descriptionFiscalProductReference, fiscalUnitProductReference,
+              ncmProductFiscalReference, cestProductFiscalReference)
+           VALUES (?, ?, 1, 1, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE
+             idStockUnit = VALUES(idStockUnit),
+             ncmProductFiscalReference = VALUES(ncmProductFiscalReference),
+             cestProductFiscalReference = VALUES(cestProductFiscalReference),
+             isActiveProductFiscalReference = 1`,
+          [item.idProduct, item.product.idUnitProduct, item.product.nameProduct, item.product.codeUnit,
+            item.product.ncmProduct || null, item.product.cestProduct || null]
         );
         const [refs] = await connection.query(
           `SELECT idProductFiscalReference FROM product_fiscal_references
@@ -4338,11 +4382,22 @@ const server = createServer(async (request, response) => {
         let referenceId = refs[0]?.idProductFiscalReference;
         if (!referenceId) {
           const [ref] = await connection.query(
-            `INSERT INTO product_fiscal_references (idProduct, idStockUnit, conversionFactor, descriptionFiscalProductReference, fiscalUnitProductReference)
-             VALUES (?, ?, 1, ?, ?)`,
-            [item.idProduct, item.product.idUnitProduct, item.product.nameProduct, item.product.codeUnit]
+            `INSERT INTO product_fiscal_references
+               (idProduct, idStockUnit, conversionFactor, descriptionFiscalProductReference,
+                fiscalUnitProductReference, ncmProductFiscalReference, cestProductFiscalReference)
+             VALUES (?, ?, 1, ?, ?, ?, ?)`,
+            [item.idProduct, item.product.idUnitProduct, item.product.nameProduct, item.product.codeUnit,
+              item.product.ncmProduct || null, item.product.cestProduct || null]
           );
           referenceId = ref.insertId;
+        } else {
+          await connection.query(
+            `UPDATE product_fiscal_references
+             SET ncmProductFiscalReference = ?, cestProductFiscalReference = ?,
+                 isActiveProductFiscalReference = 1
+             WHERE idProductFiscalReference = ?`,
+            [item.product.ncmProduct || null, item.product.cestProduct || null, referenceId]
+          );
         }
         const [docItem] = await connection.query(
           `INSERT INTO fiscal_document_items

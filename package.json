@@ -1,6 +1,6 @@
 {
   "name": "pdv",
-  "version": "0.18.0",
+  "version": "0.18.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -28,7 +28,7 @@
     "version:major": "node scripts/increment-version.mjs major"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.12.4",
+    "@tauri-apps/api": "^2.12.5",
     "@tauri-apps/plugin-fs": "^2.7.1",
     "air-datepicker": "^3.6.0",
     "keytar": "^7.9.0",
@@ -38,8 +38,8 @@
     "xml-crypto": "^6.0.1"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.12.4",
-    "vite": "^7.1.7"
+    "@tauri-apps/cli": "^2.12.5",
+    "vite": "^8.3.8"
   },
   "allowScripts": {
     "esbuild@0.28.2": true,

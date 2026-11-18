@@ -7,6 +7,17 @@ inicial do produto até o estado atual do workspace. Ele complementa o
 
 ## 0. Estado mais recente
 
+### Consolidação de Receitas e entradas — 2026-11-18
+
+A exclusão de Receitas e Composições passou a remover fisicamente o cadastro,
+seus componentes e revisões em cascata, bloqueando a operação quando houver
+vínculo com Produto ou uso como componente de outra Receita. A tela deixou de
+oferecer o filtro Arquivadas e o modal passou a comunicar a remoção permanente.
+
+Esta etapa foi versionada como **0.18.1**. A API deve ser reiniciada por causa
+da alteração em `src/server/server.js`; a validação foi feita com testes
+focados, `node --check` e `git diff --check`.
+
 ### Padronização monetária e unidades — 2026-11-15
 
 A aplicação passou a normalizar valores monetários para duas casas decimais
