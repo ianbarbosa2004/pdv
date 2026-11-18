@@ -29,6 +29,18 @@ const escapeHtml = (value) =>
 
 const normalizeSku = (value) => String(value ?? "").trim().toUpperCase();
 
+const formatMarginPercent = (value) =>
+  value === null || value === undefined || !Number.isFinite(Number(value))
+    ? "—"
+    : `${Number(value).toFixed(2).replace(".", ",")}%`;
+
+const formatMarginMoney = (value) =>
+  value === null || value === undefined || !Number.isFinite(Number(value))
+    ? "—"
+    : `R$ ${Number(value).toFixed(2).replace(".", ",")}`;
+
+const formatMarginEffective = (value) => formatMarginPercent(value);
+
 export function createCatalogScreen({
   title = "Produtos",
   listTitle = title,
@@ -76,6 +88,7 @@ export function createCatalogScreen({
   let message = "";
   let submitting = false;
   let editingProduct = null;
+  let marginLoadError = "";
   const scheduleMessageClear = createFeedbackTimer();
   let ncms = [];
   let ncmsLoading = false;
@@ -245,6 +258,14 @@ export function createCatalogScreen({
       descriptionProductType.toLocaleUpperCase("pt-BR") === productTypeDescription.toLocaleUpperCase("pt-BR")
     ) || getDefaultProductType();
 
+  const isMarginPreviewProductType = (product) => {
+    const selectedType = productTypes.find(({ idProductType }) =>
+      String(idProductType) === String(product.idProductTypeProduct)
+    );
+    return ["MERCADORIA PARA REVENDA", "PRODUTO ACABADO", "PRODUTOS ACABADOS"]
+      .includes(String(selectedType?.descriptionProductType || "").toLocaleUpperCase("pt-BR"));
+  };
+
   const isNonSaleCatalog = ["MATÉRIA-PRIMA", "EMBALAGEM", "MATERIAL DE USO E CONSUMO"]
     .includes(productTypeDescription.toLocaleUpperCase("pt-BR"));
   const isRawMaterialsCatalog =
@@ -413,12 +434,28 @@ export function createCatalogScreen({
             ${renderNcmField(newNcmProduct)}
             <label class="form-field catalog-fiscal-field"><span>CEST</span><select name="cestProduct" ${cestOptions.length ? "" : "disabled"}>${renderCestOptions(newCestProduct)}</select></label>
           </div>
-          ${isNonSaleCatalog ? "" : `<div class="classic-form-grid product-sale-price-row">${renderSalePriceField(newProductDraft, true)}</div>`}
-          <div class="classic-form-grid product-cost-stock-row">
-            ${renderCostField(newProductDraft, true)}
-            ${renderCostPolicyField(newProductDraft, "new-cost-policy-help")}
+          ${isNonSaleCatalog
+            ? `<div class="classic-form-grid product-cost-stock-row">${renderCostField(newProductDraft, true)}</div>`
+            : `<div class="classic-form-grid product-cost-sale-row">${renderCostField(newProductDraft, true)}${renderSalePriceField(newProductDraft, true)}</div>`}
+          <div class="classic-form-grid product-cost-policy-stock-row">
             ${renderStockInput(newProductDraft, "Estoque inicial")}
+            ${renderCostPolicyField(newProductDraft, "new-cost-policy-help")}
           </div>
+          ${isMarginPreviewProductType(newProductDraft)
+            ? `<fieldset class="form-field" data-margin-preview data-preview-only hidden>
+                <legend>Margem de lucro (somente leitura)</legend>
+                <div class="classic-form-grid">
+                  <label class="form-field"><span>Margem bruta</span><input name="marginGross" readonly /></label>
+                  <label class="form-field"><span>Markup</span><input name="marginMarkup" readonly /></label>
+                  <label class="form-field"><span>Lucro unitário</span><input name="marginProfit" readonly /></label>
+                  <label class="form-field"><span>CMV</span><input name="marginCmv" readonly /></label>
+                </div>
+                <div class="classic-form-grid">
+                  <label class="form-field"><span>Margem mínima efetiva</span><input name="marginMinimumEffective" readonly /></label>
+                  <label class="form-field"><span>Margem alvo efetiva</span><input name="marginTargetEffective" readonly /></label>
+                </div>
+              </fieldset>`
+            : ""}
           <div class="classic-form-grid">${renderPrintPlaceField(newProductDraft)}</div>
           ${renderProductFlags()}
           ${error ? `<p class="payment-error">${escapeHtml(error)}</p>` : ""}
@@ -522,11 +559,12 @@ export function createCatalogScreen({
                   ${renderNcmField(editingProduct.ncmProduct)}
                   <label class="form-field catalog-fiscal-field"><span>CEST</span><select name="cestProduct" ${cestOptions.length ? "" : "disabled"}>${renderCestOptions(editingProduct.cestProduct)}</select></label>
                 </div>
-                ${isNonSaleCatalog ? "" : `<div class="classic-form-grid product-sale-price-row">${renderSalePriceField(editingProduct, true)}</div>`}
-                <div class="classic-form-grid product-cost-stock-row">
-                  ${renderCostField(editingProduct, true)}
-                  ${renderCostPolicyField(editingProduct, "edit-cost-policy-help")}
+                ${isNonSaleCatalog
+                  ? `<div class="classic-form-grid product-cost-stock-row">${renderCostField(editingProduct, true)}</div>`
+                  : `<div class="classic-form-grid product-cost-sale-row">${renderCostField(editingProduct, true)}${renderSalePriceField(editingProduct, true)}</div>`}
+                <div class="classic-form-grid product-cost-policy-stock-row">
                   ${renderStockInput(editingProduct, "Estoque")}
+                  ${renderCostPolicyField(editingProduct, "edit-cost-policy-help")}
                 </div>
                 <div class="classic-form-grid">${renderPrintPlaceField(editingProduct)}</div>
                 ${renderProductFlags(editingProduct)}
@@ -620,14 +658,56 @@ export function createCatalogScreen({
     });
     bindFormRowPreview(root, {
       formSelector: "[data-product-form]",
-      formatValue: (value, fieldName) => [
-        "packageQuantityProduct",
-        "priceProduct",
-        "costPriceProduct",
-        "stockQuantityProduct"
-      ].includes(fieldName)
-        ? formatMaskedNumber(value)
-        : value
+      formatValue: (value, fieldName) => {
+        if ([
+          "packageQuantityProduct",
+          "priceProduct",
+          "costPriceProduct",
+          "stockQuantityProduct"
+        ].includes(fieldName)) return formatMaskedNumber(value);
+        if (["marginGross", "marginMarkup", "marginCmv"].includes(fieldName)) {
+          return formatMarginPercent(value);
+        }
+        if (fieldName === "marginProfit") return formatMarginMoney(value);
+        return value;
+      },
+      onPreviewRecord: (record, { form }) => {
+        const ncmCode = String(record.ncmProduct ?? "").replace(/\D/g, "");
+        const cestSelect = form.querySelector("[name='cestProduct']");
+        const ncmDescription = form.querySelector(".catalog-lookup-description");
+        if (ncmDescription) {
+          ncmDescription.textContent = ncmCode ? "Carregando descrição..." : "Nenhum NCM selecionado";
+        }
+        if (!ncmCode) {
+          if (cestSelect) {
+            cestSelect.innerHTML = '<option value="">Nenhum CEST relacionado</option>';
+            cestSelect.disabled = true;
+          }
+          return;
+        }
+        void Promise.all([
+          apiFetch(`${getApiUrl()}/api/ncm-cest/ncms?page=1&pageSize=1&search=${encodeURIComponent(ncmCode)}`)
+            .then((response) => response.json())
+            .then((payload) => {
+              if (ncmDescription) {
+                const ncm = Array.isArray(payload.ncms)
+                  ? payload.ncms.find((item) => String(item.codeNcm) === ncmCode)
+                  : null;
+                ncmDescription.textContent = ncm?.descriptionNcm || "Descrição não encontrada";
+              }
+            }),
+          apiFetch(`${getApiUrl()}/api/ncm-cest/options?ncm=${encodeURIComponent(ncmCode)}`)
+            .then((response) => response.json())
+            .then((payload) => {
+              if (!cestSelect) return;
+              const options = Array.isArray(payload.cests) ? payload.cests : [];
+              cestSelect.innerHTML = `<option value="">${options.length ? "Não informado" : "Nenhum CEST relacionado"}</option>${options.map((cest) =>
+                `<option value="${escapeHtml(cest.codeCest)}" ${String(record.cestProduct ?? "") === String(cest.codeCest) ? "selected" : ""}>${escapeHtml(cest.codeCest)} - ${escapeHtml(cest.descriptionCest)}</option>`
+              ).join("")}`;
+              cestSelect.disabled = options.length === 0;
+            })
+        ]);
+      }
     });
     root.querySelector("[data-search]")?.addEventListener("input", (event) => {
       searchTerm = event.currentTarget.value;
@@ -902,6 +982,53 @@ export function createCatalogScreen({
       }
       groups = groupPayload.groups;
       products = productPayload.products;
+      try {
+        const marginResponse = await apiFetch(`${getApiUrl()}/api/margin/products`);
+        const marginPayload = await marginResponse.json();
+        if (marginResponse.ok && Array.isArray(marginPayload.products)) {
+          marginLoadError = "";
+          products = products.map((product) => ({
+            ...product,
+            marginMetrics: marginPayload.products.find((marginProduct) =>
+              String(marginProduct.idProduct) === String(product.idProduct)
+            ) || null,
+            marginGross: marginPayload.products.find((marginProduct) =>
+              String(marginProduct.idProduct) === String(product.idProduct)
+            )?.metrics?.grossMargin ?? "",
+            marginMarkup: marginPayload.products.find((marginProduct) =>
+              String(marginProduct.idProduct) === String(product.idProduct)
+            )?.metrics?.markup ?? "",
+            marginProfit: marginPayload.products.find((marginProduct) =>
+              String(marginProduct.idProduct) === String(product.idProduct)
+            )?.metrics?.profit ?? "",
+            marginCmv: marginPayload.products.find((marginProduct) =>
+              String(marginProduct.idProduct) === String(product.idProduct)
+            )?.metrics?.cmv ?? "",
+            marginMinimumEffective: (() => {
+              const margin = marginPayload.products.find((marginProduct) =>
+                String(marginProduct.idProduct) === String(product.idProduct)
+              );
+              return margin
+                ? formatMarginEffective(margin.effectiveMinimum?.value, margin.effectiveMinimum?.origin)
+                : "";
+            })(),
+            marginTargetEffective: (() => {
+              const margin = marginPayload.products.find((marginProduct) =>
+                String(marginProduct.idProduct) === String(product.idProduct)
+              );
+              return margin
+                ? formatMarginEffective(margin.effectiveTarget?.value, margin.effectiveTarget?.origin)
+                : "";
+            })()
+          }));
+        } else {
+          marginLoadError = marginPayload.error || "Não foi possível carregar as métricas de margem.";
+        }
+      } catch (marginError) {
+        marginLoadError = marginError instanceof Error
+          ? marginError.message
+          : "Não foi possível carregar as métricas de margem.";
+      }
       if (initialProductId && !editingProduct) {
         editingProduct = products.find(({ idProduct }) => String(idProduct) === String(initialProductId)) || null;
       }

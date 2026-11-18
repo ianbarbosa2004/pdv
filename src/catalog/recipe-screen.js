@@ -5,7 +5,7 @@ import { getContextualNavigationItems, renderContextualNavigationItems } from ".
 import { resolveNavigationHandler } from "../ui/navigation-routing.js";
 import { formatBrazilianDecimal, parseBrazilianDecimal, roundCostUpToCents } from "../shared/decimal.js";
 import { bindNumberMasks, formatMaskedNumber } from "../ui/number-mask.js";
-import { installComboboxDismissal } from "../ui/combobox.js";
+import { installComboboxDismissal, rerenderComboboxSelection } from "../ui/combobox.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { rerenderPreservingInputSelection } from "../ui/input-selection.js";
@@ -722,7 +722,10 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
       componentDraft.culinaryUnitId = "";
       componentDraft.conversionId = "";
       componentDraft.isOpen = false;
-      render();
+      rerenderComboboxSelection(
+        render,
+        () => root.querySelector("[data-component-toggle]")
+      );
     }));
     componentEditorRoot.querySelector("[data-component-culinary-unit]")?.addEventListener("change", (event) => {
       componentDraft.culinaryUnitId = event.currentTarget.value;

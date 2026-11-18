@@ -4,7 +4,7 @@ import { renderScreenContextBar } from "../ui/screen-context.js";
 import { renderNavigationIntro } from "../ui/navigation-intro.js";
 import { renderPreservingFormDraft } from "../ui/form-draft.js";
 import { rerenderPreservingInputSelection } from "../ui/input-selection.js";
-import { installComboboxDismissal } from "../ui/combobox.js";
+import { installComboboxDismissal, rerenderComboboxSelection } from "../ui/combobox.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { apiFetch, getApiUrl } from "../shared/api.js";
 import { fetchWithTimeout } from "../shared/request-timeout.js";
@@ -816,7 +816,10 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
         if (editingItem) editingItem.idProduct = Number(button.dataset.productOption);
         productPicker.searchTerm = "";
         productPicker.isOpen = false;
-        render();
+        rerenderComboboxSelection(
+          render,
+          () => root.querySelector("[data-product-toggle]")
+        );
       });
     });
     const updateConversionPreview = () => {

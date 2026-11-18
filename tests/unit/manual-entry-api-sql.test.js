@@ -25,3 +25,16 @@ test("manual entries preserve the shared transactional lifecycle", async () => {
   assert.match(schema, /originFiscalDocument ENUM\('imported', 'manual'\)/u);
   assert.match(schema, /idSupplierFiscalDocument BIGINT UNSIGNED NULL/u);
 });
+
+test("manual entry fiscal references never pass NULL to NOT NULL NCM and CEST columns", async () => {
+  const source = await readFile("src/server/server.js", "utf8");
+  const schema = await readFile("database/schema.sql", "utf8");
+
+  assert.match(schema, /ncmProductFiscalReference VARCHAR\(20\) NOT NULL/u);
+  assert.match(schema, /cestProductFiscalReference VARCHAR\(20\) NOT NULL/u);
+
+  assert.doesNotMatch(
+    source,
+    /item\.product\.ncmProduct\s*\|\|\s*null|item\.product\.cestProduct\s*\|\|\s*null/gu
+  );
+});

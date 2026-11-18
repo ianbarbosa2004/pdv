@@ -6,8 +6,20 @@ import forge from "node-forge";
 import { createPool } from "./database.js";
 import { loadRuntimeConfig } from "./config.js";
 import { cancelSale, createSale, listRecentSales, SaleValidationError } from "./sale-service.js";
+import {
+  parseMarginPercentage,
+  requireMarginAuthorization,
+  updateMarginProductPrice
+} from "./margin-service.js";
 import { parseImportBoolean, parseImportStatus } from "../shared/import-values.js";
 import { roundCostUpToCents } from "../shared/decimal.js";
+import {
+  calculateCmvPrice,
+  calculateMarginMetrics,
+  classifyMargin,
+  matchesMarginFilters,
+  resolveEffectiveBalancer
+} from "../shared/margin.js";
 import {
   authorizeSaleNfce,
   buildNfceDiagnostic,
@@ -133,7 +145,8 @@ const {
   ensureNavigationSchema,
   ensurePaymentMethodSchema,
   ensureSupplierSchema,
-  ensureOperatorCashSchema
+  ensureOperatorCashSchema,
+  ensureMarginSchema
 } = createSchemaManager({ pool, config });
 const applicationRoot = join(import.meta.dirname, "../..");
 const backupOptions = () => ({
@@ -2418,6 +2431,229 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "GET" && request.url === "/api/margin/settings") {
+    try {
+      await ensureMarginSchema();
+      const [groups] = await pool.query(
+        `SELECT idGroup, minimumMarginPercentage, targetMarginPercentage
+         FROM margin_group_overrides
+         ORDER BY idGroup`
+      );
+      json(response, 200, {
+        groups
+      });
+    } catch (error) {
+      handleError(response, error, {
+        log: "Falha ao consultar balizadores:",
+        message: "Não foi possível consultar os balizadores.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && request.url.startsWith("/api/margin/products")) {
+    try {
+      await ensureMarginSchema();
+      const requestUrl = new URL(request.url, "http://localhost");
+      const searchTerm = requestUrl.searchParams.get("search") || "";
+      const groupId = requestUrl.searchParams.get("groupId") || "";
+      const state = requestUrl.searchParams.get("state") || "";
+      const selectedStates = requestUrl.searchParams.getAll("state");
+      const [products] = await pool.query(
+        `SELECT products.idProduct, products.idGroup, products.pdvCodeProduct,
+                products.nameProduct, products.priceProduct, products.costPriceProduct,
+                products.isActiveProduct, groups.descriptionGroup,
+                product_types.descriptionProductType,
+                margin_group_overrides.minimumMarginPercentage AS groupMinimum,
+                margin_group_overrides.targetMarginPercentage AS groupTarget,
+                margin_product_metrics.grossMarginPercentage,
+                margin_product_metrics.markupPercentage,
+                margin_product_metrics.unitProfitSnapshot,
+                margin_product_metrics.cmvPercentage,
+                margin_product_metrics.minimumMarginSnapshot,
+                margin_product_metrics.minimumMarginOrigin,
+                margin_product_metrics.targetMarginSnapshot,
+                margin_product_metrics.targetMarginOrigin,
+                margin_product_metrics.marginStateSnapshot,
+                margin_product_metrics.pdvCodeSnapshot
+         FROM products
+         INNER JOIN \`groups\` groups ON groups.idGroup = products.idGroup
+         LEFT JOIN product_types ON product_types.idProductType = products.idProductTypeProduct
+         LEFT JOIN margin_group_overrides
+           ON margin_group_overrides.idGroup = products.idGroup
+         LEFT JOIN margin_product_metrics
+           ON margin_product_metrics.idMarginProductMetric = (
+             SELECT metrics.idMarginProductMetric
+             FROM margin_product_metrics metrics
+             WHERE metrics.idProduct = products.idProduct
+             ORDER BY metrics.createdAtMarginProductMetric DESC,
+                      metrics.idMarginProductMetric DESC
+             LIMIT 1
+           )
+         WHERE products.isActiveProduct = 1
+           AND UPPER(TRIM(product_types.descriptionProductType))
+             IN ('MERCADORIA PARA REVENDA', 'PRODUTO ACABADO', 'PRODUTOS ACABADOS')
+         ORDER BY products.nameProduct`
+      );
+      const mapped = products.map((product) => {
+        const metrics = {
+          grossMargin: product.grossMarginPercentage == null
+            ? null
+            : Number(product.grossMarginPercentage),
+          markup: product.markupPercentage == null
+            ? null
+            : Number(product.markupPercentage),
+          profit: product.unitProfitSnapshot == null
+            ? null
+            : Number(product.unitProfitSnapshot),
+          cmv: product.cmvPercentage == null
+            ? null
+            : Number(product.cmvPercentage)
+        };
+        const effective = {
+          minimum: {
+            value: product.minimumMarginSnapshot == null
+              ? null
+              : Number(product.minimumMarginSnapshot),
+            origin: product.minimumMarginOrigin
+          },
+          target: {
+            value: product.targetMarginSnapshot == null
+              ? null
+              : Number(product.targetMarginSnapshot),
+            origin: product.targetMarginOrigin
+          }
+        };
+        return {
+          idProduct: product.idProduct,
+          idGroup: product.idGroup,
+          groupName: product.descriptionGroup,
+          pdvCode: product.pdvCodeSnapshot || product.pdvCodeProduct,
+          name: product.nameProduct,
+          cost: Number(product.costPriceProduct),
+          price: Number(product.priceProduct),
+          metrics,
+          effectiveMinimum: effective.minimum,
+          effectiveTarget: effective.target,
+          marginState: product.marginStateSnapshot
+        };
+      }).filter((product) => matchesMarginFilters({
+        searchTerm,
+        groupId,
+        state,
+        selectedStates,
+        product: {
+          idGroup: product.idGroup,
+          nameProduct: product.name,
+          pdvCodeProduct: product.pdvCode,
+          marginState: product.marginState
+        }
+      }));
+      json(response, 200, { products: mapped });
+    } catch (error) {
+      handleError(response, error, {
+        log: "Falha ao listar margem de produtos:",
+        message: "Não foi possível consultar a margem dos produtos.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && request.url.startsWith("/api/margin/history")) {
+    try {
+    await ensureMarginSchema();
+    const requestUrl = new URL(request.url, "http://localhost");
+    let idProduct = parsePositiveId(requestUrl.searchParams.get("idProduct"));
+    if (!idProduct) {
+      const pdvCode = String(requestUrl.searchParams.get("pdvCode") || "").trim();
+      if (pdvCode) {
+        const [[product]] = await pool.query(
+          "SELECT idProduct FROM products WHERE pdvCodeProduct = ? LIMIT 1",
+          [pdvCode]
+        );
+        idProduct = product ? parsePositiveId(product.idProduct) : null;
+      }
+    }
+    if (!idProduct) throw new SaleValidationError("Produto inválido.");
+    const [snapshots] = await pool.query(
+      `SELECT idMarginProductMetric, idProduct, pdvCodeSnapshot,
+              costPriceSnapshot, priceSnapshot,
+              grossMarginPercentage, markupPercentage,
+              unitProfitSnapshot, cmvPercentage,
+              minimumMarginSnapshot, minimumMarginOrigin,
+              targetMarginSnapshot, targetMarginOrigin,
+              marginStateSnapshot, snapshotSource,
+              createdAtMarginProductMetric
+       FROM margin_product_metrics
+       WHERE idProduct = ?
+       ORDER BY createdAtMarginProductMetric DESC,
+                idMarginProductMetric DESC
+       LIMIT 500`,
+      [idProduct]
+    );
+    json(response, 200, { snapshots });
+    } catch (error) {
+    handleError(response, error, {
+      log: "Falha ao consultar histórico de margem:",
+      message: "Não foi possível consultar o histórico de margem.",
+      duplicate: ""
+    });
+    }
+    return;
+  }
+
+  if (request.method === "PUT" && request.url === "/api/margin/group") {
+    try {
+      requireMarginAuthorization(request.operatorSession, "alterar balizadores de Grupo");
+      const payload = await readJsonBody(request);
+      const idGroup = parsePositiveId(payload.idGroup);
+      if (!idGroup) throw new SaleValidationError("Grupo inválido.");
+      const minimum = parseMarginPercentage(payload.minimumMarginPercentage, "Margem mínima", { nullable: true });
+      const target = parseMarginPercentage(payload.targetMarginPercentage, "Margem alvo", { nullable: true });
+      await ensureMarginSchema();
+      const [groups] = await pool.query("SELECT idGroup FROM `groups` WHERE idGroup = ?", [idGroup]);
+      if (!groups.length) throw new SaleValidationError("Grupo não encontrado.", 404);
+      await pool.query(
+        `INSERT INTO margin_group_overrides (idGroup, minimumMarginPercentage, targetMarginPercentage)
+         VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           minimumMarginPercentage = VALUES(minimumMarginPercentage),
+           targetMarginPercentage = VALUES(targetMarginPercentage)`,
+        [idGroup, minimum, target]
+      );
+      json(response, 200, { idGroup, minimumMarginPercentage: minimum, targetMarginPercentage: target });
+    } catch (error) {
+      handleError(response, error, {
+        log: "Falha ao alterar balizador de Grupo:",
+        message: "Não foi possível alterar o balizador do Grupo.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
+  if (request.method === "PUT" && request.url === "/api/margin/product-price") {
+    try {
+      const payload = await readJsonBody(request);
+      await ensureMarginSchema();
+      const result = await updateMarginProductPrice({
+        pool,
+        payload,
+        operatorSession: request.operatorSession
+      });
+      json(response, 200, result);
+    } catch (error) {
+      handleError(response, error, {
+        log: "Falha ao atualizar preço pelo CMV:",
+        message: "Não foi possível atualizar o preço.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
   if (request.method === "GET" && request.url.startsWith("/api/products")) {
     try {
       await ensureProductCatalogSchema();
@@ -4311,7 +4547,7 @@ const server = createServer(async (request, response) => {
              cestProductFiscalReference = VALUES(cestProductFiscalReference),
              isActiveProductFiscalReference = 1`,
           [item.idProduct, item.product.idUnitProduct, item.product.nameProduct, item.product.codeUnit,
-            item.product.ncmProduct || null, item.product.cestProduct || null]
+            item.product.ncmProduct || "", item.product.cestProduct || ""]
         );
         const [refs] = await connection.query(
           `SELECT idProductFiscalReference FROM product_fiscal_references
@@ -4387,7 +4623,7 @@ const server = createServer(async (request, response) => {
                 fiscalUnitProductReference, ncmProductFiscalReference, cestProductFiscalReference)
              VALUES (?, ?, 1, ?, ?, ?, ?)`,
             [item.idProduct, item.product.idUnitProduct, item.product.nameProduct, item.product.codeUnit,
-              item.product.ncmProduct || null, item.product.cestProduct || null]
+              item.product.ncmProduct || "", item.product.cestProduct || ""]
           );
           referenceId = ref.insertId;
         } else {
@@ -4396,7 +4632,7 @@ const server = createServer(async (request, response) => {
              SET ncmProductFiscalReference = ?, cestProductFiscalReference = ?,
                  isActiveProductFiscalReference = 1
              WHERE idProductFiscalReference = ?`,
-            [item.product.ncmProduct || null, item.product.cestProduct || null, referenceId]
+            [item.product.ncmProduct || "", item.product.cestProduct || "", referenceId]
           );
         }
         const [docItem] = await connection.query(
@@ -6088,10 +6324,33 @@ const server = createServer(async (request, response) => {
       const idClass = parsePositiveId(payload.idClass);
       const showsInPdvGroup = parseBooleanFlag(payload.showsInPdvGroup, "Exibe no PDV", false);
       if (!descriptionGroup || descriptionGroup.length > 120 || !idClass) throw new SaleValidationError("Descrição do grupo e classe são obrigatórios.");
+      await ensureMarginSchema();
       const [classes] = await pool.query("SELECT idClass FROM classes WHERE idClass = ?", [idClass]);
       if (!classes.length) throw new SaleValidationError("Classe não encontrada.", 409);
-      const [result] = await pool.query("INSERT INTO `groups` (descriptionGroup, idClass, showsInPdvGroup) VALUES (?, ?, ?)", [descriptionGroup, idClass, showsInPdvGroup]);
-      json(response, 201, { group: { idGroup: result.insertId, descriptionGroup, idClass, showsInPdvGroup } });
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        const [result] = await connection.query(
+          "INSERT INTO `groups` (descriptionGroup, idClass, showsInPdvGroup) VALUES (?, ?, ?)",
+          [descriptionGroup, idClass, showsInPdvGroup]
+        );
+        await connection.query(
+          `INSERT INTO margin_group_overrides
+             (idGroup, minimumMarginPercentage, targetMarginPercentage)
+           VALUES (?, 0, 0)
+           ON DUPLICATE KEY UPDATE
+             minimumMarginPercentage = VALUES(minimumMarginPercentage),
+             targetMarginPercentage = VALUES(targetMarginPercentage)`,
+          [result.insertId]
+        );
+        await connection.commit();
+        json(response, 201, { group: { idGroup: result.insertId, descriptionGroup, idClass, showsInPdvGroup } });
+      } catch (error) {
+        await connection.rollback();
+        throw error;
+      } finally {
+        connection.release();
+      }
     } catch (error) {
       handleError(response, error, { log: "Falha ao criar grupo:", message: "Não foi possível criar o grupo.", duplicate: "Esse grupo já existe." });
     }
@@ -7265,7 +7524,10 @@ server.listen(config.apiPort, config.apiHost, () => {
     ensureRecipeSchema(),
     ensureNavigationSchema(),
     ensureOperatorCashSchema()
-  ]).then(() => ensureMonetaryScaleSchema()).catch((error) => {
+  ])
+    .then(() => ensureMarginSchema())
+    .then(() => ensureMonetaryScaleSchema())
+    .catch((error) => {
     console.error("Falha ao preparar o banco:", error);
   });
 });

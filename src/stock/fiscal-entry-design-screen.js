@@ -3,7 +3,7 @@ import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { renderScreenContextBar } from "../ui/screen-context.js";
 import { renderNavigationIntro } from "../ui/navigation-intro.js";
 import { rerenderPreservingInputSelection } from "../ui/input-selection.js";
-import { installComboboxDismissal } from "../ui/combobox.js";
+import { installComboboxDismissal, rerenderComboboxSelection } from "../ui/combobox.js";
 import { bindNumberMasks, formatMaskedNumber } from "../ui/number-mask.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { apiFetch, getApiUrl } from "../shared/api.js";
@@ -321,7 +321,7 @@ export function createFiscalEntryDesignScreen({ onBack, ...handlers }) {
       draft.idSupplier = button.dataset.supplierOption;
       supplierPicker.searchTerm = "";
       supplierPicker.isOpen = false;
-      render();
+      rerenderComboboxSelection(render, () => root.querySelector("[data-product-toggle]"));
     }));
     root.querySelector("[data-product-toggle]")?.addEventListener("click", () => {
       productPicker.isOpen = !productPicker.isOpen;
@@ -337,7 +337,7 @@ export function createFiscalEntryDesignScreen({ onBack, ...handlers }) {
       itemDraft.product = button.dataset.productOption;
       productPicker.searchTerm = "";
       productPicker.isOpen = false;
-      render();
+      rerenderComboboxSelection(render, () => root.querySelector("[data-product-toggle]"));
     }));
     root.querySelector("[name=quantity]")?.addEventListener("input", (event) => { itemDraft.quantity = event.currentTarget.value; });
     root.querySelector("[name=unitPrice]")?.addEventListener("input", (event) => { itemDraft.unitPrice = event.currentTarget.value; });

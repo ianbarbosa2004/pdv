@@ -7,6 +7,24 @@ inicial do produto até o estado atual do workspace. Ele complementa o
 
 ## 0. Estado mais recente
 
+### View e balizadores de margem — 2026-11-18
+
+Foi implementada a View de Margem com consulta de produtos ativos elegíveis,
+filtros por busca, Grupo e estado, métricas Margem Bruta, Markup, Lucro
+Unitário e CMV, simulação de Novo CMV e histórico persistido. Os balizadores
+foram simplificados para margem mínima e margem alvo somente por Grupo. Geral
+e overrides próprios de Produto não fazem parte do modelo vigente.
+
+Cada Grupo possui um registro em `margin_group_overrides`, inicializado em
+`0/0` e editável no Cadastro de Grupos. Os parâmetros operacionais foram
+aplicados externamente no banco: bebidas de revenda receberam mínimo/alvo
+`45/55`, drinks e doses `72/82`, cozinha `65/72` e grupos fora do alcance
+comercial permaneceram em `0/0`.
+
+A alteração exige reinício da API publicada porque mudou
+`src/server/server.js`, `src/server/schema-manager.js` e
+`database/schema.sql`. Esta etapa foi versionada como **0.19.0**.
+
 ### Otimização permanente do bundle e entrevista de margem — 2026-11-18
 
 O empacotamento do cliente passou a separar os módulos por áreas funcionais e

@@ -198,6 +198,57 @@ CREATE TABLE IF NOT EXISTS products (
     ON DELETE RESTRICT
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS margin_group_overrides (
+  idGroup BIGINT UNSIGNED NOT NULL,
+  minimumMarginPercentage DECIMAL(5,2) NOT NULL DEFAULT 0,
+  targetMarginPercentage DECIMAL(5,2) NOT NULL DEFAULT 0,
+  updatedAtMarginGroup TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (idGroup),
+  CONSTRAINT chkMarginGroupMinimum CHECK (minimumMarginPercentage IS NULL OR (minimumMarginPercentage >= 0 AND minimumMarginPercentage < 100)),
+  CONSTRAINT chkMarginGroupTarget CHECK (targetMarginPercentage IS NULL OR (targetMarginPercentage >= 0 AND targetMarginPercentage < 100)),
+  CONSTRAINT fkMarginGroupOverrideGroup FOREIGN KEY (idGroup)
+    REFERENCES `groups` (idGroup) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+INSERT INTO margin_group_overrides (
+  idGroup,
+  minimumMarginPercentage,
+  targetMarginPercentage
+)
+SELECT idGroup, 0, 0
+FROM `groups`
+ON DUPLICATE KEY UPDATE
+  idGroup = margin_group_overrides.idGroup;
+
+CREATE TABLE IF NOT EXISTS margin_product_metrics (
+  idMarginProductMetric BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  idProduct BIGINT UNSIGNED NOT NULL,
+  pdvCodeSnapshot VARCHAR(64) NULL,
+  costPriceSnapshot DECIMAL(12,2) NOT NULL,
+  priceSnapshot DECIMAL(12,2) NOT NULL,
+  grossMarginPercentage DECIMAL(9,4) NULL,
+  markupPercentage DECIMAL(9,4) NULL,
+  unitProfitSnapshot DECIMAL(12,2) NULL,
+  cmvPercentage DECIMAL(9,4) NULL,
+  minimumMarginSnapshot DECIMAL(5,2) NULL,
+  minimumMarginOrigin ENUM('group') NULL,
+  targetMarginSnapshot DECIMAL(5,2) NULL,
+  targetMarginOrigin ENUM('group') NULL,
+  marginStateSnapshot ENUM('red', 'yellow', 'green') NULL,
+  snapshotSource ENUM(
+    'initial_load',
+    'cost_update',
+    'price_update',
+    'cost_and_price_update',
+    'group_balancer_update'
+  ) NOT NULL,
+  createdAtMarginProductMetric TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (idMarginProductMetric),
+  KEY idxMarginProductMetricProductCreated (idProduct, createdAtMarginProductMetric),
+  CONSTRAINT fkMarginProductMetricProduct FOREIGN KEY (idProduct)
+    REFERENCES products (idProduct) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
 CREATE TABLE IF NOT EXISTS recipe_definitions (
   idRecipe BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   nameRecipe VARCHAR(180) NOT NULL,
@@ -538,6 +589,26 @@ CREATE TABLE IF NOT EXISTS operator_sessions (
   CONSTRAINT fkOperatorSessionsOperator
     FOREIGN KEY (idOperator) REFERENCES operators (idOperator)
     ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS margin_price_audits (
+  idMarginPriceAudit BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  idProduct BIGINT UNSIGNED NOT NULL,
+  previousPrice DECIMAL(12,2) NOT NULL,
+  newPrice DECIMAL(12,2) NOT NULL,
+  previousCmvPercentage DECIMAL(5,2) NULL,
+  newCmvPercentage DECIMAL(5,2) NULL,
+  idOperator BIGINT UNSIGNED NOT NULL,
+  createdAtMarginPriceAudit TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (idMarginPriceAudit),
+  KEY idxMarginPriceAuditProductCreated (idProduct, createdAtMarginPriceAudit),
+  KEY idxMarginPriceAuditOperatorCreated (idOperator, createdAtMarginPriceAudit),
+  CONSTRAINT fkMarginPriceAuditProduct FOREIGN KEY (idProduct)
+    REFERENCES products (idProduct) ON DELETE RESTRICT,
+  CONSTRAINT fkMarginPriceAuditOperator FOREIGN KEY (idOperator)
+    REFERENCES operators (idOperator) ON DELETE RESTRICT,
+  CONSTRAINT chkMarginPriceAuditPreviousCmv CHECK (previousCmvPercentage IS NULL OR (previousCmvPercentage >= 0 AND previousCmvPercentage <= 100)),
+  CONSTRAINT chkMarginPriceAuditNewCmv CHECK (newCmvPercentage IS NULL OR (newCmvPercentage >= 0 AND newCmvPercentage <= 100))
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS cash_registers (

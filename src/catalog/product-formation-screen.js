@@ -9,7 +9,7 @@ import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } fro
 import { calculateComponentCost } from "../shared/recipe.js";
 import { formatBrazilianDecimal, parseBrazilianDecimal, roundCostUpToCents } from "../shared/decimal.js";
 import { bindNumberMasks, formatMaskedNumber } from "../ui/number-mask.js";
-import { installComboboxDismissal } from "../ui/combobox.js";
+import { installComboboxDismissal, rerenderComboboxSelection } from "../ui/combobox.js";
 import { formatRecipeComponentLabel, formatRecipeComponentUnit } from "../shared/recipe-component.js";
 import { formatProductOptionLabel } from "../shared/product.js";
 
@@ -537,7 +537,10 @@ export function createProductFormationScreen({ onBack, onRecipes, ...menuHandler
       duplicateTargetId = button.dataset.duplicateTargetOption;
       duplicateTargetSearchTerm = "";
       duplicateTargetOpen = false;
-      render();
+      rerenderComboboxSelection(
+        render,
+        () => root.querySelector("[data-duplicate-target-toggle]")
+      );
     }));
     root.querySelectorAll("[data-confirm-duplicate-formation]").forEach((button) => button.addEventListener("click", () => {
       void duplicateFormation();
@@ -585,7 +588,10 @@ export function createProductFormationScreen({ onBack, onRecipes, ...menuHandler
     root.querySelectorAll("[data-component-option]").forEach((button) => button.addEventListener("click", () => {
       componentDraft.target = button.dataset.componentOption;
       componentDraft.open = false;
-      render();
+      rerenderComboboxSelection(
+        render,
+        () => root.querySelector("[data-component-toggle]")
+      );
     }));
     root.querySelector("[data-component-details]")?.addEventListener("input", (event) => { componentDraft.details = event.currentTarget.value; });
     root.querySelector("[data-formation-notes]")?.addEventListener("input", (event) => {

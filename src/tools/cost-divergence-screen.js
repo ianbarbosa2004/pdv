@@ -17,6 +17,7 @@ const formatMoney = (value) =>
 
 const viewsNavigation = [
   ["groups-products", "Grupos x Produtos"],
+  ["margin", "Margem"],
   ["no-cost", "Sem Custo"],
   ["no-physical-state", "Sem Estado Físico"],
   ["cost-divergences", "Divergência entre Custos"],
