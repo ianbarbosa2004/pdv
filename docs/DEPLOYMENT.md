@@ -254,11 +254,11 @@ depois que o schema está disponível.
 
 Os backups compactados ficam no diretório exibido pela tela
 **Ferramentas > Backup e restauração**. Defina `PDV_BACKUP_DIR` para escolher
-um destino fixo. Em produção, sem essa variável, o serviço tenta a pasta
-`backups` dentro da instalação da API e usa
-`%LOCALAPPDATA%\\PDV Zanzibar\\backups` quando a pasta da instalação não for
-gravável. Inclua o diretório efetivo na rotina de cópia externa do servidor,
-sem versioná-lo no Git. A restauração deve ser executada pela tela
+um destino fixo. A instalação Windows oficial configura
+`C:\ProgramData\PDV\backups` e concede gravação à conta `PDVApiSvc`, evitando
+que os arquivos fiquem ocultos no perfil da conta do serviço. Inclua esse
+diretório na rotina de cópia externa do servidor, sem versioná-lo no Git. A
+restauração deve ser executada pela tela
 **Ferramentas > Backup e restauração** somente após confirmar que o arquivo é
 da loja e da data corretas.
 

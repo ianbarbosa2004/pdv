@@ -1162,12 +1162,12 @@ O item **Ferramentas > Backup e restauração** cria arquivos
 O conteúdo é um snapshot compactado das tabelas do banco; as credenciais do
 MariaDB nunca são enviadas ao terminal.
 
-O destino pode ser definido por `PDV_BACKUP_DIR`. Sem essa variável, o ambiente
-de produção tenta primeiro `backups` dentro da pasta da aplicação da API e,
-se essa pasta não for gravável (por exemplo, uma instalação protegida em
-`Program Files`), usa `%LOCALAPPDATA%\\PDV Zanzibar\\backups`. Em
-desenvolvimento, o padrão é `%LOCALAPPDATA%\\PDV Zanzibar\\backups`, evitando
-gravar no workspace. A tela exibe o destino efetivo utilizado.
+O destino pode ser definido por `PDV_BACKUP_DIR`. A instalação Windows oficial
+configura `C:\ProgramData\PDV\backups` e concede gravação à conta do serviço
+`PDVApiSvc`, evitando que os arquivos fiquem ocultos no perfil da conta do
+serviço. Em desenvolvimento fora da instalação, o padrão continua sendo
+`%LOCALAPPDATA%\\PDV Zanzibar\\backups`, evitando gravar no workspace. A tela
+exibe o destino efetivo utilizado.
 
 O operador não informa o destino na tela. O terminal recebe apenas a indicação
 de que o destino é controlado pelo servidor e nunca recebe o caminho físico.
