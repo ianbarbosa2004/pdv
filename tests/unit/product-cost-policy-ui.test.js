@@ -33,3 +33,24 @@ test("expõe a política de custo no modal de edição das Views", async () => {
   assert.match(source, /name="costPolicyProduct"/u);
   assert.match(source, /costPolicyProduct: normalizeCostPolicy\(formData\.get\("costPolicyProduct"\)\)/u);
 });
+
+test("edita a política pelo backend com replay fiscal, cascata e resposta efetiva", async () => {
+  const source = await readFile(
+    new URL("../../src/server/server.js", import.meta.url),
+    "utf8"
+  );
+  const schemaSource = await readFile(
+    new URL("../../src/server/schema-manager.js", import.meta.url),
+    "utf8"
+  );
+
+  assert.doesNotMatch(source, /if \(normalizeCostPolicy\(existingProductRows\[0\]\.costPolicyProduct\) !== costPolicyProduct\)/u);
+  assert.match(source, /WHERE pfr\.idProduct = \? AND entry\.statusFiscalEntry = 'confirmed'/u);
+  assert.match(schemaSource, /entryDateFiscalDocumentItem DATE NULL/u);
+  assert.match(source, /ORDER BY i\.entryDateFiscalDocumentItem ASC[\s\S]*?i\.idFiscalDocument ASC[\s\S]*?i\.lineNumberFiscalDocumentItem ASC[\s\S]*?i\.idFiscalDocumentItem ASC/u);
+  assert.match(source, /calculateCostUpdateSequence/u);
+  assert.match(source, /effectivePriceProduct, effectiveCostPriceProduct/u);
+  assert.match(source, /propagateRecipeCosts\(connection, \[idProduct\]\)/u);
+  assert.match(source, /priceProduct: effectivePriceProduct/u);
+  assert.match(source, /costPriceProduct: effectiveCostPriceProduct/u);
+});

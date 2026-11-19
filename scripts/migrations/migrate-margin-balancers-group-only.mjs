@@ -1,12 +1,8 @@
 import mysql from "mysql2/promise";
-import { loadMigrationConfig } from "../../src/server/config.js";
+import { loadRootMigrationConfig } from "../../src/server/config.js";
 
 const main = async () => {
-  const migrationEnv = {
-    ...process.env,
-    PDV_DB_USER: "root"
-  };
-  const config = await loadMigrationConfig(migrationEnv);
+  const config = await loadRootMigrationConfig();
   const connection = await mysql.createConnection({
     host: config.database.host,
     port: config.database.port,

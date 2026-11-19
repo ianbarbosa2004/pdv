@@ -13,12 +13,14 @@ const asLossPercent = (value) => {
 
 const productKey = (productId) => String(productId);
 
-export const calculateGrossQuantity = (quantity, lossPercent = 0) => {
-  const netQuantity = asPositiveNumber(quantity);
+export const calculateUsableQuantity = (quantity, lossPercent = 0) => {
+  const purchasedQuantity = asPositiveNumber(quantity);
   const loss = asLossPercent(lossPercent);
-  if (netQuantity === null || loss === null) return null;
-  return netQuantity / (1 - (loss / 100));
+  if (purchasedQuantity === null || loss === null) return null;
+  return purchasedQuantity * (1 - (loss / 100));
 };
+
+export const calculateGrossQuantity = calculateUsableQuantity;
 
 export const calculateComponentCost = ({
   quantity,
@@ -26,17 +28,17 @@ export const calculateComponentCost = ({
   unitCost = 0,
   conversionFactor = 1
 }) => {
-  const grossQuantity = calculateGrossQuantity(quantity, lossPercent);
+  const purchasedQuantity = asPositiveNumber(quantity);
   const cost = Number(unitCost);
   const factor = Number(conversionFactor);
   if (
-    grossQuantity === null
+    purchasedQuantity === null
     || !Number.isFinite(cost)
     || cost < 0
     || !Number.isFinite(factor)
     || factor <= 0
   ) return null;
-  return roundCostUpToCents(grossQuantity * factor * cost);
+  return roundCostUpToCents(purchasedQuantity * factor * cost);
 };
 
 export const calculateCostPerYieldUnit = (totalCost, yieldQuantity) => {
@@ -133,18 +135,16 @@ export const expandRecipeComponents = ({
   const visiting = new Set();
 
   const addComponent = (componentProductId, componentQuantity, lossPercent) => {
-    const grossQuantity = calculateGrossQuantity(componentQuantity, lossPercent);
-    if (grossQuantity === null) throw new Error("Quantidade ou perda de componente inválida.");
     const key = productKey(componentProductId);
     const definition = definitionsByResult.get(key);
     if (!definition) {
-      totals.set(key, (totals.get(key) || 0) + grossQuantity);
+      totals.set(key, (totals.get(key) || 0) + componentQuantity);
       return;
     }
     if (visiting.has(key)) throw new Error("Ciclo de composição detectado.");
     visiting.add(key);
     for (const child of definition.components || []) {
-      addComponent(child.productId, grossQuantity * Number(child.quantity), child.lossPercent);
+      addComponent(child.productId, componentQuantity * Number(child.quantity), child.lossPercent);
     }
     visiting.delete(key);
   };

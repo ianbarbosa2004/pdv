@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   DEFAULT_NAVIGATION,
   ensureApiStatusNavigation,
@@ -22,6 +23,62 @@ test("normaliza chaves de navegação independentemente da caixa", () => {
 
 test("mantém o contrato sem criar navegação artificial", () => {
   assert.equal(isNavigationKey("registrations", "cadastros"), false);
+});
+
+test("define o Log técnico no menu Ferramentas", () => {
+  const toolsMenu = DEFAULT_NAVIGATION.menus.find((menu) => menu.keyNavigationMenu === "tools");
+  const logItem = DEFAULT_NAVIGATION.items.find((item) => item.keyNavigationItem === "log");
+
+  assert.equal(toolsMenu?.labelNavigationMenu, "Ferramentas");
+  assert.deepEqual(
+    {
+      route: logItem?.routeNavigationItem,
+      type: logItem?.typeNavigationItem,
+      parentKey: logItem?.parentKey
+    },
+    {
+      route: "log",
+      type: "bar",
+      parentKey: null
+    }
+  );
+});
+
+test("a tela Log monta o menu principal com a assinatura correta", () => {
+  const source = readFileSync(
+    new URL("../../src/tools/log-screen.js", import.meta.url),
+    "utf8"
+  );
+  assert.match(source, /bindMainMenu\(root,\s*\{/u);
+  assert.doesNotMatch(source, /bindMainMenu\(\{\s*root,/u);
+});
+
+test("a tela Log oferece visualização tabelada e controles acessíveis", () => {
+  const source = readFileSync(
+    new URL("../../src/tools/log-screen.js", import.meta.url),
+    "utf8"
+  );
+  assert.match(source, /class="settings-content log-content"/u);
+  assert.match(source, /aria-live="polite"/u);
+  assert.match(source, /data-log-source/u);
+  assert.match(source, /data-log-level/u);
+  assert.match(source, /data-log-refresh/u);
+  assert.match(source, /data-log-export/u);
+  assert.match(source, /class="classic-table log-table"/u);
+  assert.match(source, /Nenhum evento técnico encontrado/u);
+});
+
+test("a tela Log abre o conteúdo completo ao clicar ou ativar uma linha", () => {
+  const source = readFileSync(
+    new URL("../../src/tools/log-screen.js", import.meta.url),
+    "utf8"
+  );
+  assert.match(source, /data-log-row/u);
+  assert.match(source, /row\.addEventListener\("click", openDetails\)/u);
+  assert.match(source, /event\.key === "Enter" || event\.key === " "/u);
+  assert.match(source, /role="dialog"/u);
+  assert.match(source, /data-log-detail-close/u);
+  assert.match(source, /log-detail-message/u);
 });
 
 test("define a fila fiscal como item direto do menu Estoque", () => {
@@ -118,7 +175,8 @@ test("define barras contextuais singleton para telas operacionais", () => {
     "ncm-cest-update",
     "api-status",
     "nfce-query",
-    "backup"
+    "backup",
+    "log"
   ];
   const items = new Map(DEFAULT_NAVIGATION.items.map((item) => [item.keyNavigationItem, item]));
   for (const key of singletonKeys) {

@@ -32,3 +32,9 @@ de Produto é recalculada, seu custo unitário também atualiza o
 estruturas dependentes. As telas de consulta recalculam os custos exibidos dos
 componentes de Produto usando o custo atual do catálogo, evitando que um
 snapshot antigo seja apresentado como custo vigente.
+
+A quantidade informada em um componente representa o que foi comprado ou
+consumido antes da perda. A perda reduz apenas a quantidade útil para produção:
+`quantidade útil = quantidade informada × (1 - perda / 100)`. Ela não aumenta
+nem reduz o custo pago. A tela apresenta a quantidade informada e a quantidade
+útil lado a lado; a baixa de estoque continua usando a quantidade informada.

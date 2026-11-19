@@ -5,7 +5,13 @@ import { renderNavigationIntro } from "../ui/navigation-intro.js";
 import { renderPreservingFormDraft } from "../ui/form-draft.js";
 import { rerenderPreservingInputSelection } from "../ui/input-selection.js";
 import { installComboboxDismissal, rerenderComboboxSelection } from "../ui/combobox.js";
-import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import {
+  clearRenderedFeedback,
+  createFeedbackTimer,
+  formatUpdatedFiscalItems,
+  formatUpdatedRecipeStructures,
+  renderSuccessFeedback
+} from "../ui/feedback.js";
 import { apiFetch, getApiUrl } from "../shared/api.js";
 import { fetchWithTimeout } from "../shared/request-timeout.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
@@ -522,7 +528,7 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
                   <label class="form-field"><span>Unidade fiscal</span><input value="${escapeHtml(editingItem.fiscalUnitFiscalDocumentItem)}" readonly /></label>
                   <label class="form-field"><span>Unidade de estoque</span><input data-stock-unit value="${escapeHtml(selectedProduct(editingItem)?.codeUnit || "-")}" readonly /></label>
                 </div>
-                <label class="form-field"><span>Conversão (1 ${escapeHtml(editingItem.fiscalUnitFiscalDocumentItem)} = X unidade(s) de estoque)</span><input name="conversionFactor" inputmode="decimal" value="${escapeHtml(editingItem.conversionFactor || suggestedConversionFactor(editingItem.fiscalUnitFiscalDocumentItem, selectedProduct(editingItem)?.codeUnit))}" required /></label>
+                <label class="form-field"><span>Conversão (1 ${escapeHtml(editingItem.fiscalUnitFiscalDocumentItem)} = X unidades de estoque)</span><input name="conversionFactor" inputmode="decimal" value="${escapeHtml(editingItem.conversionFactor || suggestedConversionFactor(editingItem.fiscalUnitFiscalDocumentItem, selectedProduct(editingItem)?.codeUnit))}" required /></label>
                 <p class="form-help" data-conversion-preview></p>
                 <div class="classic-form-actions"><button class="classic-button primary" type="submit">Salvar vínculo</button><button class="classic-button" data-cancel-entry-item type="button">Cancelar</button></div>
               </form>
@@ -796,7 +802,12 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
       editingItem = null;
       productPicker.searchTerm = "";
       productPicker.isOpen = false;
+      message = "Vínculo do item salvo.";
       render();
+      scheduleMessageClear(() => {
+        message = "";
+        clearRenderedFeedback(root);
+      });
     });
     root.querySelector("[data-product-toggle]")?.addEventListener("click", () => {
       productPicker.isOpen = !productPicker.isOpen;
@@ -852,7 +863,11 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
   };
 
   const finishImportedEntry = async (result, form) => {
-    message = `Entrada ${result.fiscalEntry?.idFiscalEntry || ""} gravada como ${fiscalEntryStatusLabel(result.fiscalEntry?.statusFiscalEntry)}.`;
+    const entryId = result.fiscalEntry?.idFiscalEntry;
+    const status = result.fiscalEntry?.statusFiscalEntry;
+    message = status === "open"
+      ? `Entrada ${entryId} registrada e aberta para revisão.`
+      : `Entrada ${entryId} registrada em ${fiscalEntryStatusLabel(status).toLocaleLowerCase("pt-BR")}.`;
     await loadFiscalEntries();
     if (entryOnly) {
       currentEntry = await loadEntry(result.fiscalEntry.idFiscalEntry);
@@ -914,7 +929,7 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
       if (!response.ok) throw new Error(result.error || "Não foi possível reler os dados fiscais.");
       currentEntry = await loadEntry(entryId);
       await loadFiscalEntries();
-      message = `${result.updatedItemCount} valor(es) fiscal(is) relido(s).`;
+      message = formatUpdatedFiscalItems(result.updatedItemCount);
       render();
       scheduleMessageClear(() => {
         message = "";
@@ -970,7 +985,7 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
         if (!response.ok) throw new Error(result.error || "Não foi possível reconciliar os valores.");
         currentEntry = await loadEntry(currentReconcileEntryId);
         await loadFiscalEntries();
-        message = `${result.updatedItemCount} valor(es) fiscal(is) reconciliado(s).`;
+        message = formatUpdatedFiscalItems(result.updatedItemCount);
         render();
         scheduleMessageClear(() => {
           message = "";
@@ -1114,7 +1129,9 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
       entryPayments = currentEntry.entryPayments || [];
       selectedPaymentMethod = entryPayments[0]?.paymentDescriptionFiscalEntryPayment || "";
       await loadFiscalEntries();
-      message = `Entrada ${currentEntry.fiscalEntry.idFiscalEntry} gravada como ${fiscalEntryStatusLabel(result.statusFiscalEntry)}.`;
+      message = result.statusFiscalEntry === "open"
+        ? `Entrada ${currentEntry.fiscalEntry.idFiscalEntry} aberta para revisão.`
+        : `Entrada ${currentEntry.fiscalEntry.idFiscalEntry} registrada em ${fiscalEntryStatusLabel(result.statusFiscalEntry).toLocaleLowerCase("pt-BR")}.`;
       render();
       scheduleMessageClear(() => {
         message = "";
@@ -1163,16 +1180,18 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Não foi possível confirmar a entrada.");
-      currentEntry = await loadEntry(entryId);
-      await loadFiscalEntries();
       message = result.updatedRecipeCount
-        ? `Entrada ${entryId} confirmada. ${result.updatedRecipeCount} Receita(s)/Ficha(s) recalculada(s).`
+        ? `Entrada ${entryId} confirmada. ${formatUpdatedRecipeStructures(result.updatedRecipeCount)}`
         : `Entrada ${entryId} confirmada.`;
+      entryError = "";
       render();
       scheduleMessageClear(() => {
         message = "";
         clearRenderedFeedback(root);
       });
+      currentEntry = await loadEntry(entryId);
+      await loadFiscalEntries();
+      render();
     } catch (confirmError) {
       entryError = confirmError instanceof Error ? confirmError.message : "Falha ao confirmar a entrada.";
       render();

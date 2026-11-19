@@ -15,6 +15,21 @@ CREATE TABLE IF NOT EXISTS classes (
   UNIQUE KEY uqClassesDescriptionClass (descriptionClass),
   KEY idxClassesFiscalOperation (idFiscalOperationClass)
 ) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS technical_logs (
+  idTechnicalLog BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  occurredAtTechnicalLog TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  sourceTechnicalLog ENUM('api','frontend','database','backup','tauri','service','printer','system') NOT NULL,
+  levelTechnicalLog ENUM('debug','info','warn','error') NOT NULL DEFAULT 'info',
+  messageTechnicalLog VARCHAR(500) NOT NULL,
+  operationTechnicalLog VARCHAR(80) NOT NULL DEFAULT '',
+  durationMsTechnicalLog INT UNSIGNED NULL,
+  statusCodeTechnicalLog SMALLINT UNSIGNED NULL,
+  successTechnicalLog TINYINT(1) NOT NULL DEFAULT 1,
+  PRIMARY KEY (idTechnicalLog),
+  KEY idxTechnicalLogsOccurred (occurredAtTechnicalLog),
+  KEY idxTechnicalLogsSourceLevel (sourceTechnicalLog, levelTechnicalLog, occurredAtTechnicalLog)
+) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS `groups` (
   idGroup BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   descriptionGroup VARCHAR(120) NOT NULL,
@@ -116,6 +131,7 @@ CREATE TABLE IF NOT EXISTS fiscal_document_items (
   descriptionFiscalDocumentItem VARCHAR(255) NOT NULL,
   ncmFiscalDocumentItem VARCHAR(20) NOT NULL DEFAULT '',
   cestFiscalDocumentItem VARCHAR(20) NOT NULL DEFAULT '',
+  entryDateFiscalDocumentItem DATE NULL,
   cfopFiscalDocumentItem VARCHAR(10) NOT NULL DEFAULT '',
   fiscalUnitFiscalDocumentItem VARCHAR(20) NOT NULL DEFAULT '',
   quantityFiscalDocumentItem DECIMAL(14,4) NOT NULL,

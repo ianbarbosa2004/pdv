@@ -1,7 +1,7 @@
 import { renderLucideIcons } from "../ui/icons.js";
 import { bindMainMenu, renderMainMenu } from "../ui/main-menu.js";
 import { apiFetch, getApiUrl } from "../shared/api.js";
-import { renderSuccessFeedback } from "../ui/feedback.js";
+import { formatUpdatedRecipeStructures, renderSuccessFeedback } from "../ui/feedback.js";
 import { getContextualNavigationItems, renderContextualNavigationItems } from "../ui/contextual-navigation.js";
 import { resolveNavigationHandler } from "../ui/navigation-routing.js";
 
@@ -93,7 +93,7 @@ export function createCostDivergenceScreen(menuHandlers = {}) {
         throw new Error("O preço de custo retornado pelo cadastro não corresponde ao valor atualizado.");
       }
       message = payload.updatedRecipeCount
-        ? `Preço de custo atualizado. ${payload.updatedRecipeCount} Receita(s)/Ficha(s) recalculada(s).`
+        ? `Preço de custo atualizado. ${formatUpdatedRecipeStructures(payload.updatedRecipeCount)}`
         : "Preço de custo atualizado com sucesso.";
       selectedProduct = null;
       await load();

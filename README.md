@@ -606,6 +606,7 @@ Consulte:
 - [Automações](docs/AUTOMATIONS.md)
 - [Prompts das automações](docs/AUTOMATION-PROMPTS.md)
 - [Automação de consolidação documental](docs/AUTOMATIONS.md#consolidar-documentação-do-pdv)
+- [Plano de migração da API para Express](docs/PLAN-MIGRACAO-EXPRESS.md)
 - [Prompt de continuidade](docs/CONTINUITY-PROMPT.md)
 - [Instalação e publicação](docs/DEPLOYMENT.md)
 - [Instalação automatizada da API no Windows](scripts/install-windows-api.ps1)

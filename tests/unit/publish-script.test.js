@@ -70,7 +70,7 @@ test("migrações aceitam Ctrl+V no prompt mascarado", async () => {
   assert.match(config, /character === "\\u0016"/u);
   assert.match(config, /process\.stdout\.write\("\*"\)/u);
   assert.doesNotMatch(config, /console\.log\(.*password/iu);
-  assert.match(migration, /loadMigrationConfig/u);
+  assert.match(migration, /loadRootMigrationConfig/u);
   assert.doesNotMatch(migration, /getConfig/u);
 });
 

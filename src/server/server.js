@@ -75,6 +75,7 @@ import {
 import { findRecipeCycles, validateRecipeDefinition } from "../shared/recipe.js";
 import {
   calculateCostUpdate,
+  calculateCostForPolicyChange,
   calculateCostUpdateSequence,
   calculateFiscalItemImpact,
   calculateInventoryAdjustment,
@@ -84,6 +85,12 @@ import {
   propagateRecipeCosts,
   RecipeCostPropagationError
 } from "./recipe-cost-propagation.js";
+import {
+  createComponentLogWriter,
+  createRealLogReader,
+  createTechnicalLogService,
+  mergeLogEntries
+} from "./technical-log-service.js";
 
 const culinaryBaseForUnit = (unit = {}) => {
   const value = `${unit.codeUnit || ""} ${unit.descriptionUnit || ""}`.toLocaleLowerCase("pt-BR");
@@ -147,8 +154,35 @@ const {
   ensurePaymentMethodSchema,
   ensureSupplierSchema,
   ensureOperatorCashSchema,
+  ensureTechnicalLogSchema,
   ensureMarginSchema
 } = createSchemaManager({ pool, config });
+const technicalLogs = createTechnicalLogService({ pool });
+const realLogs = createRealLogReader();
+const nodeLogWriter = createComponentLogWriter({ fileName: "pdv-node.log" });
+const formatConsoleValue = (value) => {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+};
+const originalConsoleLog = console.log;
+const originalConsoleWarn = console.warn;
+const originalConsoleError = console.error;
+console.log = (...args) => {
+  originalConsoleLog(...args);
+  nodeLogWriter.write("info", args.map(formatConsoleValue).join(" "));
+};
+console.warn = (...args) => {
+  originalConsoleWarn(...args);
+  nodeLogWriter.write("warn", args.map(formatConsoleValue).join(" "));
+};
+console.error = (...args) => {
+  originalConsoleError(...args);
+  nodeLogWriter.write("error", args.map(formatConsoleValue).join(" "));
+};
 const applicationRoot = join(import.meta.dirname, "../..");
 const backupOptions = () => ({
   applicationRoot,
@@ -614,6 +648,30 @@ const handleError = (response, error, fallback) => {
 };
 
 const server = createServer(async (request, response) => {
+  const startedAt = process.hrtime.bigint();
+  const requestUrl = (() => {
+    try {
+      return new URL(request.url, "http://localhost").pathname;
+    } catch {
+      return "/api/unknown";
+    }
+  })();
+  response.once("finish", () => {
+    if (request.method === "OPTIONS" || requestUrl === "/api/logs" || requestUrl === "/api/logs/export") return;
+    const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+    if (response.statusCode >= 200 && response.statusCode < 400) return;
+    void ensureTechnicalLogSchema()
+      .then(() => technicalLogs.record({
+        source: "api",
+        level: response.statusCode >= 500 ? "error" : response.statusCode >= 400 ? "warn" : "info",
+        message: `${request.method} ${requestUrl}`,
+        operation: "http",
+        durationMs,
+        statusCode: response.statusCode,
+        success: response.statusCode < 400
+      }))
+      .catch(() => {});
+  });
   const origin = request.headers.origin;
   setCorsHeaders(response, origin);
   if (request.method === "OPTIONS") {
@@ -1078,6 +1136,88 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "POST" && request.url === "/api/logs") {
+    try {
+      await ensureTechnicalLogSchema();
+      const payload = await readJsonBody(request, 64 * 1024);
+      await technicalLogs.record(payload);
+      json(response, 201, { ok: true });
+    } catch (error) {
+      json(response, 400, { error: error instanceof Error ? error.message : "Não foi possível registrar o log." });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && request.url.startsWith("/api/logs/export")) {
+    try {
+      await ensureTechnicalLogSchema();
+      const url = new URL(request.url, "http://localhost");
+      const technicalEntries = await technicalLogs.list({
+        source: url.searchParams.get("source") || "",
+        level: url.searchParams.get("level") || "",
+        limit: url.searchParams.get("limit") || 1000
+      });
+      const realEntries = await realLogs.readEntries({
+        source: url.searchParams.get("source") || "",
+        level: url.searchParams.get("level") || "",
+        limit: url.searchParams.get("limit") || 1000
+      });
+      const entries = mergeLogEntries({
+        realEntries,
+        technicalEntries,
+        limit: url.searchParams.get("limit") || 1000
+      });
+      const text = entries.map((entry) => ({
+        occurredAtTechnicalLog: entry.occurredAtTechnicalLog,
+        levelTechnicalLog: entry.levelTechnicalLog,
+        sourceTechnicalLog: entry.sourceTechnicalLog,
+        messageTechnicalLog: entry.messageTechnicalLog,
+        logFileName: entry.logFileName || null,
+        logLineNumber: entry.logLineNumber || null
+      }))
+        .map((entry) => {
+          const location = entry.logFileName
+            ? ` ${entry.logFileName}${entry.logLineNumber ? `:${entry.logLineNumber}` : ""}`
+            : "";
+          return `${new Date(entry.occurredAtTechnicalLog).toISOString()}${location} ${entry.levelTechnicalLog.toUpperCase()} ${entry.sourceTechnicalLog} ${entry.messageTechnicalLog}`;
+        }).join("\n");
+      binary(response, 200, "text/plain; charset=utf-8", 'attachment; filename="pdv-log.txt"', Buffer.from(text));
+    } catch (error) {
+      json(response, 500, { error: error instanceof Error ? error.message : "Não foi possível exportar os logs." });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && request.url.startsWith("/api/logs")) {
+    try {
+      await ensureTechnicalLogSchema();
+      const url = new URL(request.url, "http://localhost");
+      const technicalEntries = await technicalLogs.list({
+        source: url.searchParams.get("source") || "",
+        level: url.searchParams.get("level") || "",
+        limit: url.searchParams.get("limit") || 200
+      });
+      const realEntries = await realLogs.readEntries({
+        source: url.searchParams.get("source") || "",
+        level: url.searchParams.get("level") || "",
+        limit: url.searchParams.get("limit") || 200
+      });
+      const entries = mergeLogEntries({
+        realEntries,
+        technicalEntries,
+        limit: url.searchParams.get("limit") || 200,
+        prioritizeReal: !url.searchParams.get("source")
+      });
+      json(response, 200, {
+        logs: entries,
+        retentionDays: technicalLogs.retentionDays
+      });
+    } catch (error) {
+      json(response, 500, { error: error instanceof Error ? error.message : "Não foi possível listar os logs." });
+    }
+    return;
+  }
+
   if (request.method === "GET" && (request.url === "/api/backups" || request.url.startsWith("/api/backups?"))) {
     try {
       const options = backupOptions();
@@ -1091,11 +1231,21 @@ const server = createServer(async (request, response) => {
   }
 
   if (request.method === "POST" && request.url === "/api/backups") {
+    const startedAt = process.hrtime.bigint();
     try {
+      await ensureTechnicalLogSchema();
       const backup = await createBackup({
         pool,
         ...backupOptions(),
         databaseName: config.database.name
+      });
+      await technicalLogs.record({
+        source: "backup",
+        level: "info",
+        message: "Backup criado",
+        operation: "backup-create",
+        durationMs: Number(process.hrtime.bigint() - startedAt) / 1e6,
+        success: true
       });
       json(response, 201, {
         backup: {
@@ -1107,6 +1257,14 @@ const server = createServer(async (request, response) => {
         }
       });
     } catch (error) {
+      await technicalLogs.record({
+        source: "backup",
+        level: "error",
+        message: "Falha ao criar backup",
+        operation: "backup-create",
+        durationMs: Number(process.hrtime.bigint() - startedAt) / 1e6,
+        success: false
+      }).catch(() => {});
       json(response, 500, { error: error instanceof Error ? error.message : "Não foi possível criar o backup." });
     }
     return;
@@ -1128,7 +1286,9 @@ const server = createServer(async (request, response) => {
   }
 
   if (request.method === "POST" && request.url === "/api/backups/restore") {
+    const startedAt = process.hrtime.bigint();
     try {
+      await ensureTechnicalLogSchema();
       const payload = await readJsonBody(request, 70 * 1024 * 1024);
       const encoded = String(payload?.backupBase64 || "");
       if (!encoded) throw new SaleValidationError("Selecione um backup compactado.");
@@ -1140,8 +1300,24 @@ const server = createServer(async (request, response) => {
         expectedDatabaseName: config.database.name,
         compressed: Buffer.from(encoded, "base64")
       });
+      await technicalLogs.record({
+        source: "backup",
+        level: "info",
+        message: "Backup restaurado",
+        operation: "backup-restore",
+        durationMs: Number(process.hrtime.bigint() - startedAt) / 1e6,
+        success: true
+      });
       json(response, 200, { ok: true, result, safetyBackup: { fileName: safetyBackup.fileName } });
     } catch (error) {
+      await technicalLogs.record({
+        source: "backup",
+        level: "error",
+        message: "Falha ao restaurar backup",
+        operation: "backup-restore",
+        durationMs: Number(process.hrtime.bigint() - startedAt) / 1e6,
+        success: false
+      }).catch(() => {});
       handleError(response, error, {
         log: "Falha ao restaurar backup:",
         message: "Não foi possível restaurar o backup.",
@@ -4278,7 +4454,7 @@ const server = createServer(async (request, response) => {
             (idFiscalDocument, lineNumberFiscalDocumentItem,
              supplierCodeFiscalDocumentItem, barcodeFiscalDocumentItem,
              descriptionFiscalDocumentItem, ncmFiscalDocumentItem,
-             cestFiscalDocumentItem, cfopFiscalDocumentItem, fiscalUnitFiscalDocumentItem,
+             cestFiscalDocumentItem, entryDateFiscalDocumentItem, cfopFiscalDocumentItem, fiscalUnitFiscalDocumentItem,
              quantityFiscalDocumentItem, unitPriceFiscalDocumentItem,
              totalFiscalDocumentItem, taxableUnitFiscalDocumentItem,
              taxableQuantityFiscalDocumentItem, taxableUnitPriceFiscalDocumentItem,
@@ -4286,7 +4462,7 @@ const server = createServer(async (request, response) => {
              otherExpensesFiscalDocumentItem, discountFiscalDocumentItem,
              taxOriginFiscalDocumentItem, taxSituationFiscalDocumentItem,
              isTotalizedFiscalDocumentItem)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
           [
             documentId,
             item.lineNumber || index + 1,
@@ -4295,6 +4471,7 @@ const server = createServer(async (request, response) => {
             item.description,
             item.ncm,
             item.cest,
+            dateOrNull(issuedAt),
             item.cfop,
             item.fiscalUnit,
             decimal(item.quantity, 4),
@@ -4559,10 +4736,11 @@ const server = createServer(async (request, response) => {
           `INSERT INTO fiscal_document_items
             (idFiscalDocument, lineNumberFiscalDocumentItem, descriptionFiscalDocumentItem,
              fiscalUnitFiscalDocumentItem, quantityFiscalDocumentItem, unitPriceFiscalDocumentItem,
-             totalFiscalDocumentItem, taxableUnitFiscalDocumentItem)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+             totalFiscalDocumentItem, taxableUnitFiscalDocumentItem, entryDateFiscalDocumentItem)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [documentId, index + 1, item.product.nameProduct, item.product.codeUnit,
-            item.quantity.toFixed(4), item.unitPrice.toFixed(2), (item.quantity * item.unitPrice).toFixed(2), item.product.codeUnit]
+            item.quantity.toFixed(4), item.unitPrice.toFixed(2), (item.quantity * item.unitPrice).toFixed(2),
+            item.product.codeUnit, normalized.date]
         );
         await connection.query(
           `INSERT INTO fiscal_entry_items (idFiscalEntry, idFiscalDocumentItem, idProductFiscalReference, selected, status)
@@ -4639,9 +4817,12 @@ const server = createServer(async (request, response) => {
         const [docItem] = await connection.query(
           `INSERT INTO fiscal_document_items
            (idFiscalDocument, lineNumberFiscalDocumentItem, descriptionFiscalDocumentItem, fiscalUnitFiscalDocumentItem,
-            quantityFiscalDocumentItem, unitPriceFiscalDocumentItem, totalFiscalDocumentItem, taxableUnitFiscalDocumentItem)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [locked[0].idFiscalDocument, index + 1, item.product.nameProduct, item.product.codeUnit, item.quantity.toFixed(4), item.unitPrice.toFixed(2), (item.quantity * item.unitPrice).toFixed(2), item.product.codeUnit]
+            quantityFiscalDocumentItem, unitPriceFiscalDocumentItem, totalFiscalDocumentItem, taxableUnitFiscalDocumentItem,
+            entryDateFiscalDocumentItem)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [locked[0].idFiscalDocument, index + 1, item.product.nameProduct, item.product.codeUnit,
+            item.quantity.toFixed(4), item.unitPrice.toFixed(2), (item.quantity * item.unitPrice).toFixed(2),
+            item.product.codeUnit, normalized.date]
         );
         await connection.query("INSERT INTO fiscal_entry_items (idFiscalEntry, idFiscalDocumentItem, idProductFiscalReference, selected, status) VALUES (?, ?, ?, 1, 'linked')", [Number(manualEntryWriteMatch[1]), docItem.insertId, referenceId]);
       }
@@ -6985,11 +7166,82 @@ const server = createServer(async (request, response) => {
       connection = await pool.getConnection();
       await connection.beginTransaction();
       const [existingProductRows] = await connection.query(
-        "SELECT pdvCodeProduct FROM products WHERE idProduct = ?",
+        `SELECT pdvCodeProduct, costPolicyProduct, costPriceProduct, stockQuantityProduct
+         FROM products
+         WHERE idProduct = ?`,
         [idProduct]
       );
       if (!existingProductRows.length) throw new SaleValidationError("Produto não encontrado.", 404);
       const pdvCodeProduct = existingProductRows[0].pdvCodeProduct;
+      let effectiveCostPriceProduct = costPriceProduct;
+      const [[confirmedEntries], [costMovements]] = await Promise.all([
+        connection.query(
+          `SELECT entry.idFiscalEntry, entry.confirmedAtFiscalEntry,
+                  i.lineNumberFiscalDocumentItem, i.idFiscalDocumentItem,
+                  i.quantityFiscalDocumentItem, i.totalFiscalDocumentItem,
+                  pfr.conversionFactor,
+                  inventoryMovement.idInventoryMovement,
+                  i.entryDateFiscalDocumentItem AS fiscalEntryDate
+           FROM fiscal_entry_items ei
+           JOIN fiscal_entries entry ON entry.idFiscalEntry = ei.idFiscalEntry
+           JOIN fiscal_document_items i
+             ON i.idFiscalDocumentItem = ei.idFiscalDocumentItem
+           JOIN product_fiscal_references pfr
+             ON pfr.idProductFiscalReference = ei.idProductFiscalReference
+           JOIN inventory_movements inventoryMovement
+             ON inventoryMovement.idFiscalEntry = entry.idFiscalEntry
+            AND inventoryMovement.idProduct = pfr.idProduct
+            AND inventoryMovement.typeInventoryMovement = 'fiscal_entry'
+           WHERE pfr.idProduct = ? AND entry.statusFiscalEntry = 'confirmed'
+            ORDER BY i.entryDateFiscalDocumentItem ASC,
+                   i.idFiscalDocument ASC,
+                    i.lineNumberFiscalDocumentItem ASC,
+                    i.idFiscalDocumentItem ASC`,
+          [idProduct]
+        ),
+        connection.query(
+          `SELECT previousStockInventoryMovement,
+                  previousCostInventoryMovement
+           FROM inventory_movements
+           WHERE idProduct = ? AND typeInventoryMovement = 'fiscal_entry'
+           ORDER BY idInventoryMovement ASC
+           LIMIT 1`,
+          [idProduct]
+        )
+      ]);
+      const entries = confirmedEntries.map((entry) => {
+        const impact = calculateFiscalItemImpact({
+          sourceQuantity: entry.quantityFiscalDocumentItem,
+          sourceTotal: entry.totalFiscalDocumentItem,
+          conversionFactor: entry.conversionFactor
+        });
+        return {
+          quantity: impact.quantity,
+          unitCost: impact.unitCost
+        };
+      });
+      if (costMovements.length) {
+        const sequence = calculateCostUpdateSequence({
+          policy: costPolicyProduct,
+          previousStock: costMovements[0].previousStockInventoryMovement,
+          previousCost: costMovements[0].previousCostInventoryMovement,
+          entries: entries.map((entry) => ({
+            receivedQuantity: entry.quantity,
+            receivedUnitCost: entry.unitCost
+          }))
+        });
+        effectiveCostPriceProduct = sequence.nextCost;
+      } else {
+        effectiveCostPriceProduct = calculateCostForPolicyChange({
+          policy: costPolicyProduct,
+          previousCost: existingProductRows[0].costPriceProduct,
+          previousStock: existingProductRows[0].stockQuantityProduct,
+          entries
+        });
+      }
+      const effectivePriceProduct = nonSaleProduct
+        ? effectiveCostPriceProduct
+        : priceProduct;
       const [result] = await connection.query(
         `UPDATE products SET idGroup = ?, skuProduct = ?, nameProduct = ?,
           idFiscalOperationSaleProduct = ?, idProductTypeProduct = ?, idPhysicalStateProduct = ?, idUnitProduct = ?, packageQuantityProduct = ?,
@@ -6999,7 +7251,7 @@ const server = createServer(async (request, response) => {
          WHERE idProduct = ?`,
         [idGroup, skuProduct, nameProduct, idFiscalOperationSaleProduct,
           idProductTypeProduct, normalizedPhysicalStateProduct, idUnitProduct, packageQuantityProduct, ncmProduct || null, cestProduct || null,
-          priceProduct, costPriceProduct, costPolicyProduct, stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct,
+          effectivePriceProduct, effectiveCostPriceProduct, costPolicyProduct, stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct,
           printsPlace, showsInPdvProduct, idProduct]
       );
       if (!result.affectedRows) throw new SaleValidationError("Produto não encontrado.", 404);
@@ -7007,7 +7259,7 @@ const server = createServer(async (request, response) => {
       await connection.commit();
       connection.release();
       connection = null;
-      json(response, 200, { product: { idProduct, idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct, idProductTypeProduct, idPhysicalStateProduct: normalizedPhysicalStateProduct, idUnitProduct, packageQuantityProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct, costPriceProduct, costPolicyProduct, stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct, printsPlace, showsInPdvProduct }, updatedRecipeCount: propagation.updatedRecipeCount });
+      json(response, 200, { product: { idProduct, idGroup, skuProduct, pdvCodeProduct, nameProduct, idFiscalOperationSaleProduct, idProductTypeProduct, idPhysicalStateProduct: normalizedPhysicalStateProduct, idUnitProduct, packageQuantityProduct, ncmProduct: ncmProduct || null, cestProduct: cestProduct || null, priceProduct: effectivePriceProduct, costPriceProduct: effectiveCostPriceProduct, costPolicyProduct, stockQuantityProduct, controlsStockProduct, isBuffetProduct, isFractionalProduct, printsPlace, showsInPdvProduct }, updatedRecipeCount: propagation.updatedRecipeCount });
     } catch (error) {
       if (connection) {
         await connection.rollback().catch(() => {});
@@ -7578,10 +7830,18 @@ server.listen(config.apiPort, config.apiHost, () => {
     ensureCustomerConsumerSchema().then(migrateCustomerConsumerSchema),
     ensureRecipeSchema(),
     ensureNavigationSchema(),
-    ensureOperatorCashSchema()
+    ensureOperatorCashSchema(),
+    ensureTechnicalLogSchema()
   ])
     .then(() => ensureMarginSchema())
     .then(() => ensureMonetaryScaleSchema())
+    .then(() => technicalLogs.record({
+      source: "api",
+      level: "info",
+      message: "API iniciada",
+      operation: "startup",
+      success: true
+    }))
     .catch((error) => {
     console.error("Falha ao preparar o banco:", error);
   });

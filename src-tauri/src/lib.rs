@@ -286,7 +286,10 @@ async fn open_fiscal_consultation(app: tauri::AppHandle) -> Result<(), String> {
         .build()
         .map_err(|error| format!("Não foi possível abrir a consulta fiscal: {error}"))?;
     window.on_window_event(move |event| {
-        if matches!(event, WindowEvent::CloseRequested { .. } | WindowEvent::Destroyed) {
+        if matches!(
+            event,
+            WindowEvent::CloseRequested { .. } | WindowEvent::Destroyed
+        ) {
             if let Some(main_window) = close_event_app.get_webview_window("main") {
                 let _ = main_window.emit(FISCAL_CONSULTATION_CLOSED_EVENT, ());
             }
@@ -349,7 +352,9 @@ async fn read_fiscal_dom(app: tauri::AppHandle) -> Result<Value, String> {
     if let Some(main_window) = app.get_webview_window("main") {
         main_window
             .emit(FISCAL_DOM_EVENT, &payload)
-            .map_err(|error| format!("Não foi possível enviar a consulta fiscal para o PDV: {error}"))?;
+            .map_err(|error| {
+                format!("Não foi possível enviar a consulta fiscal para o PDV: {error}")
+            })?;
     }
     Ok(payload)
 }
@@ -891,16 +896,20 @@ fn send_to_windows_driver(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
-            Ok(())
-        })
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .level(tauri_plugin_log::log::LevelFilter::Info)
+                .targets([
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Folder {
+                        path: std::path::PathBuf::from(r"C:\ProgramData\PDV\logs"),
+                        file_name: Some("pdv-tauri".to_string()),
+                    }),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stderr),
+                ])
+                .build(),
+        )
+        .setup(|_| Ok(()))
         .invoke_handler(tauri::generate_handler![
             print_receipt,
             list_installed_printers,

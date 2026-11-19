@@ -1,5 +1,5 @@
 import mysql from "mysql2/promise";
-import { loadMigrationConfig } from "../../src/server/config.js";
+import { loadRootMigrationConfig } from "../../src/server/config.js";
 
 const tableExists = async (connection, tableName) => {
   const [rows] = await connection.execute(
@@ -361,7 +361,7 @@ const validate = async (connection) => {
 };
 
 const main = async () => {
-  const config = await loadMigrationConfig();
+  const config = await loadRootMigrationConfig();
   const connection = await mysql.createConnection({
     host: config.database.host,
     port: config.database.port,

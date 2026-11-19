@@ -5,6 +5,7 @@ import {
   calculateComponentCost,
   calculateCostPerYieldUnit,
   calculateGrossQuantity,
+  calculateUsableQuantity,
   expandRecipeComponents,
   findRecipeCycles,
   validateRecipeDefinition
@@ -113,9 +114,10 @@ test("filtra unidade culinária e conversão conforme o componente", () => {
   );
 });
 
-test("calculates gross quantity and cost including loss", () => {
-  assert.equal(calculateGrossQuantity(0.8, 20), 1);
-  assert.equal(calculateComponentCost({ quantity: 0.8, lossPercent: 20, unitCost: 10 }), 10);
+test("calcula quantidade útil após a perda sem aumentar o custo da compra", () => {
+  assert.equal(calculateUsableQuantity(0.8, 20), 0.6400000000000001);
+  assert.equal(calculateGrossQuantity(0.8, 20), 0.6400000000000001);
+  assert.equal(calculateComponentCost({ quantity: 0.8, lossPercent: 20, unitCost: 10 }), 8);
   assert.equal(
     calculateComponentCost({
       quantity: 800,

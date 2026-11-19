@@ -6133,6 +6133,232 @@ h2 {
   text-align: center;
 }
 
+.log-screen .log-content {
+  min-width: 1180px;
+  max-width: 1180px;
+}
+
+.log-screen .log-panel-header,
+.log-screen .log-filter-actions,
+.log-screen .log-table-wrapper {
+  box-sizing: border-box;
+}
+
+.log-screen .log-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.log-screen .log-event-count {
+  color: #eef4fa;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.log-screen .log-filter-actions {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  border-top: 0;
+  border-bottom: 1px solid #d4dbe3;
+  padding: 12px 16px;
+}
+
+.log-screen .log-filter-field {
+  display: grid;
+  gap: 4px;
+  min-width: 150px;
+  color: #364352;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.log-screen .log-filter-field select {
+  min-width: 150px;
+  min-height: 30px;
+  padding: 5px 7px;
+  border: 1px solid #aeb8c4;
+  border-radius: 2px;
+  background: #fff;
+  color: #202124;
+}
+
+.log-screen .log-table-wrapper {
+  min-height: 360px;
+  max-height: calc(100vh - 330px);
+  overflow: auto;
+  padding: 0;
+}
+
+.log-screen .log-table {
+  min-width: 1120px;
+  table-layout: fixed;
+}
+
+.log-screen .log-table th,
+.log-screen .log-table td {
+  vertical-align: top;
+}
+
+.log-screen .log-date-column {
+  width: 145px;
+  white-space: nowrap;
+}
+
+.log-screen .log-table th:nth-child(2),
+.log-screen .log-table td:nth-child(2) {
+  width: 95px;
+  text-align: center;
+}
+
+.log-screen .log-table th:nth-child(3),
+.log-screen .log-table td:nth-child(3) {
+  width: 110px;
+  text-align: center;
+}
+
+.log-screen .log-table th:nth-child(4),
+.log-screen .log-table td:nth-child(4) {
+  width: 130px;
+}
+
+.log-screen .log-message-column {
+  width: auto;
+  min-width: 260px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.log-screen .log-duration-column {
+  width: 85px;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.log-screen .log-table th:nth-child(7),
+.log-screen .log-table td:nth-child(7) {
+  width: 85px;
+  text-align: center;
+}
+
+.log-screen .log-source-badge,
+.log-screen .log-level-badge,
+.log-screen .log-status-badge {
+  display: inline-block;
+  box-sizing: border-box;
+  max-width: 100%;
+  border: 1px solid #b8c1cc;
+  border-radius: 2px;
+  padding: 2px 6px;
+  background: #edf1f5;
+  color: #354353;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.log-screen .log-level-badge.is-error,
+.log-screen .log-status-badge.is-error {
+  border-color: #d6a0a0;
+  background: #f8eaea;
+  color: #9b2626;
+}
+
+.log-screen .log-level-badge.is-warn {
+  border-color: #d1b66d;
+  background: #fbf4d9;
+  color: #775b10;
+}
+
+.log-screen .log-level-badge.is-info,
+.log-screen .log-status-badge.is-success {
+  border-color: #98bda4;
+  background: #eaf5ed;
+  color: #28683b;
+}
+
+.log-screen .log-event-row {
+  cursor: pointer;
+}
+
+.log-screen .log-event-row:focus-visible {
+  outline: 2px solid #315b8a;
+  outline-offset: -2px;
+}
+
+.log-screen .log-detail-modal {
+  width: min(100%, 760px);
+}
+
+.log-screen .log-detail-body {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.log-screen .log-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.log-screen .log-detail-grid div {
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid #d4dbe3;
+  background: #f7f9fb;
+}
+
+.log-screen .log-detail-grid dt {
+  color: #687584;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.log-screen .log-detail-grid dd {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+  color: #23384d;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.log-screen .log-detail-message {
+  display: grid;
+  gap: 6px;
+  color: #364352;
+  font-size: 0.78rem;
+}
+
+.log-screen .log-detail-message pre {
+  min-height: 120px;
+  max-height: 300px;
+  margin: 0;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid #cbd3dc;
+  background: #fff;
+  color: #202124;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+@media (max-width: 760px) {
+  .log-screen .log-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .classic-form-panel .form-field {
   gap: 4px;
   color: #364352;

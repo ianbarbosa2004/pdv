@@ -101,6 +101,25 @@ test("o cadastro de fornecedor agenda a limpeza do feedback", async () => {
   assert.match(supplierBlock, /message = ""/u);
 });
 
+test("a confirmação fiscal define o feedback antes de recarregar os dados", async () => {
+  const source = await readFile(
+    new URL("../../src/stock/fiscal-document-queue-screen.js", import.meta.url),
+    "utf8"
+  );
+  const confirmationStart = source.indexOf("const confirmEntry = async");
+  const confirmationEnd = source.indexOf("\n  const removeEntry", confirmationStart);
+  const confirmationBlock = source.slice(confirmationStart, confirmationEnd);
+
+  assert.ok(confirmationBlock, "o fluxo de confirmação fiscal deve existir");
+  assert.ok(
+    confirmationBlock.indexOf("message = result.updatedRecipeCount") <
+      confirmationBlock.indexOf("currentEntry = await loadEntry(entryId)"),
+    "o sucesso deve ser definido antes da nova leitura"
+  );
+  assert.match(confirmationBlock, /Entrada \$\{entryId\} confirmada/u);
+  assert.match(confirmationBlock, /scheduleMessageClear\(/u);
+});
+
 test("a soma da pré-entrada usa números no formato brasileiro na tela", async () => {
   const source = await readFile(
     new URL("../../src/stock/fiscal-document-queue-screen.js", import.meta.url),
@@ -210,7 +229,7 @@ test("reconsulta valores sem substituir vínculos da pré-entrada", async () => 
   assert.match(reconcileBlock, /existingUnitPrice > 0 && unitPrice <= 0/u);
   assert.match(reconcileBlock, /existingTotal > 0 && total <= 0/u);
   assert.doesNotMatch(reconcileBlock, /UPDATE fiscal_entry_items/u);
-  assert.match(source, /await loadFiscalEntries\(\);\s+message = `\$\{result\.updatedItemCount\} valor\(es\) fiscal\(is\) relido\(s\)\.`/u);
+  assert.match(source, /await loadFiscalEntries\(\);\s+message = formatUpdatedFiscalItems\(result\.updatedItemCount\)/u);
   assert.doesNotMatch(source, /const saved = await saveEntry\(/u);
 });
 
@@ -278,6 +297,17 @@ test("usa exclusão com estorno para entradas confirmadas", async () => {
   assert.match(removeBlock, /method: isConfirmed \? "POST" : "DELETE"/u);
   assert.match(source, /data-delete-current-entry/u);
   assert.match(source, /currentEntry\.fiscalEntry\.statusFiscalEntry === "confirmed"/u);
+});
+
+test("mostra feedback ao salvar o vínculo de um item da entrada fiscal", async () => {
+  const source = await readFile(
+    new URL("../../src/stock/fiscal-document-queue-screen.js", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /message = "Vínculo do item salvo\."/u);
+  assert.match(source, /scheduleMessageClear\(/u);
+  assert.doesNotMatch(source, /unidade\(s\) de estoque/u);
 });
 
 test("adapta o texto e a listagem de produtos ao estado da entrada", async () => {
