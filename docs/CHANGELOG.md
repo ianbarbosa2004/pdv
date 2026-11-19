@@ -4,6 +4,16 @@ Este documento registra as mudanças funcionais e técnicas agrupadas por versã
 O número da versão só deve ser incrementado após pedido explícito. Builds e
 releases não alteram a versão automaticamente.
 
+## 0.19.1 - 2026-11-18
+
+- Corrigido o cálculo do custo em pré-entradas fiscais com várias linhas do
+  mesmo Produto. O impacto e a confirmação agora processam as linhas na ordem
+  fiscal, aplicando em sequência Último custo ou Custo médio.
+- O último custo passa a ser o da última entrada, enquanto o custo médio
+  considera o saldo e o custo intermediários de cada linha. A confirmação
+  atualiza o Produto uma vez e registra um movimento para cada etapa.
+- Alterações em `src/server/server.js` exigem reinício da API publicada.
+
 ## 0.19.0 - 2026-11-18
 
 - Implementada a View de Margem para consulta dos produtos ativos elegíveis,

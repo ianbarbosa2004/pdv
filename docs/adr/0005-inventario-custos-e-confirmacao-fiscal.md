@@ -23,6 +23,14 @@ transação da confirmação fiscal, da edição manual do custo do Produto ou d
 salvamento de uma Receita, Composição ou Ficha Técnica. A tela de teste de
 entrada fiscal não será a tela operacional definitiva.
 
+Quando uma pré-entrada tiver várias linhas vinculadas ao mesmo Produto, o
+impacto e a confirmação processam essas linhas em ordem fiscal, partindo do
+estoque e do custo atuais. A política do Produto define cada etapa:
+**Último custo** termina no custo da última entrada e **Custo médio** propaga
+o saldo e o custo intermediários a cada nova entrada. O Produto é atualizado
+uma única vez com o resultado final, enquanto os movimentos históricos preservam
+o resultado de cada etapa.
+
 ## Consequências
 
 O schema precisará separar o estado atual do Produto dos eventos históricos de

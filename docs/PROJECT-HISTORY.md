@@ -7,6 +7,24 @@ inicial do produto até o estado atual do workspace. Ele complementa o
 
 ## 0. Estado mais recente
 
+### Correção sequencial do custo em entradas fiscais — 2026-11-18
+
+Foi corrigido o cálculo de impacto e confirmação das pré-entradas fiscais que
+possuem várias linhas vinculadas ao mesmo Produto. Antes, o sistema repetia o
+saldo e o custo carregados no início da operação, fazendo com que o resultado
+depende-se apenas da primeira entrada processada.
+
+O processamento passou a agrupar as linhas por Produto e aplicar o custo em
+sequência, na ordem fiscal. Na política Último custo, o custo final vem da
+última linha; na política Custo médio, cada linha atualiza o saldo e o custo
+antes da próxima. O cadastro do Produto recebe o resultado final, e os
+movimentos históricos preservam cada etapa da transação.
+
+Esta etapa foi versionada como **0.19.1** e exige reinício da API publicada
+por alterar `src/server/server.js`. Os cálculos compartilhados e os testes
+unitários ficam em `src/shared/inventory.js` e
+`tests/unit/inventory.test.js`.
+
 ### View e balizadores de margem — 2026-11-18
 
 Foi implementada a View de Margem com consulta de produtos ativos elegíveis,

@@ -65,6 +65,39 @@ export const calculateCostUpdate = ({
   };
 };
 
+export const calculateCostUpdateSequence = ({
+  policy,
+  previousStock,
+  previousCost,
+  entries
+}) => {
+  let currentStock = Number(previousStock);
+  let currentCost = Number(previousCost);
+  const steps = [];
+
+  for (const entry of entries ?? []) {
+    const update = calculateCostUpdate({
+      policy: entry.policy ?? policy,
+      previousStock: currentStock,
+      previousCost: currentCost,
+      receivedQuantity: entry.receivedQuantity,
+      receivedUnitCost: entry.receivedUnitCost
+    });
+    currentStock = update.nextStock;
+    currentCost = update.nextCost;
+    steps.push(update);
+  }
+
+  return {
+    policy: normalizeCostPolicy(policy),
+    previousStock: Number(previousStock),
+    nextStock: currentStock,
+    previousCost: Number(previousCost),
+    nextCost: currentCost,
+    steps
+  };
+};
+
 export const calculateInventoryAdjustment = ({ previousStock, countedQuantity }) => {
   const previous = Number(previousStock);
   const counted = finiteNonNegative(countedQuantity, "Quantidade contada");

@@ -75,6 +75,7 @@ import {
 import { findRecipeCycles, validateRecipeDefinition } from "../shared/recipe.js";
 import {
   calculateCostUpdate,
+  calculateCostUpdateSequence,
   calculateFiscalItemImpact,
   calculateInventoryAdjustment,
   normalizeCostPolicy
@@ -4848,6 +4849,7 @@ const server = createServer(async (request, response) => {
       );
       const impact = [];
       let pendingCount = 0;
+      const groupedImpacts = new Map();
       for (const item of items) {
         if (!item.idProduct || item.status !== "linked") {
           pendingCount += 1;
@@ -4858,27 +4860,51 @@ const server = createServer(async (request, response) => {
           sourceTotal: item.totalFiscalDocumentItem,
           conversionFactor: item.conversionFactor
         });
-        const costUpdate = calculateCostUpdate({
-          policy: item.costPolicyProduct,
-          previousStock: item.stockQuantityProduct,
-          previousCost: item.costPriceProduct,
+        const existing = groupedImpacts.get(item.idProduct);
+        const entry = {
+          policy: normalizeCostPolicy(item.costPolicyProduct),
           receivedQuantity: fiscalImpact.quantity,
-          receivedUnitCost: fiscalImpact.unitCost
+          receivedUnitCost: fiscalImpact.unitCost,
+          item,
+          fiscalImpact
+        };
+        if (existing) {
+          existing.entries.push(entry);
+        } else {
+          groupedImpacts.set(item.idProduct, {
+            policy: normalizeCostPolicy(item.costPolicyProduct),
+            previousStock: item.stockQuantityProduct,
+            previousCost: item.costPriceProduct,
+            controlsStockProduct: item.controlsStockProduct,
+            entries: [entry]
+          });
+        }
+      }
+      for (const grouped of groupedImpacts.values()) {
+        const sequence = calculateCostUpdateSequence({
+          policy: grouped.policy,
+          previousStock: grouped.previousStock,
+          previousCost: grouped.previousCost,
+          entries: grouped.entries
         });
-        impact.push({
-          idFiscalEntryItem: item.idFiscalEntryItem,
-          lineNumberFiscalDocumentItem: item.lineNumberFiscalDocumentItem,
-          descriptionFiscalDocumentItem: item.descriptionFiscalDocumentItem,
-          idProduct: item.idProduct,
-          nameProduct: item.nameProduct,
-          quantityConverted: fiscalImpact.quantity,
-          unitCost: fiscalImpact.unitCost,
-          costPolicy: costUpdate.policy,
-          currentCost: costUpdate.previousCost,
-          estimatedCost: costUpdate.nextCost,
-          currentStock: costUpdate.previousStock,
-          estimatedStock: item.controlsStockProduct ? costUpdate.nextStock : costUpdate.previousStock
-        });
+        for (const [index, step] of sequence.steps.entries()) {
+          const entry = grouped.entries[index];
+          const item = entry.item;
+          impact.push({
+            idFiscalEntryItem: item.idFiscalEntryItem,
+            lineNumberFiscalDocumentItem: item.lineNumberFiscalDocumentItem,
+            descriptionFiscalDocumentItem: item.descriptionFiscalDocumentItem,
+            idProduct: item.idProduct,
+            nameProduct: item.nameProduct,
+            quantityConverted: entry.receivedQuantity,
+            unitCost: entry.receivedUnitCost,
+            costPolicy: step.policy,
+            currentCost: step.previousCost,
+            estimatedCost: step.nextCost,
+            currentStock: step.previousStock,
+            estimatedStock: grouped.controlsStockProduct ? step.nextStock : step.previousStock
+          });
+        }
       }
       json(response, 200, { idFiscalEntry, items: impact, pendingCount });
     } catch (error) {
@@ -4958,6 +4984,7 @@ const server = createServer(async (request, response) => {
       if (!selectedRows.length) {
         throw new SaleValidationError("Selecione ao menos um item vinculado para confirmar a entrada.");
       }
+      const groupedUpdates = new Map();
       for (const row of selectedRows) {
         const override = overrideItems.get(Number(row.idFiscalEntryItem));
         const policy = normalizeCostPolicy(override || row.costPolicyProduct);
@@ -4966,41 +4993,69 @@ const server = createServer(async (request, response) => {
           sourceTotal: row.totalFiscalDocumentItem,
           conversionFactor: row.conversionFactor
         });
-        const update = calculateCostUpdate({
-          policy,
-          previousStock: row.stockQuantityProduct,
-          previousCost: row.costPriceProduct,
-          receivedQuantity: impact.quantity,
-          receivedUnitCost: impact.unitCost
+        const existing = groupedUpdates.get(row.idProduct);
+        if (existing) {
+          existing.entries.push({
+            policy,
+            receivedQuantity: impact.quantity,
+            receivedUnitCost: impact.unitCost,
+            row,
+            impact
+          });
+        } else {
+          groupedUpdates.set(row.idProduct, {
+            policy,
+            previousStock: row.stockQuantityProduct,
+            previousCost: row.costPriceProduct,
+            controlsStockProduct: row.controlsStockProduct,
+            entries: [{
+              policy,
+              receivedQuantity: impact.quantity,
+              receivedUnitCost: impact.unitCost,
+              row,
+              impact
+            }]
+          });
+        }
+      }
+      for (const [idProduct, grouped] of groupedUpdates.entries()) {
+        const sequence = calculateCostUpdateSequence({
+          policy: grouped.policy,
+          previousStock: grouped.previousStock,
+          previousCost: grouped.previousCost,
+          entries: grouped.entries
         });
-        const nextStock = row.controlsStockProduct ? update.nextStock : update.previousStock;
+        const nextStock = grouped.controlsStockProduct
+          ? sequence.nextStock
+          : grouped.previousStock;
         await connection.query(
           `UPDATE products
            SET stockQuantityProduct = ?, costPriceProduct = ?
            WHERE idProduct = ?`,
-          [nextStock.toFixed(4), update.nextCost.toFixed(4), row.idProduct]
+          [nextStock.toFixed(4), sequence.nextCost.toFixed(4), idProduct]
         );
-        await connection.query(
-          `INSERT INTO inventory_movements
-            (idProduct, idFiscalEntry, typeInventoryMovement,
-             quantityDeltaInventoryMovement, previousStockInventoryMovement,
-             nextStockInventoryMovement, previousCostInventoryMovement,
-             nextCostInventoryMovement, costPolicyInventoryMovement,
-             reasonInventoryMovement, idOperator)
-           VALUES (?, ?, 'fiscal_entry', ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            row.idProduct,
-            idFiscalEntry,
-            row.controlsStockProduct ? impact.quantity : 0,
-            update.previousStock,
-            nextStock,
-            update.previousCost,
-            update.nextCost,
-            policy,
-            "Confirmação de entrada fiscal",
-            session.idOperator
-          ]
-        );
+        for (const [index, step] of sequence.steps.entries()) {
+          const entry = grouped.entries[index];
+          const movementQuantity = grouped.controlsStockProduct
+            ? entry.receivedQuantity
+            : 0;
+          const movementNextStock = grouped.controlsStockProduct
+            ? step.nextStock
+            : step.previousStock;
+          await connection.query(
+            `INSERT INTO inventory_movements
+              (idProduct, idFiscalEntry, typeInventoryMovement,
+               quantityDeltaInventoryMovement, previousStockInventoryMovement,
+               nextStockInventoryMovement, previousCostInventoryMovement,
+               nextCostInventoryMovement, costPolicyInventoryMovement,
+               reasonInventoryMovement, idOperator)
+             VALUES (?, ?, 'fiscal_entry', ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [idProduct, idFiscalEntry, movementQuantity.toFixed(4),
+              step.previousStock.toFixed(4), movementNextStock.toFixed(4),
+              step.previousCost.toFixed(4), step.nextCost.toFixed(4),
+              step.policy, "Confirmação de entrada fiscal", session.idOperator]
+          );
+        }
       }
       const propagation = await propagateRecipeCosts(
         connection,
