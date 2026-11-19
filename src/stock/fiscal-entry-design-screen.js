@@ -5,7 +5,12 @@ import { renderNavigationIntro } from "../ui/navigation-intro.js";
 import { rerenderPreservingInputSelection } from "../ui/input-selection.js";
 import { installComboboxDismissal, rerenderComboboxSelection } from "../ui/combobox.js";
 import { bindNumberMasks, formatMaskedNumber } from "../ui/number-mask.js";
-import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import {
+  clearRenderedFeedback,
+  createFeedbackTimer,
+  formatUpdatedRecipeStructures,
+  renderSuccessFeedback
+} from "../ui/feedback.js";
 import { apiFetch, getApiUrl } from "../shared/api.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
 import { formatProductOptionLabel } from "../shared/product.js";
@@ -306,7 +311,7 @@ export function createFiscalEntryDesignScreen({ onBack, ...handlers }) {
       listSearch = event.currentTarget.value;
       rerenderPreservingInputSelection(event.currentTarget, render, () => root.querySelector("[data-manual-entry-search]"));
     });
-    root.querySelector("[data-new-entry]")?.addEventListener("click", () => { current = null; draft = blank(); resetItemDraft(); error = ""; message = ""; render(); });
+    root.querySelector("[data-new-entry]")?.addEventListener("click", () => { current = null; draft = blank(); resetItemDraft(); error = ""; setMessage("Nova entrada preparada."); render(); });
     root.querySelector("[data-supplier-toggle]")?.addEventListener("click", () => {
       supplierPicker.isOpen = !supplierPicker.isOpen;
       productPicker.isOpen = false;
@@ -462,22 +467,23 @@ export function createFiscalEntryDesignScreen({ onBack, ...handlers }) {
       const value = parseInputNumber(calculatorDisplay);
       itemDraft.unitPrice = value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       calculatorOpen = false;
+      setMessage("Valor transferido para o preço unitário.");
       render();
     });
     root.querySelector("[data-add-item]")?.addEventListener("click", () => {
       const form = root.querySelector("[data-manual-form]"); const product = products.find((item) => String(item.idProduct) === String(itemDraft.product));
       const quantity = parseInputNumber(form.quantity.value); const unitPrice = parseInputNumber(form.unitPrice.value);
       if (!product || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitPrice) || unitPrice <= 0) { error = "Informe produto, quantidade e preço válidos."; render(); return; }
-      draft.items.push({ idProduct: product.idProduct, name: product.nameProduct, unit: product.codeUnit, quantity, unitPrice }); resetItemDraft(); error = ""; render();
+      draft.items.push({ idProduct: product.idProduct, name: product.nameProduct, unit: product.codeUnit, quantity, unitPrice }); resetItemDraft(); error = ""; setMessage("Item adicionado à entrada."); render();
     });
     root.querySelector("[data-add-payment]")?.addEventListener("click", () => {
       const form = root.querySelector("[data-manual-form]"); const amount = parseInputNumber(form.paymentAmount.value);
       if (!form.paymentDescription.value.trim() || !Number.isFinite(amount) || amount <= 0) { error = "Informe descrição e valor do pagamento."; render(); return; }
-      draft.payments.push({ description: form.paymentDescription.value.trim(), amount }); error = ""; render();
+      draft.payments.push({ description: form.paymentDescription.value.trim(), amount }); error = ""; setMessage("Pagamento adicionado à entrada."); render();
     });
-    root.querySelectorAll("[data-remove-item]").forEach((button) => button.addEventListener("click", () => { draft.items.splice(Number(button.dataset.removeItem), 1); render(); }));
-    root.querySelectorAll("[data-remove-payment]").forEach((button) => button.addEventListener("click", () => { draft.payments.splice(Number(button.dataset.removePayment), 1); render(); }));
-    root.querySelector("[data-clear]")?.addEventListener("click", () => { current = null; draft = blank(); resetItemDraft(); error = ""; message = ""; render(); });
+    root.querySelectorAll("[data-remove-item]").forEach((button) => button.addEventListener("click", () => { draft.items.splice(Number(button.dataset.removeItem), 1); setMessage("Item removido da entrada."); render(); }));
+    root.querySelectorAll("[data-remove-payment]").forEach((button) => button.addEventListener("click", () => { draft.payments.splice(Number(button.dataset.removePayment), 1); setMessage("Pagamento removido da entrada."); render(); }));
+    root.querySelector("[data-clear]")?.addEventListener("click", () => { current = null; draft = blank(); resetItemDraft(); error = ""; setMessage("Formulário limpo."); render(); });
     root.querySelector("[data-save-draft]")?.addEventListener("click", () => void save("draft"));
     root.querySelector("[data-save-entry]")?.addEventListener("click", () => void save("open"));
     root.querySelector("[data-reopen]")?.addEventListener("click", () => void save("draft"));
@@ -521,6 +527,7 @@ export function createFiscalEntryDesignScreen({ onBack, ...handlers }) {
       payments: (data.payments || []).map((payment) => ({ description: payment.description, amount: Number(payment.amount) }))
     };
     error = "";
+    setMessage(`Entrada ${id} aberta.`);
     render();
   };
   const save = async (status) => {
@@ -535,7 +542,7 @@ export function createFiscalEntryDesignScreen({ onBack, ...handlers }) {
     };
     const response = await apiFetch(`${getApiUrl()}/api/stock/manual-entries${current ? `/${current.idFiscalEntry}` : ""}`, { method: current ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...draft, status }) });
     const data = await response.json(); if (!response.ok) { error = data.error || "Não foi possível salvar."; render(); return; }
-    setMessage(status === "open" ? "Entrada aberta com sucesso." : "Rascunho salvo.");
+    setMessage(status === "open" ? "Entrada salva e aberta para revisão." : "Rascunho salvo.");
     error = "";
     if (!current) current = { idFiscalEntry: data.idFiscalEntry, statusFiscalEntry: data.statusFiscalEntry }; else current.statusFiscalEntry = data.statusFiscalEntry; await load();
   };
@@ -573,10 +580,12 @@ export function createFiscalEntryDesignScreen({ onBack, ...handlers }) {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Não foi possível confirmar a entrada.");
       current.statusFiscalEntry = result.statusFiscalEntry;
-      await load();
+      error = "";
       setMessage(result.updatedRecipeCount
-        ? `Entrada ${entryId} confirmada. ${result.updatedRecipeCount} Receita(s)/Ficha(s) recalculada(s).`
+        ? `Entrada ${entryId} confirmada. ${formatUpdatedRecipeStructures(result.updatedRecipeCount)}`
         : `Entrada ${entryId} confirmada.`);
+      render();
+      await load();
     } catch (reviewError) {
       error = reviewError instanceof Error ? reviewError.message : "Falha ao revisar o impacto da entrada.";
       render();
@@ -586,18 +595,18 @@ export function createFiscalEntryDesignScreen({ onBack, ...handlers }) {
     const labels = {
       confirm: {
         title: "Confirmar entrada manual",
-        message: "Confirmar esta Entrada Manual?",
+        message: "Confirmar esta entrada manual?",
         detail: "A confirmação movimentará estoque e atualizará os custos."
       },
       reverse: {
         title: "Cancelar entrada manual",
-        message: "Cancelar esta Entrada Manual confirmada?",
+        message: "Cancelar esta entrada manual confirmada?",
         detail: "Os efeitos de estoque e custo serão revertidos e o cancelamento ficará registrado."
       },
       delete: {
         title: "Excluir entrada manual",
-        message: "Excluir esta Entrada Manual?",
-        detail: "Somente entradas em Digitação ou Aberto podem ser excluídas."
+        message: "Excluir esta entrada manual?",
+        detail: "Somente entradas em Digitação ou Aberta podem ser excluídas."
       }
     };
     if (!(await confirmAction(labels[action]))) return;

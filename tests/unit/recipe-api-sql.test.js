@@ -50,6 +50,9 @@ test("quantidades e rendimento de receita aceitam três casas decimais", async (
   assert.match(source, /data-component-loss data-number-mask(?:\s|>)/u);
   assert.match(source, /data-recipe-yield data-number-mask="fractional-3"/u);
   assert.match(source, /formatBrazilianDecimal\(component\.quantity, 3\)/u);
+  assert.match(source, /Quantidade informada/u);
+  assert.match(source, /Quantidade útil/u);
+  assert.match(source, /calculateUsableQuantity\(quantity, lossPercent\)/u);
   assert.doesNotMatch(source, /data-component-quantity data-number-mask="decimal"/u);
   assert.doesNotMatch(source, /data-component-loss data-number-mask="decimal"/u);
   assert.doesNotMatch(source, /data-recipe-yield data-number-mask="decimal"/u);
@@ -233,8 +236,8 @@ test("salvar Receita e Ficha Técnica propaga custos para dependências em casca
   assert.match(serverSource, /propagateRecipeCosts\(connection, \[\], \[recipeId\]\)/u);
   assert.match(serverSource, /error instanceof RecipeCostPropagationError/u);
   assert.match(propagationSource, /class RecipeCostPropagationError extends Error/u);
-  assert.match(recipeScreenSource, /payload\.updatedRecipeCount > 1/u);
-  assert.match(formationScreenSource, /payload\.updatedRecipeCount > 1/u);
+  assert.match(recipeScreenSource, /formatUpdatedRecipeStructures\(payload\.updatedRecipeCount\)/u);
+  assert.match(formationScreenSource, /formatUpdatedRecipeStructures\(payload\.updatedRecipeCount\)/u);
 });
 
 test("sincroniza o custo do produto resultante e propaga para fichas dependentes", async () => {

@@ -7,9 +7,9 @@ import { formatBrazilianDecimal, parseBrazilianDecimal, roundCostUpToCents } fro
 import { bindNumberMasks, formatMaskedNumber } from "../ui/number-mask.js";
 import { installComboboxDismissal, rerenderComboboxSelection } from "../ui/combobox.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
-import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { clearRenderedFeedback, createFeedbackTimer, formatUpdatedRecipeStructures, renderSuccessFeedback } from "../ui/feedback.js";
 import { rerenderPreservingInputSelection } from "../ui/input-selection.js";
-import { calculateComponentCost, calculateCostPerYieldUnit } from "../shared/recipe.js";
+import { calculateComponentCost, calculateCostPerYieldUnit, calculateUsableQuantity } from "../shared/recipe.js";
 import {
   filterRecipeComponentOptions,
   formatRecipeComponentLabel,
@@ -272,8 +272,8 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
         const detail = payload.diagnosticDetail ? `: ${payload.diagnosticDetail}` : "";
         throw new Error(`${payload.error || "Não foi possível salvar a Receita ou Composição."}${diagnostic}${detail}`);
       }
-      message = payload.updatedRecipeCount > 1
-        ? `${editingRecipe ? "Receita atualizada" : "Cadastro salvo"} com sucesso. ${payload.updatedRecipeCount} Receita(s)/Ficha(s) recalculada(s).`
+      message = payload.updatedRecipeCount
+        ? `${editingRecipe ? "Receita atualizada" : "Cadastro salvo"} com sucesso. ${formatUpdatedRecipeStructures(payload.updatedRecipeCount)}`
         : editingRecipe ? "Receita atualizada com sucesso." : "Cadastro salvo com sucesso.";
       resetFormState({ keepMessage: true });
       submitting = false;
@@ -487,13 +487,18 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
     return `
       <div class="recipe-components-table-wrapper">
         <table class="classic-table recipe-components-table">
-          <thead><tr><th class="component-index-column">#</th><th class="component-name-column">Componente</th><th class="component-quantity-column">Quantidade</th><th class="component-unit-column">Unidade culinária</th><th class="component-loss-column">Perda</th><th class="component-cost-column">Custo</th>${readOnly ? "" : '<th class="actions-column component-actions-column">Ações</th>'}</tr></thead>
+          <thead><tr><th class="component-index-column">#</th><th class="component-name-column">Componente</th><th class="component-quantity-column">Quantidade informada</th><th class="component-quantity-column">Quantidade útil</th><th class="component-unit-column">Unidade culinária</th><th class="component-loss-column">Perda</th><th class="component-cost-column">Custo</th>${readOnly ? "" : '<th class="actions-column component-actions-column">Ações</th>'}</tr></thead>
           <tbody>
-            ${form.components.map((component, index) => `
+            ${form.components.map((component, index) => {
+              const quantity = parseBrazilianDecimal(component.quantity);
+              const lossPercent = parseBrazilianDecimal(component.lossPercent);
+              const usableQuantity = calculateUsableQuantity(quantity, lossPercent);
+              return `
               <tr>
                 <td class="component-index-column">${index + 1}</td>
                 <td class="component-name-column"><div>${escapeHtml(componentName(component))}</div>${component.details ? `<em class="recipe-component-details">${escapeHtml(component.details)}</em>` : ""}</td>
                 <td class="component-quantity-column">${escapeHtml(formatBrazilianDecimal(component.quantity, 3))}</td>
+                <td class="component-quantity-column">${escapeHtml(usableQuantity === null ? "—" : formatBrazilianDecimal(usableQuantity, 3))}</td>
                 <td class="component-unit-column">${escapeHtml(component.culinaryUnitLabel || "—")}</td>
                 <td class="component-loss-column">${escapeHtml(formatBrazilianDecimal(component.lossPercent, 2))}%</td>
                 <td class="component-cost-column">${escapeHtml(formatBrazilianDecimal(componentCost(component), 2))}</td>
@@ -504,11 +509,12 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
                   <button class="icon-button delete" type="button" data-remove-component="${index}" aria-label="Remover componente" title="Remover componente"><i data-lucide="trash-2"></i></button>
                 </td>`}
               </tr>
-            `).join("")}
+              `;
+            }).join("")}
           </tbody>
           <tfoot>
-            <tr><th colspan="${readOnly ? 5 : 6}">Custo total estimado</th><th>${escapeHtml(formatBrazilianDecimal(totalComponentCost(), 2))}</th></tr>
-            <tr><th colspan="${readOnly ? 5 : 6}">Custo por ${escapeHtml(yieldUnitLabel())}</th><th>${escapeHtml(formatBrazilianDecimal(costPerYieldUnit(), 2))}</th></tr>
+            <tr><th colspan="${readOnly ? 6 : 7}">Custo total estimado</th><th>${escapeHtml(formatBrazilianDecimal(totalComponentCost(), 2))}</th></tr>
+            <tr><th colspan="${readOnly ? 6 : 7}">Custo por ${escapeHtml(yieldUnitLabel())}</th><th>${escapeHtml(formatBrazilianDecimal(costPerYieldUnit(), 2))}</th></tr>
           </tfoot>
         </table>
       </div>

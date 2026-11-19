@@ -23,6 +23,7 @@ import { createCatalogImportScreen } from "./tools/catalog-import-screen.js";
 import { createSupplierScreen } from "./catalog/supplier-screen.js";
 import { createCustomerConsumerScreen } from "./catalog/customer-consumer-screen.js";
 import { createBackupScreen } from "./tools/backup-screen.js";
+import { createLogScreen } from "./tools/log-screen.js";
 import { createViewsScreen } from "./tools/views-screen.js";
 import { createMarginScreen } from "./tools/margin-screen.js";
 import { createCostDivergenceScreen } from "./tools/cost-divergence-screen.js";
@@ -138,6 +139,8 @@ const common = () => ({
   "api-status": showApiStatus,
   onBackup: showBackup,
   backup: showBackup,
+  onLog: showLog,
+  log: showLog,
   onViews: showViews,
   views: showViews,
   "groups-products": showGroupsProducts,
@@ -261,6 +264,8 @@ const showApiStatus = () =>
   mount(createApiStatusScreen({ onBack: showBackoffice, onTools: showApiStatus, ...common() }));
 const showBackup = () =>
   mount(createBackupScreen({ onBack: showBackoffice, onTools: showBackup, ...common() }));
+const showLog = () =>
+  mount(createLogScreen({ onBack: showBackoffice, onTools: showLog, ...common() }));
 const showGroupsProducts = () =>
   mount(createViewsScreen({
     active: "groups-products",

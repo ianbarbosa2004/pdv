@@ -123,3 +123,18 @@ export async function loadMigrationConfig(env = process.env) {
   }
   return config;
 }
+
+export async function loadRootMigrationConfig(env = process.env) {
+  const config = getConfig({
+    ...env,
+    PDV_DB_USER: "root",
+    PDV_DB_PASSWORD: ""
+  });
+  config.database.password = await readHiddenInput(
+    `Senha do MariaDB para ${config.database.user}@${config.database.host}:${config.database.port}/${config.database.name}: `
+  );
+  if (!config.database.password) {
+    throw new Error("A senha do MariaDB não pode ser vazia.");
+  }
+  return config;
+}

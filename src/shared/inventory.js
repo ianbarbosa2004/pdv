@@ -65,6 +65,81 @@ export const calculateCostUpdate = ({
   };
 };
 
+export const calculateCostUpdateSequence = ({
+  policy,
+  previousStock,
+  previousCost,
+  entries
+}) => {
+  let currentStock = Number(previousStock);
+  let currentCost = Number(previousCost);
+  const steps = [];
+
+  for (const entry of entries ?? []) {
+    const update = calculateCostUpdate({
+      policy: entry.policy ?? policy,
+      previousStock: currentStock,
+      previousCost: currentCost,
+      receivedQuantity: entry.receivedQuantity,
+      receivedUnitCost: entry.receivedUnitCost
+    });
+    currentStock = update.nextStock;
+    currentCost = update.nextCost;
+    steps.push(update);
+  }
+
+  return {
+    policy: normalizeCostPolicy(policy),
+    previousStock: Number(previousStock),
+    nextStock: currentStock,
+    previousCost: Number(previousCost),
+    nextCost: currentCost,
+    steps
+  };
+};
+
+export const calculateCostForPolicyChange = ({
+  policy,
+  previousCost,
+  previousStock = 0,
+  entries
+}) => {
+  const normalizedPolicy = normalizeCostPolicy(policy);
+  const fallbackCost = Number(previousCost);
+  const validFallback = Number.isFinite(fallbackCost) && fallbackCost >= 0
+    ? fallbackCost
+    : 0;
+  const fallbackStock = Number(previousStock);
+  const validFallbackStock = Number.isFinite(fallbackStock) && fallbackStock > 0
+    ? fallbackStock
+    : 0;
+  const validEntries = (entries ?? [])
+    .map((entry) => ({
+      quantity: Number(entry.quantity),
+      unitCost: Number(entry.unitCost)
+    }))
+    .filter((entry) => Number.isFinite(entry.quantity)
+      && entry.quantity > 0
+      && Number.isFinite(entry.unitCost)
+      && entry.unitCost >= 0);
+
+  if (normalizedPolicy === COST_POLICIES.LAST) {
+    return validEntries.length
+      ? validEntries[validEntries.length - 1].unitCost
+      : validFallback;
+  }
+
+  if (!validEntries.length) return validFallback;
+  const receivedQuantity = validEntries.reduce((sum, entry) => sum + entry.quantity, 0);
+  const totalQuantity = validFallbackStock + receivedQuantity;
+  if (!totalQuantity) return validFallback;
+  const weightedCost = (validFallbackStock * validFallback) + validEntries.reduce(
+    (sum, entry) => sum + (entry.quantity * entry.unitCost),
+    0
+  );
+  return weightedCost / totalQuantity;
+};
+
 export const calculateInventoryAdjustment = ({ previousStock, countedQuantity }) => {
   const previous = Number(previousStock);
   const counted = finiteNonNegative(countedQuantity, "Quantidade contada");

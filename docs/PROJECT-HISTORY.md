@@ -7,6 +7,42 @@ inicial do produto até o estado atual do workspace. Ele complementa o
 
 ## 0. Estado mais recente
 
+### Plano de migração da API para Express — 2026-11-19
+
+Foi registrada uma avaliação técnica da migração do servidor de `node:http`
+para Express. O servidor atual continua funcional e não será substituído
+por uma mudança estrutural sem validação incremental dos contratos.
+
+O plano em `docs/PLAN-MIGRACAO-EXPRESS.md` separa framework, validação HTTP,
+autorização, regras de domínio e operações MariaDB. A conversão deve migrar
+rotas por domínio, preservar vendas, pagamentos, estoque, caixa e rollback,
+adotar wide events apenas com redaction explícita e remover o servidor nativo
+somente após equivalência operacional.
+
+Express foi considerado vantajoso para roteamento, middlewares, padronização
+de erros e integração futura com ecossistema Node. A falta de Express não
+bloqueia as melhorias de logging atuais, pois o modelo pode ser aplicado ao
+servidor nativo com adapter próprio. Esta etapa foi versionada como
+**0.20.0**.
+
+### Correção sequencial do custo em entradas fiscais — 2026-11-18
+
+Foi corrigido o cálculo de impacto e confirmação das pré-entradas fiscais que
+possuem várias linhas vinculadas ao mesmo Produto. Antes, o sistema repetia o
+saldo e o custo carregados no início da operação, fazendo com que o resultado
+depende-se apenas da primeira entrada processada.
+
+O processamento passou a agrupar as linhas por Produto e aplicar o custo em
+sequência, na ordem fiscal. Na política Último custo, o custo final vem da
+última linha; na política Custo médio, cada linha atualiza o saldo e o custo
+antes da próxima. O cadastro do Produto recebe o resultado final, e os
+movimentos históricos preservam cada etapa da transação.
+
+Esta etapa foi versionada como **0.19.1** e exige reinício da API publicada
+por alterar `src/server/server.js`. Os cálculos compartilhados e os testes
+unitários ficam em `src/shared/inventory.js` e
+`tests/unit/inventory.test.js`.
+
 ### View e balizadores de margem — 2026-11-18
 
 Foi implementada a View de Margem com consulta de produtos ativos elegíveis,

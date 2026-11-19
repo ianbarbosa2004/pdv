@@ -4,6 +4,28 @@ Este documento registra as mudanças funcionais e técnicas agrupadas por versã
 O número da versão só deve ser incrementado após pedido explícito. Builds e
 releases não alteram a versão automaticamente.
 
+## 0.20.0 - 2026-11-19
+
+- Documentado o plano de migração da API de `node:http` para Express, com
+  inventário de rotas, middlewares, testes, rollback e preservação das
+  transações MariaDB.
+- Registrada a tarefa arquitetural no rastreador de issues e adicionado o
+  plano ao índice da documentação.
+- Express permanece uma decisão futura: o servidor nativo continua válido e
+  não exige substituição apenas para obter suporte a middlewares de logs.
+- Alterações no servidor ou na instalação da API exigem reinício da API
+  publicada. Alterações somente documentais não exigem reinício.
+
+## 0.19.1 - 2026-11-18
+
+- Corrigido o cálculo do custo em pré-entradas fiscais com várias linhas do
+  mesmo Produto. O impacto e a confirmação agora processam as linhas na ordem
+  fiscal, aplicando em sequência Último custo ou Custo médio.
+- O último custo passa a ser o da última entrada, enquanto o custo médio
+  considera o saldo e o custo intermediários de cada linha. A confirmação
+  atualiza o Produto uma vez e registra um movimento para cada etapa.
+- Alterações em `src/server/server.js` exigem reinício da API publicada.
+
 ## 0.19.0 - 2026-11-18
 
 - Implementada a View de Margem para consulta dos produtos ativos elegíveis,

@@ -30,3 +30,17 @@ export const renderSuccessFeedback = (message, escapeHtml) =>
 export const clearRenderedFeedback = (root) => {
   root.querySelectorAll("[data-success-feedback]").forEach((feedback) => feedback.remove());
 };
+
+export const formatUpdatedRecipeStructures = (count) => {
+  const amount = Number(count) || 0;
+  if (amount < 1) return "";
+  return amount === 1
+    ? "1 Receita ou Composição recalculada."
+    : `${amount} Receitas ou Composições recalculadas.`;
+};
+
+export const formatUpdatedFiscalItems = (count) => {
+  const amount = Number(count) || 0;
+  if (amount === 1) return "1 item fiscal atualizado.";
+  return `${amount} itens fiscais atualizados.`;
+};

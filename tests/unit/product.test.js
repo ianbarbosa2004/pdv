@@ -138,7 +138,7 @@ test("gera Código PDV de novos produtos pelo ID e preserva o valor de produtos 
   assert.match(source, /UPDATE products SET pdvCodeProduct = \? WHERE idProduct = \?/);
   assert.match(
     source,
-    /SELECT pdvCodeProduct FROM products WHERE idProduct = \?[\s\S]*?const pdvCodeProduct = existingProductRows\[0\]\.pdvCodeProduct;/
+    /SELECT pdvCodeProduct, costPolicyProduct, costPriceProduct, stockQuantityProduct[\s\S]*?WHERE idProduct = \?[\s\S]*?const pdvCodeProduct = existingProductRows\[0\]\.pdvCodeProduct;/
   );
   assert.doesNotMatch(
     source,

@@ -5,7 +5,7 @@ import { confirmAction } from "../ui/confirmation-modal.js";
 import { rerenderPreservingInputSelection } from "../ui/input-selection.js";
 import { getContextualNavigationItems, renderContextualNavigationItems } from "../ui/contextual-navigation.js";
 import { resolveNavigationHandler } from "../ui/navigation-routing.js";
-import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
+import { clearRenderedFeedback, createFeedbackTimer, formatUpdatedRecipeStructures, renderSuccessFeedback } from "../ui/feedback.js";
 import { calculateComponentCost } from "../shared/recipe.js";
 import { formatBrazilianDecimal, parseBrazilianDecimal, roundCostUpToCents } from "../shared/decimal.js";
 import { bindNumberMasks, formatMaskedNumber } from "../ui/number-mask.js";
@@ -341,8 +341,8 @@ export function createProductFormationScreen({ onBack, onRecipes, ...menuHandler
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Não foi possível salvar a Ficha Técnica.");
-      message = payload.updatedRecipeCount > 1
-        ? `Ficha Técnica salva com sucesso. ${payload.updatedRecipeCount} Receita(s)/Ficha(s) recalculada(s).`
+      message = payload.updatedRecipeCount
+        ? `Ficha Técnica salva com sucesso. ${formatUpdatedRecipeStructures(payload.updatedRecipeCount)}`
         : "Ficha Técnica salva com sucesso.";
       searchTerm = "";
       form.readOnly = true;

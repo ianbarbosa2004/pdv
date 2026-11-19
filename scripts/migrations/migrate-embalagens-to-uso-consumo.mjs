@@ -1,5 +1,5 @@
 import mysql from "mysql2/promise";
-import { getConfig } from "../../src/server/config.js";
+import { loadRootMigrationConfig } from "../../src/server/config.js";
 
 const sourceClass = "EMBALAGENS";
 const sourceGroup = "DESCARTÁVEIS";
@@ -8,7 +8,7 @@ const targetGroup = "USO E CONSUMO";
 const targetProductType = "MATERIAL DE USO E CONSUMO";
 
 const main = async () => {
-  const config = getConfig();
+  const config = await loadRootMigrationConfig();
   const connection = await mysql.createConnection({
     host: config.database.host,
     port: config.database.port,

@@ -1098,13 +1098,45 @@ com backup verificável quando alterarem dados existentes:
 | --- | --- | --- |
 | `npm.cmd run migrate:culinary-units` | `migrate-culinary-units.mjs` | Cria ou atualiza unidades, estados físicos e conversões culinárias de referência |
 | `npm.cmd run migrate:uppercase` | `migrate-uppercase-data.mjs` | Migração histórica de textos humanos e SKUs; não é aplicada pelo salvamento normal |
-| `node --env-file=.env scripts/migrations/migrate-embalagens-to-uso-consumo.mjs` | `migrate-embalagens-to-uso-consumo.mjs` | Migra dados legados de embalagens para a classificação de uso e consumo |
+| `node scripts/migrations/migrate-embalagens-to-uso-consumo.mjs` | `migrate-embalagens-to-uso-consumo.mjs` | Migra dados legados de embalagens para a classificação de uso e consumo |
+| `npm.cmd run migrate:recalculate-product-costs --` | `migrate-recalculate-product-costs.mjs` | Reprocessa custos de Produtos pelas entradas fiscais confirmadas e pela política atual |
+| `npm.cmd run migrate:recalculate-recipe-usable-quantities --` | `migrate-recalculate-recipe-usable-quantities.mjs` | Recalcula custos, total e rendimento das Receitas usando quantidade informada e perda |
 
 As duas primeiras migrações possuem scripts npm. A migração de embalagens é
 um procedimento operacional explícito e não deve ser adicionada a um comando
 genérico sem revisar sua idempotência e o impacto nos dados existentes. Todas
 as migrações devem preservar dados e ser validadas com uma leitura real da API
 depois da execução.
+
+Todas as migrações em `scripts/migrations/*.mjs` devem usar
+`loadRootMigrationConfig()` de `src/server/config.js`. O helper fixa o usuário
+MariaDB como `root` e solicita a senha oculta no próprio terminal; não reutiliza
+`PDV_DB_PASSWORD`, senha do `.env` nem credencial armazenada. Execute a migração
+por exemplo com:
+
+```powershell
+npm.cmd run migrate:margin-balancers-group-only
+```
+
+Ao iniciar, informe a senha de `root` quando o terminal solicitar; ela não será
+exibida. Para migrações com modo preview/aplicação, revise o preview antes de
+executar `-- --apply`.
+
+As migrações de custo e quantidade útil começam em modo preview e não alteram
+dados. Use os comandos abaixo somente após backup, revisão dos resultados e
+com a API parada:
+
+```powershell
+npm.cmd run migrate:recalculate-product-costs --
+npm.cmd run migrate:recalculate-product-costs -- --apply
+npm.cmd run migrate:recalculate-recipe-usable-quantities --
+npm.cmd run migrate:recalculate-recipe-usable-quantities -- --apply
+```
+
+A quantidade útil não é persistida como nova coluna: ela é derivada de
+`quantidade informada × (1 - perda / 100)` em cada leitura e componente. Essas
+migrações recalculam os custos pagos pela quantidade informada e atualizam
+snapshots e rendimentos das estruturas de Receita.
 
 ### Versionamento dos builds
 
@@ -2379,6 +2411,60 @@ o tempo de atividade e o endereço consultado. A tela informa que a recuperaçã
 automática é responsabilidade do serviço Windows `PDV-API`. O terminal não
 reinicia processos nem chama comandos administrativos; a manutenção manual
 usa os scripts documentados em `docs/DEPLOYMENT.md`.
+
+### Tela de logs — MVP
+
+**Ferramentas > Log** consulta o histórico técnico central em
+`GET /api/logs`, recebe eventos opcionais de clientes em `POST /api/logs` e
+exporta o conjunto filtrado em `GET /api/logs/export`. Os registros ficam em
+`technical_logs`, são mantidos por 14 dias e não incluem senha, token,
+Authorization, payload, CPF/CNPJ, dados de pagamento ou SQL completo.
+
+O processo da API registra a inicialização e cada resposta HTTP com método,
+rota, duração e status. Criação e restauração de backup registram operação,
+duração e sucesso/falha. A tela permite atualizar manualmente, filtrar por
+origem e nível e baixar somente TXT. Fontes Tauri, frontend, serviço, MariaDB
+e impressora devem usar o mesmo endpoint central e o mesmo formato protegido.
+
+Os arquivos reais ficam centralizados em `C:\ProgramData\PDV\logs`:
+`pdv-node.log`, `pdv-vite.log`, `pdv-tauri.log`, `pdv-cargo.log` e
+`pdv-mariadb.log`. O Node encaminha `console.log`, `console.warn` e
+`console.error` para `pdv-node.log`; o Vite usa `customLogger`; o plugin Tauri
+grava em `pdv-tauri.log` e também em stdout/stderr; o comando
+`npm.cmd run tauri:dev:log` registra a saída do Cargo em `pdv-cargo.log`.
+MariaDB só pode ser configurado por diretório local permitido pela API. A
+configuração publicada deve reiniciar a API após alterações de servidor e
+reiniciar o terminal/Tauri ou o processo Vite após alterações desses processos.
+
+Alterações em `src/server/`, `src/server/schema-manager.js`,
+`database/schema.sql` ou esta tabela exigem reinício da API publicada para
+aplicar o schema e iniciar o coletor.
+
+### Tela de logs — segunda etapa
+
+A segunda etapa amplia o MVP após a implantação da observabilidade operacional
+pela Node/API, pelo serviço Windows, pelo MariaDB com erros e consultas lentas,
+por Tauri/Cargo, pelo console do frontend, pelas operações críticas, pela
+impressão térmica e pelo backup/restauração. Os resultados de backup ou
+restauração devem ser persistidos com hora, duração, sucesso/falha e contagens
+relevantes.
+
+A segunda etapa amplia o alcance sem alterar os contratos já definidos pelo MVP:
+
+- registrar migrações e inicialização do schema em detalhe;
+- registrar o ciclo completo das operações fiscais relevantes;
+- registrar atualizações e instalações do aplicativo;
+- registrar cada etapa das vendas, baixas de estoque, caixa e estornos;
+- instrumentar respostas HTTP de todas as rotas com método, rota, duração e status;
+- conservar o histórico por 14 dias, no mesmo padrão operacional dos logs do serviço;
+- exportar somente em TXT, com data/hora, origem e nível por linha;
+- manter mascaramento de senha, token, CPF/CNPJ, pagamento, payload e demais dados sensíveis.
+
+As fontes ampliadas devem reutilizar o endpoint central de logs e o mesmo modelo
+de armazenamento, autenticação e retenção do MVP. Não criar captura de dados
+com SQL completo, dados comerciais ou payloads. Consultas ao MariaDB continuam
+restritas à API; terminais Tauri não recebem credenciais nem acessam o banco
+diretamente.
 
 ### Bancada de impressão térmica
 
