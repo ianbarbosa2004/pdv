@@ -4,7 +4,7 @@ Este documento registra as mudanças funcionais e técnicas agrupadas por versã
 O número da versão só deve ser incrementado após pedido explícito. Builds e
 releases não alteram a versão automaticamente.
 
-## 0.21.0 - 2026-11-23
+## 0.21.1 - 2026-11-24
 
 - Consolidada a tela de Mesas na Frente de Caixa, com mapa ocupacional,
   seleção rápida por visor numérico, backspace, confirmação por Enter e
