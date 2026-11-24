@@ -8,6 +8,58 @@ use windows::Win32::Security::Cryptography::{
 };
 use windows::core::PCWSTR;
 
+fn first_writable_directory(candidates: &[std::path::PathBuf]) -> Option<std::path::PathBuf> {
+    candidates.iter().find_map(|candidate| {
+        std::fs::create_dir_all(candidate).ok()?;
+        let probe = candidate.join(format!(
+            ".pdv-log-write-test-{}",
+            std::process::id()
+        ));
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&probe)
+            .ok()?;
+        use std::io::Write;
+        file.write_all(b"").ok()?;
+        drop(file);
+        std::fs::remove_file(probe).ok()?;
+        Some(candidate.clone())
+    })
+}
+
+fn tauri_log_targets() -> Vec<tauri_plugin_log::Target> {
+    let mut candidates = Vec::new();
+
+    #[cfg(target_os = "windows")]
+    if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+        candidates.push(
+            std::path::PathBuf::from(local_app_data)
+                .join("PDV")
+                .join("logs"),
+        );
+    }
+
+    candidates.push(std::path::PathBuf::from(r"C:\ProgramData\PDV\logs"));
+
+    let mut targets = Vec::new();
+    if let Some(path) = first_writable_directory(&candidates) {
+        targets.push(tauri_plugin_log::Target::new(
+            tauri_plugin_log::TargetKind::Folder {
+                path,
+                file_name: Some("pdv-tauri".to_string()),
+            },
+        ));
+    }
+    targets.push(tauri_plugin_log::Target::new(
+        tauri_plugin_log::TargetKind::Stdout,
+    ));
+    targets.push(tauri_plugin_log::Target::new(
+        tauri_plugin_log::TargetKind::Stderr,
+    ));
+    targets
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PrintRequest {
@@ -899,14 +951,7 @@ pub fn run() {
         .plugin(
             tauri_plugin_log::Builder::new()
                 .level(tauri_plugin_log::log::LevelFilter::Info)
-                .targets([
-                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Folder {
-                        path: std::path::PathBuf::from(r"C:\ProgramData\PDV\logs"),
-                        file_name: Some("pdv-tauri".to_string()),
-                    }),
-                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
-                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stderr),
-                ])
+                .targets(tauri_log_targets())
                 .build(),
         )
         .setup(|_| Ok(()))
@@ -927,4 +972,27 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while building tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::first_writable_directory;
+
+    #[test]
+    fn selects_a_directory_that_accepts_a_write_probe() {
+        let root = std::env::temp_dir().join(format!(
+            "pdv-log-directory-test-{}",
+            std::process::id()
+        ));
+        let candidate = root.join("logs");
+
+        let selected = first_writable_directory(&[candidate.clone()]);
+
+        assert_eq!(selected, Some(candidate.clone()));
+        assert!(!candidate.join(format!(
+            ".pdv-log-write-test-{}",
+            std::process::id()
+        )).exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
 }

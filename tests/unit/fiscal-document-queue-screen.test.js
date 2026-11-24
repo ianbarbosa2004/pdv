@@ -101,7 +101,7 @@ test("o cadastro de fornecedor agenda a limpeza do feedback", async () => {
   assert.match(supplierBlock, /message = ""/u);
 });
 
-test("a confirmação fiscal define o feedback antes de recarregar os dados", async () => {
+test("a confirmação fiscal define o feedback depois de recarregar os dados", async () => {
   const source = await readFile(
     new URL("../../src/stock/fiscal-document-queue-screen.js", import.meta.url),
     "utf8"
@@ -112,9 +112,9 @@ test("a confirmação fiscal define o feedback antes de recarregar os dados", as
 
   assert.ok(confirmationBlock, "o fluxo de confirmação fiscal deve existir");
   assert.ok(
-    confirmationBlock.indexOf("message = result.updatedRecipeCount") <
-      confirmationBlock.indexOf("currentEntry = await loadEntry(entryId)"),
-    "o sucesso deve ser definido antes da nova leitura"
+    confirmationBlock.indexOf("await loadFiscalEntries();") <
+      confirmationBlock.indexOf("message = result.updatedRecipeCount"),
+    "o sucesso deve ser definido após as novas leituras"
   );
   assert.match(confirmationBlock, /Entrada \$\{entryId\} confirmada/u);
   assert.match(confirmationBlock, /scheduleMessageClear\(/u);

@@ -564,6 +564,18 @@ fornecida, mas oferece exatamente três ambientes: **Vendas**, **Caixa** e
 **Retaguarda**. A tela mostra o operador autenticado e o status real do caixa;
 **Trocar usuário** permanece como ação auxiliar fora da grade de ambientes.
 
+Nas telas operacionais **Frente de Caixa**, **Caixa**, **Balcão** e **Mesas**,
+use explicitamente Inter/system-ui, tamanho padrão mínimo de `1rem` e peso
+máximo `700` em controles, textos fortes e títulos. Não use `1.7rem` nesses
+ambientes; tamanho 1.7rem só pode permanecer onde o elemento não pertence às
+áreas operacionais citadas.
+
+Novos ícones Lucide são obrigatoriamente registrados em `src/ui/icons.js`.
+Antes de usar `data-lucide` em qualquer tela, importe o componente do pacote
+`lucide`, adicione o mesmo nome ao objeto `icons` de `renderLucideIcons` e
+teste que o export existe. Um novo ícone não pode depender apenas de markup
+HTML sem entrada no registry.
+
 A ordem, os divisores e a estrutura definidos no Construtor de navegação são
 configuração persistida. A preparação do schema não renumera mais os itens
 existentes ao iniciar a API; ela apenas cria ou corrige registros essenciais
@@ -2430,7 +2442,10 @@ Os arquivos reais ficam centralizados em `C:\ProgramData\PDV\logs`:
 `pdv-node.log`, `pdv-vite.log`, `pdv-tauri.log`, `pdv-cargo.log` e
 `pdv-mariadb.log`. O Node encaminha `console.log`, `console.warn` e
 `console.error` para `pdv-node.log`; o Vite usa `customLogger`; o plugin Tauri
-grava em `pdv-tauri.log` e também em stdout/stderr; o comando
+grava em `pdv-tauri.log` e também em stdout/stderr. O cliente usa primeiro
+`%LOCALAPPDATA%\PDV\logs` e retorna ao diretório central somente quando a
+conta do terminal tiver permissão de escrita. O Vite usa a mesma regra e cai
+para um diretório temporário somente quando nenhum destino aceita escrita; o comando
 `npm.cmd run tauri:dev:log` registra a saída do Cargo em `pdv-cargo.log`.
 MariaDB só pode ser configurado por diretório local permitido pela API. A
 configuração publicada deve reiniciar a API após alterações de servidor e

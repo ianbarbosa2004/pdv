@@ -16,6 +16,7 @@ import { apiFetch, getApiUrl } from "../shared/api.js";
 import { fetchWithTimeout } from "../shared/request-timeout.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
 import { formatProductOptionLabel } from "../shared/product.js";
+import { lookupCnpj } from "../shared/cnpj-lookup.js";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -563,7 +564,10 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
         ? formatSupplierCep(value)
         : name === "emailSupplier"
           ? formatSupplierEmail(value)
-          : String(value);
+          : ["companyNameSupplier", "tradeNameSupplier", "addressSupplier",
+              "addressComplementSupplier", "neighborhoodSupplier", "citySupplier"].includes(name)
+            ? formatSupplierTitle(value)
+            : String(value);
   };
 
   const lookupMissingSupplierCnpj = async (form) => {
@@ -574,9 +578,7 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
       return;
     }
     try {
-      const response = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
-      const company = await response.json();
-      if (!response.ok || company.message) throw new Error(company.message || "CNPJ não encontrado.");
+      const company = await lookupCnpj(cnpj);
       setSupplierModalField(form, "companyNameSupplier", company.razao_social);
       setSupplierModalField(form, "tradeNameSupplier", company.nome_fantasia);
       setSupplierModalField(form, "phoneSupplier", company.ddd_telefone_1);
@@ -590,7 +592,12 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
       setSupplierModalField(form, "stateSupplier", company.uf);
       supplierError = "";
     } catch (lookupError) {
-      supplierError = lookupError instanceof Error ? lookupError.message : "Não foi possível consultar o CNPJ.";
+      const lookupMessage = lookupError instanceof Error
+        ? lookupError.message
+        : "Serviço de consulta de CNPJ temporariamente indisponível.";
+      supplierError = lookupError instanceof TypeError || /temporari|indispon|limite|timeout|failed to fetch|network/i.test(lookupMessage)
+        ? "Serviço de consulta de CNPJ temporariamente indisponível."
+        : lookupMessage;
       render();
     }
   };
@@ -1180,18 +1187,17 @@ export function createFiscalDocumentQueueScreen({ onBack, entryOnly = false, ini
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Não foi possível confirmar a entrada.");
+      entryError = "";
+      currentEntry = await loadEntry(entryId);
+      await loadFiscalEntries();
       message = result.updatedRecipeCount
         ? `Entrada ${entryId} confirmada. ${formatUpdatedRecipeStructures(result.updatedRecipeCount)}`
         : `Entrada ${entryId} confirmada.`;
-      entryError = "";
       render();
       scheduleMessageClear(() => {
         message = "";
         clearRenderedFeedback(root);
       });
-      currentEntry = await loadEntry(entryId);
-      await loadFiscalEntries();
-      render();
     } catch (confirmError) {
       entryError = confirmError instanceof Error ? confirmError.message : "Falha ao confirmar a entrada.";
       render();

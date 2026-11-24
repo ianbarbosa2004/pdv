@@ -195,6 +195,7 @@ const showCash = () => mount(createCashScreen({
 const showSales = (options = {}) => mount(createSaleScreen({
   onBackoffice: showBackoffice,
   onCash: showCash,
+  onEnvironmentSelection: showEnvironmentSelection,
   onLogout: async () => {
     await apiFetch(`${getApiUrl()}/api/operator/logout`, { method: "POST" }).catch(() => {});
     await clearOperatorSessionToken();

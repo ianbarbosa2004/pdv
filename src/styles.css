@@ -914,7 +914,33 @@ button:disabled {
 
 .sale-screen {
   min-height: 100vh;
-  padding: 32px 40px 40px;
+  padding: 0 32px 32px;
+  background: #eef2f5;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  font-size: 1rem;
+}
+
+.sale-screen :is(button, input, select, textarea, strong, h1, h2, span),
+.settings-screen:has(.stack-form) :is(button, input, select, textarea, strong, h1, h2, span) {
+  font-family: inherit;
+}
+
+.sale-screen :is(button, input, select, textarea),
+.settings-screen:has(.stack-form) :is(button, input, select, textarea) {
+  font-size: 1rem;
+}
+
+.cash-screen,
+.settings-screen:has(.stack-form),
+.settings-screen:has([data-open-form]),
+.settings-screen:has([data-movement-form]),
+.settings-screen:has([data-close-form]) {
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  font-size: 1rem;
 }
 
 .topbar,
@@ -936,8 +962,24 @@ button:disabled {
 }
 
 .topbar {
+  height: 72px;
+  max-width: none;
+  margin: 0 -32px 20px;
+  padding: 0 32px;
+  color: #fff;
+  background: #08799a;
   justify-content: space-between;
-  margin-bottom: 28px;
+}
+
+.topbar h1 {
+  color: #fff;
+  font-size: 1.55rem;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+}
+
+.topbar .eyebrow {
+  display: none;
 }
 
 .eyebrow {
@@ -969,17 +1011,20 @@ h2 {
 
 .cash-status {
   gap: 10px;
-  color: #506078;
-  font-size: 0.85rem;
+  color: #fff;
+  font-size: 0.9rem;
 }
 
 .cash-status strong {
   margin-left: 14px;
-  color: #172033;
+  color: #fff;
 }
 
 .cash-status .secondary-button {
   margin-left: 8px;
+  border-color: rgb(255 255 255 / 28%);
+  color: #fff;
+  background: rgb(255 255 255 / 10%);
 }
 
 .status-dot {
@@ -1020,6 +1065,42 @@ h2 {
 .workspace {
   align-items: stretch;
   gap: 22px;
+}
+
+.sale-mode-tabs {
+  display: flex;
+  max-width: 1440px;
+  margin: 0 auto 16px;
+  gap: 10px;
+}
+
+.sale-mode-button {
+  display: inline-flex;
+  min-width: 150px;
+  min-height: 52px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border: 1px solid #d8e0ea;
+  border-radius: 12px;
+  color: #5f6b7a;
+  background: #fff;
+  font-size: 1.02rem;
+  font-weight: 700;
+}
+
+.sale-mode-button i,
+.sale-mode-button svg {
+  width: 24px;
+  height: 24px;
+  stroke-width: 2.2;
+}
+
+.sale-mode-button.is-active {
+  border-color: #172033;
+  color: #fff;
+  background: #172033;
 }
 
 .catalog-panel,
@@ -1124,6 +1205,516 @@ h2 {
   border-color: #8aa1e8;
   box-shadow: 0 8px 18px rgb(42 63 108 / 10%);
   transform: translateY(-2px);
+}
+
+.dining-tables-panel {
+  width: 100%;
+  min-height: calc(100vh - 174px);
+  padding: 20px;
+  border: 0;
+  border-radius: 0;
+  background: #f7f9fb;
+  box-shadow: none;
+}
+
+.dining-tables-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 230px;
+  max-width: 1440px;
+  width: 100%;
+  box-sizing: border-box;
+  gap: 0;
+}
+
+.dining-table-control-panel {
+  display: flex;
+  min-height: calc(100vh - 174px);
+  flex-direction: column;
+  padding: 8px;
+  background: #08799a;
+}
+
+.dining-table-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(62px, 1fr));
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.dining-table-quick-selection {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 52px;
+  height: 82px;
+  margin: 6px 0 0;
+  border: 0;
+  border-radius: 4px;
+  background: #15354d;
+}
+
+.dining-table-selection-back {
+  display: grid;
+  height: 82px;
+  width: 52px;
+  margin: 0;
+  place-items: center;
+  border: 0;
+  border: 0;
+  border-radius: 0 2px 2px 0;
+  color: #fff;
+  background: #15354d;
+}
+
+.dining-table-selection-back svg {
+  width: 24px;
+  height: 24px;
+  stroke-width: 2;
+}
+
+.dining-table-keypad button {
+  display: grid;
+  height: 82px;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  color: #fff;
+  background: #1a3a58;
+  font-size: 2.15rem;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.dining-table-keypad svg {
+  width: 28px;
+  height: 28px;
+}
+
+.dining-table-keypad .dining-table-key-confirm {
+  grid-column: 2 / 4;
+  background: #20a7cf;
+}
+
+.dining-table-selection {
+  width: 100%;
+  height: 78px;
+  margin: 0;
+  padding: 0 16px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #fff;
+  font-size: 2.15rem;
+  line-height: 1;
+  font-weight: 700;
+  text-align: center;
+}
+
+.sale-screen .dining-table-number,
+.sale-screen .dining-table-keypad button,
+.sale-screen .dining-table-selection {
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  font-size: 2.15rem;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.dining-table-control-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  margin-top: auto;
+}
+
+.dining-table-count-card {
+  display: grid;
+  min-height: 62px;
+  place-items: center;
+  border-radius: 4px;
+  color: #fff;
+  background: #15354d;
+  text-align: center;
+}
+
+.dining-table-count-card strong {
+  font-size: 1.25rem;
+}
+
+.dining-table-count-card span {
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.dining-table-count-free {
+  background: #2b6a72;
+}
+
+.dining-table-count-occupied {
+  background: #3d6687;
+}
+
+.dining-table-summary-button {
+  display: flex;
+  min-height: 54px;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 4px;
+  color: #fff;
+  background: #d16a2a;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.dining-table-summary-button svg {
+  width: 22px;
+  height: 22px;
+}
+
+.dining-tables-panel .panel-heading {
+  min-height: 48px;
+}
+
+.dining-tables-panel .eyebrow {
+  display: none;
+}
+
+.dining-tables-panel h2 {
+  font-size: 1.45rem;
+  color: #08799a;
+  text-transform: uppercase;
+}
+
+.dining-table-count {
+  color: #5f6b7a;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.dining-tables-empty {
+  min-height: 220px;
+  justify-content: center;
+}
+
+.dining-table-feedback {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid #a7d7bd;
+  border-radius: 6px;
+  background: #effaf3;
+  text-align: center;
+  font-weight: 800;
+}
+
+.dining-table-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 180px);
+  gap: 20px;
+  margin-top: 12px;
+}
+
+.dining-table-card {
+  display: flex;
+  position: relative;
+  min-height: 120px;
+  height: 120px;
+  width: 180px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 10px;
+  border: 0;
+  border-radius: 4px;
+  color: #fff;
+  background: #b9c7d1;
+  text-align: center;
+}
+
+.dining-table-status-occupied {
+  background: #e78a18;
+}
+
+.dining-table-status-occupied.dining-table-status-inactive {
+  background: #c84d45;
+}
+
+.dining-table-status-closing {
+  background: #727b86;
+}
+
+.dining-table-number {
+  position: absolute;
+  left: 10px;
+  bottom: 8px;
+  margin: 0;
+  font-size: 2.15rem;
+  line-height: 1;
+  font-family: inherit;
+  font-weight: 700;
+  text-shadow: 0 1px 1px rgb(23 32 51 / 20%);
+}
+
+.dining-table-name,
+.dining-table-status,
+.dining-table-people {
+  font-size: 1rem;
+}
+
+.dining-table-status {
+  font-weight: 800;
+}
+
+.dining-table-external {
+  display: flex;
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: calc(66.666% - 12px);
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  font-size: 1rem;
+  font-weight: 400;
+  text-align: right;
+}
+
+.dining-table-external span,
+.dining-table-external strong {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  white-space: nowrap;
+  font-weight: 400;
+}
+
+.dining-table-external svg {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex: 0 0 1.1rem;
+  stroke-width: 2;
+}
+
+.dining-table-modal {
+  width: min(100%, 620px);
+}
+
+.dining-table-edit-identifier {
+  display: grid;
+  align-content: center;
+  min-height: 58px;
+  color: #5f6b7a;
+}
+
+.dining-table-edit-identifier span,
+.dining-table-modal .form-field > span {
+  font-size: 1.2rem;
+  font-weight: 400;
+}
+
+.dining-table-edit-identifier strong {
+  display: grid;
+  width: 84px;
+  height: 52px;
+  margin-top: 7px;
+  place-items: center;
+  border: 1px solid #cad3df;
+  border-radius: 10px;
+  color: #172033;
+  background: #fff;
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+.dining-table-modal .dining-table-edit-identifier strong,
+.dining-table-modal input[name="name"],
+.dining-table-modal input[name="people"] {
+  font-weight: 700;
+}
+
+.dining-table-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 20px;
+}
+
+.dining-table-modal input[name="name"] {
+  height: 52px;
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+.dining-table-people-stepper {
+  display: grid;
+  grid-template-columns: 52px minmax(68px, 84px) 52px;
+  align-items: center;
+  justify-content: start;
+  gap: 10px;
+}
+
+.dining-table-people-stepper button {
+  width: 52px;
+  height: 52px;
+  border: 1px solid #cad3df;
+  border-radius: 10px;
+  background: #fff;
+  color: #172033;
+  font-size: 1.75rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.dining-table-people-stepper button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.dining-table-people-stepper input {
+  width: 84px;
+  min-height: 52px;
+  text-align: center;
+  font-size: 1.35rem;
+  font-weight: 700;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.dining-table-people-stepper input::-webkit-inner-spin-button,
+.dining-table-people-stepper input::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+.dining-table-status-field {
+  display: grid;
+  align-content: center;
+  min-height: 58px;
+  color: #5f6b7a;
+}
+
+.dining-table-status-field strong {
+  color: #172033;
+  font-size: 1rem;
+}
+
+.sale-modal-backdrop {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(30 48 74 / 48%);
+}
+
+.sale-modal {
+  width: min(100%, 620px);
+  max-height: calc(100vh - 48px);
+  overflow: hidden;
+  border: 1px solid #dfe6ef;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 24px 80px rgb(23 32 51 / 24%);
+  font-size: 1rem;
+}
+
+.sale-modal-header {
+  display: flex;
+  min-height: 64px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 18px 22px;
+  color: #fff;
+  background: #08799a;
+}
+
+.sale-modal-header h2 {
+  margin: 0;
+  color: #fff;
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.sale-modal-close {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  color: #08799a;
+  background: #fff;
+}
+
+.sale-modal-close i,
+.sale-modal-close svg {
+  width: 26px;
+  height: 26px;
+  stroke-width: 2.2;
+}
+
+.sale-modal-body {
+  display: flex;
+  max-height: calc(100vh - 220px);
+  flex-direction: column;
+  gap: 18px;
+  overflow: auto;
+  padding: 22px;
+}
+
+.sale-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 22px;
+  border-top: 1px solid #e9edf2;
+  background: #f8fafc;
+}
+
+.sale-action {
+  min-height: 52px;
+  padding: 12px 18px;
+  border: 1px solid #dce3eb;
+  border-radius: 10px;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.sale-action-primary {
+  border-color: #08799a;
+  color: #fff;
+  background: #08799a;
+}
+
+.sale-action-secondary {
+  color: #3f5fc4;
+  background: #fff;
+}
+
+.sale-action-danger {
+  border-color: #b25c64;
+  color: #fff;
+  background: #b25c64;
+}
+
+.compact-primary-button {
+  width: auto;
+  min-height: 38px;
+  padding: 8px 14px;
 }
 
 .product-icon {
@@ -1312,18 +1903,35 @@ h2 {
 }
 
 .payment-modal {
-  width: min(100%, 440px);
-  padding: 28px;
-  border-radius: 18px;
+  width: min(100%, 760px);
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
   background: #fff;
   box-shadow: 0 24px 80px rgb(23 32 51 / 24%);
+}
+
+.payment-modal .panel-heading {
+  min-height: 64px;
+  padding: 12px 20px;
+  color: #fff;
+  background: #08799a;
+}
+
+.payment-modal .panel-heading h2,
+.payment-modal .panel-heading .eyebrow {
+  color: #fff;
+}
+
+.payment-modal .panel-heading .eyebrow {
+  display: none;
 }
 
 .payment-modal form {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  margin-top: 24px;
+  gap: 16px;
+  margin: 0;
 }
 
 .form-field {
@@ -1507,12 +2115,12 @@ h2 {
 .recent-sales-modal {
   display: flex;
   width: min(calc(100vw - 32px), 1800px);
+  max-width: none;
   max-height: calc(100vh - 32px);
   flex-direction: column;
-  max-width: none;
 }
 
-.recent-sales-modal .classic-form-body {
+.recent-sales-modal .sale-modal-body {
   min-height: 0;
   overflow: hidden;
 }
@@ -7221,7 +7829,57 @@ input.manual-entry-calculator-display {
   }
 }
 
+@media (min-width: 621px) and (max-width: 1100px) {
+  .dining-table-grid {
+    grid-template-columns: repeat(5, minmax(90px, 1fr));
+  }
+}
+
 @media (max-width: 620px) {
+  .sale-screen {
+    padding: 0 12px 16px;
+  }
+
+  .topbar {
+    margin: 0 -12px 12px;
+    padding: 0 12px;
+  }
+
+  .topbar h1 {
+    font-size: 1.15rem;
+  }
+
+  .cash-status strong,
+  .cash-status [data-recent-sales],
+  .cash-status [data-backoffice],
+  .cash-status [data-cash] {
+    display: none;
+  }
+
+  .dining-tables-panel {
+    min-height: auto;
+  }
+
+  .dining-tables-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .dining-table-control-panel {
+    min-height: auto;
+  }
+
+  .dining-table-keypad button {
+    height: 64px;
+  }
+
+  .dining-table-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dining-table-grid {
+    grid-template-columns: repeat(3, minmax(90px, 1fr));
+  }
+
   .manual-entry-meta-grid,
   .manual-entry-item-primary-grid,
   .manual-entry-item-values-grid,

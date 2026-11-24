@@ -2,8 +2,11 @@ import { defineConfig, loadEnv } from "vite";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createLogger } from "vite";
+import { selectWritableLogDirectory } from "./scripts/writable-log-directory.mjs";
 
 const packageJson = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
 const installedApiEnvPath = "C:\\ProgramData\\PDV\\app\\.env";
@@ -30,19 +33,29 @@ const sourceFingerprint = createHash("sha256")
   .digest("hex")
   .slice(0, 12);
 const buildId = sourceFingerprint;
-const viteLogDirectory = process.env.PDV_LOG_DIR || "C:\\ProgramData\\PDV\\logs";
-const viteLogPath = `${viteLogDirectory}\\pdv-vite.log`;
-mkdirSync(viteLogDirectory, { recursive: true });
+const viteLogDirectory = selectWritableLogDirectory([
+  process.env.PDV_LOG_DIR,
+  process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, "PDV", "logs") : "",
+  "C:\\ProgramData\\PDV\\logs",
+  join(tmpdir(), "PDV", "logs")
+]);
+const viteLogPath = viteLogDirectory ? join(viteLogDirectory, "pdv-vite.log") : "";
 const viteLogger = createLogger("info", { prefix: "[vite]" });
 for (const level of ["info", "warn", "error"]) {
   const original = viteLogger[level];
   viteLogger[level] = (message, options) => {
     original(message, options);
-    appendFileSync(
-      viteLogPath,
-      `[${new Date().toISOString()}] [${level.toUpperCase()}] ${String(message || "").replace(/[\r\n\t]+/gu, " ").slice(0, 5000)}\n`,
-      "utf8"
-    );
+    if (viteLogPath) {
+      try {
+        appendFileSync(
+          viteLogPath,
+          `[${new Date().toISOString()}] [${level.toUpperCase()}] ${String(message || "").replace(/[\r\n\t]+/gu, " ").slice(0, 5000)}\n`,
+          "utf8"
+        );
+      } catch {
+        // Keep Vite startup and build output functional if a log becomes unwritable.
+      }
+    }
   };
 }
 

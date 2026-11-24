@@ -8,6 +8,7 @@ import { renderPreservingFormDraft } from "../ui/form-draft.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { apiFetch, getApiUrl } from "../shared/api.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
+import { lookupCnpj } from "../shared/cnpj-lookup.js";
 import {
   emptySupplier,
   escapeHtml,
@@ -229,9 +230,7 @@ export function createSupplierScreen({
     if (button) button.disabled = true;
     clearLookupFeedback(form);
     try {
-      const response = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
-      const company = await response.json();
-      if (!response.ok || company.message) throw new Error(company.message || "CNPJ não encontrado.");
+      const company = await lookupCnpj(cnpj);
       setSupplierField(form, "companyNameSupplier", company.razao_social);
       setSupplierField(form, "tradeNameSupplier", company.nome_fantasia);
       setSupplierField(form, "phoneSupplier", company.ddd_telefone_1);
@@ -245,7 +244,15 @@ export function createSupplierScreen({
       setSupplierField(form, "stateSupplier", company.uf);
       setLookupMessage(form, "Dados do CNPJ preenchidos. Revise as informações antes de salvar.");
     } catch (lookupError) {
-      setLookupError(form, lookupError instanceof Error ? lookupError.message : "Não foi possível consultar o CNPJ.");
+      const lookupMessage = lookupError instanceof Error
+        ? lookupError.message
+        : "Serviço de consulta de CNPJ temporariamente indisponível.";
+      setLookupError(
+        form,
+        lookupError instanceof TypeError || /temporari|indispon|limite|timeout|failed to fetch|network/i.test(lookupMessage)
+          ? "Serviço de consulta de CNPJ temporariamente indisponível."
+          : lookupMessage
+      );
     } finally {
       lookingUpCnpj = false;
       if (button) {

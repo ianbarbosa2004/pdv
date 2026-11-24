@@ -5,6 +5,7 @@ import { setProjectIcon } from "../ui/project-icon.js";
 import { clearRenderedFeedback, createFeedbackTimer, renderSuccessFeedback } from "../ui/feedback.js";
 import { renderPreservingFormDraft } from "../ui/form-draft.js";
 import { apiFetch, getApiUrl } from "../shared/api.js";
+import { formatSupplierTitle } from "./supplier-form.js";
 
 const escapeHtml = (value) =>
   String(value ?? "")
@@ -368,9 +369,9 @@ export function createCompanyScreen({
       const address = await response.json();
       if (!response.ok || address.erro) throw new Error("CEP não encontrado.");
       const fields = {
-        addressCompany: address.logradouro,
-        neighborhoodCompany: address.bairro,
-        cityCompany: address.localidade,
+        addressCompany: formatSupplierTitle(address.logradouro),
+        neighborhoodCompany: formatSupplierTitle(address.bairro),
+        cityCompany: formatSupplierTitle(address.localidade),
         stateCompany: address.uf,
         countryCompany: "Brasil"
       };

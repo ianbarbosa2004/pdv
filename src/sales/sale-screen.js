@@ -6,6 +6,16 @@ import {
 } from "../ui/number-mask.js";
 import { apiFetch, getApiUrl, saveConfiguredApiUrl  } from "../shared/api.js";
 import { confirmAction } from "../ui/confirmation-modal.js";
+import {
+  getDiningTableModalPresentation,
+  getDiningTablePeopleLabel,
+  normalizeDiningTablePayload,
+  sortDiningTables
+} from "../shared/dining-table.js";
+import { renderPreservingFormDraft } from "../ui/form-draft.js";
+import { createFeedbackTimer } from "../ui/feedback.js";
+import { invoke } from "@tauri-apps/api/core";
+import { renderLucideIcons } from "../ui/icons.js";
 
 const formatCurrency = (value) =>
   new Intl.NumberFormat("pt-BR", {
@@ -41,23 +51,23 @@ const escapeHtml = (value) =>
 
 const requestCancellationReason = () => new Promise((resolve) => {
   const backdrop = document.createElement("div");
-  backdrop.className = "classic-modal-backdrop";
+  backdrop.className = "sale-modal-backdrop";
   backdrop.innerHTML = `
-    <section class="classic-modal" role="dialog" aria-modal="true" aria-labelledby="cancellation-reason-title">
-      <div class="classic-panel-header modal-panel-header">
-        <span id="cancellation-reason-title">Motivo do cancelamento</span>
-        <button class="modal-close-button" data-cancel-reason type="button" aria-label="Cancelar" title="Cancelar">×</button>
+    <section class="sale-modal cancellation-sale-modal" role="dialog" aria-modal="true" aria-labelledby="cancellation-reason-title">
+      <div class="sale-modal-header">
+        <h2 id="cancellation-reason-title">Motivo do cancelamento</h2>
+        <button class="sale-modal-close" data-cancel-reason type="button" aria-label="Cancelar" title="Cancelar"><i data-lucide="x"></i></button>
       </div>
       <form data-cancellation-reason-form>
-        <div class="classic-form-body">
+        <div class="sale-modal-body">
           <label class="form-field">
             <span>Motivo</span>
             <textarea name="reason" minlength="5" maxlength="500" required></textarea>
           </label>
         </div>
-        <div class="classic-form-actions">
-          <button class="classic-button primary danger" type="submit">Confirmar cancelamento</button>
-          <button class="classic-button" data-cancel-reason type="button">Voltar</button>
+        <div class="sale-modal-actions">
+          <button class="sale-action sale-action-danger" type="submit">Confirmar cancelamento</button>
+          <button class="sale-action sale-action-secondary" data-cancel-reason type="button">Voltar</button>
         </div>
       </form>
     </section>
@@ -81,6 +91,7 @@ export function createSaleScreen({
   onBackoffice,
   onCash,
   onLogout,
+  onEnvironmentSelection,
   initialApiError = false,
   onApiConfigured
 } = {}) {
@@ -112,6 +123,59 @@ export function createSaleScreen({
   let recentSales = [];
   let recentSalesLoading = false;
   let recentSalesError = "";
+  let saleMode = "counter";
+  let diningTables = [];
+  let diningTablesLoading = false;
+  let diningTablesError = "";
+  let diningTableModalOpen = false;
+  let editingDiningTable = null;
+  let diningTableSaving = false;
+  let diningTableSaveError = "";
+  let diningTableSelection = "";
+  let diningTableFeedback = "";
+  let diningTableInactivityMinutes = 20;
+  let diningTableTimeTimer = null;
+  const scheduleSaleFeedbackClear = createFeedbackTimer();
+  const setSaleFeedback = (message) => {
+    saleFeedback = message;
+    scheduleSaleFeedbackClear(() => {
+      saleFeedback = "";
+      render();
+    });
+  };
+  const handleDiningTableKeyboard = (event) => {
+    if (saleMode !== "tables" || diningTableModalOpen || recentSalesOpen || paymentOpen || apiConfigOpen) return;
+    if (event.defaultPrevented) return;
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    if (/^[0-9]$/.test(event.key)) {
+      event.preventDefault();
+      if (diningTableSelection.length < 3) diningTableSelection += event.key;
+      const field = root.querySelector("[data-dining-table-selection]");
+      if (field) {
+        field.value = diningTableSelection;
+        field.focus();
+      } else {
+        render();
+      }
+      return;
+    }
+    if (event.key === "Backspace") {
+      event.preventDefault();
+      diningTableSelection = diningTableSelection.slice(0, -1);
+      const field = root.querySelector("[data-dining-table-selection]");
+      if (field) {
+        field.value = diningTableSelection;
+        field.focus();
+      } else {
+        render();
+      }
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void confirmDiningTableSelection();
+    }
+  };
   const operator = window.__PDV_OPERATOR__ || {};
   const canCancelSales = ["supervisor", "admin"].includes(operator.roleOperator);
 
@@ -149,6 +213,172 @@ export function createSaleScreen({
       .join("");
   };
 
+  const diningTableStatusLabel = (status) => ({
+    free: "Livre",
+    occupied: "Ocupada",
+    closing: "Fechamento"
+  }[status] || "Livre");
+
+  const formatDiningTableOpenedTime = (openedAt) => {
+    const opened = new Date(openedAt);
+    if (!openedAt || Number.isNaN(opened.getTime())) return "-";
+    const elapsedMinutes = Math.max(0, Math.floor((Date.now() - opened.getTime()) / 60000));
+    const hours = Math.floor(elapsedMinutes / 60);
+    const minutes = elapsedMinutes % 60;
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+  };
+
+  const isDiningTableInactive = (openedAt) => {
+    const opened = new Date(openedAt);
+    if (!openedAt || Number.isNaN(opened.getTime())) return false;
+    const elapsedMinutes = Math.max(0, Math.floor((Date.now() - opened.getTime()) / 60000));
+    return elapsedMinutes >= diningTableInactivityMinutes;
+  };
+
+  const formatDiningTableConsumedAmount = (amount) =>
+    new Intl.NumberFormat("pt-BR", {
+      style: "currency",
+      currency: "BRL"
+    }).format(Number(amount || 0));
+
+  const diningTablesMarkup = () => {
+    if (diningTablesLoading) {
+      return '<p class="empty-state">Carregando mesas...</p>';
+    }
+    if (diningTablesError) {
+      return `<div class="empty-state error-state"><strong>Não foi possível carregar as mesas.</strong><span>${escapeHtml(diningTablesError)}</span><button class="secondary-button" data-retry-dining-tables type="button">Tentar novamente</button></div>`;
+    }
+    if (!diningTables.length) {
+      return '<p class="empty-state dining-tables-empty">Nenhuma Mesa configurada.</p>';
+    }
+    return `
+      <div class="dining-table-grid">
+        ${sortDiningTables(diningTables).map((table) => `
+          <button class="dining-table-card dining-table-status-${escapeHtml(table.status)}${table.status === "occupied" && isDiningTableInactive(table.openedAt) ? " dining-table-status-inactive" : ""}" data-edit-dining-table="${table.id}" type="button">
+            <strong class="dining-table-number">${escapeHtml(table.visualIdentifier)}</strong>
+            ${table.status === "occupied" ? `
+              <span class="dining-table-external dining-table-external-occupied">
+                <span>${escapeHtml(String(table.name || "Sem referência").toLocaleUpperCase("pt-BR"))} <i data-lucide="user-round"></i></span>
+                <span>${escapeHtml(getDiningTablePeopleLabel(table.people))} <i data-lucide="users"></i></span>
+                <span>${escapeHtml(formatDiningTableOpenedTime(table.openedAt))} <i data-lucide="clock-3"></i></span>
+                <span>${escapeHtml(formatDiningTableConsumedAmount(table.consumedAmount))} <i data-lucide="circle-dollar-sign"></i></span>
+              </span>
+            ` : ""}
+          </button>
+        `).join("")}
+      </div>
+    `;
+  };
+
+  const diningTableCounts = () => {
+    const available = diningTables.filter((table) => table.status === "free").length;
+    const occupied = diningTables.filter((table) => table.status === "occupied").length;
+    return { available, occupied };
+  };
+
+  const confirmDiningTableSelection = async () => {
+    const identifier = diningTableSelection.trim();
+    const table = sortDiningTables(diningTables).find((item) =>
+      String(item.visualIdentifier) === identifier
+    );
+    if (!table) {
+      setSaleFeedback("Mesa não encontrada.");
+      diningTableSelection = "";
+      render();
+      return;
+    }
+    editingDiningTable = table;
+    if (table.status === "occupied") {
+      diningTableSelection = "";
+      diningTableFeedback = `Mesa ${table.visualIdentifier} ocupada. Tela de lançamentos será aberta aqui.`;
+      render();
+      return;
+    }
+    diningTableSaveError = "";
+    diningTableModalOpen = true;
+    render();
+    root.querySelector('[data-dining-table-form] input[name="name"]')?.focus();
+  };
+
+  const diningTableControlMarkup = () => {
+    const counts = diningTableCounts();
+    return `
+      <aside class="dining-table-control-panel" aria-label="Controles das Mesas">
+        <div class="dining-table-quick-selection" aria-label="Número digitado da Mesa">
+          <input class="dining-table-selection" data-dining-table-selection type="text" inputmode="numeric" autocomplete="off" maxlength="3" aria-label="Número da Mesa" value="${escapeHtml(diningTableSelection)}" autofocus />
+          <button class="dining-table-selection-back" type="button" data-dining-table-key="back" aria-label="Apagar último dígito">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6H9l-7 6 7 6h11V6Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="m16 9-4 6m4 0-4-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+        <div class="dining-table-keypad" aria-label="Seleção rápida da Mesa">
+          ${["7", "8", "9", "4", "5", "6", "1", "2", "3", "0"].map((key) => {
+            return `<button type="button" data-dining-table-key="${key}" aria-label="Digite ${key}">${key}</button>`;
+          }).join("")}
+          <button class="dining-table-key-confirm" type="button" data-dining-table-key="confirm" aria-label="Abrir Mesa digitada" style="grid-column: 2 / 4;">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+        <div class="dining-table-control-summary">
+          <div class="dining-table-count-card dining-table-count-free">
+            <strong>${counts.available}</strong>
+            <span>Disponíveis</span>
+          </div>
+          <div class="dining-table-count-card dining-table-count-occupied">
+            <strong>${counts.occupied}</strong>
+            <span>Ocupadas</span>
+          </div>
+          <button class="dining-table-summary-button" data-print-dining-table-summary type="button">
+            <i data-lucide="printer"></i>
+            <span>Resumo das Mesas</span>
+          </button>
+        </div>
+      </aside>
+    `;
+  };
+
+  const diningTableModalMarkup = () => {
+    const table = editingDiningTable;
+    const presentation = getDiningTableModalPresentation(table?.status);
+    return `
+      <div class="sale-modal-backdrop" data-dining-table-backdrop>
+        <section class="sale-modal dining-table-modal" role="dialog" aria-modal="true" aria-labelledby="dining-table-title">
+          <div class="sale-modal-header">
+            <h2 id="dining-table-title">${escapeHtml(presentation.title)}</h2>
+            <button class="sale-modal-close" data-close-dining-table type="button" aria-label="Fechar" title="Fechar"><i data-lucide="x"></i></button>
+          </div>
+          <form data-dining-table-form>
+            <div class="sale-modal-body dining-table-form-grid">
+              <div class="dining-table-edit-identifier">
+                <span>Mesa</span>
+                <strong>${escapeHtml(table?.visualIdentifier || "")}</strong>
+              </div>
+              <label class="form-field">
+                <span>Nome de Referência</span>
+                <input name="name" maxlength="120" value="${escapeHtml(table?.name || "")}" ${diningTableSaving ? "disabled" : ""} ${table?.status === "free" ? "autofocus" : ""} />
+              </label>
+              <div class="form-field dining-table-people-field">
+                <span>Quantidade de pessoas</span>
+                <div class="dining-table-people-stepper">
+                  <button type="button" data-dining-table-people-step="-1" aria-label="Diminuir quantidade de pessoas" ${diningTableSaving ? "disabled" : ""}>−</button>
+                  <input name="people" type="number" min="1" step="1" required value="${escapeHtml(String(table?.people || 1))}" ${diningTableSaving ? "disabled" : ""} />
+                  <button type="button" data-dining-table-people-step="1" aria-label="Aumentar quantidade de pessoas" ${diningTableSaving ? "disabled" : ""}>+</button>
+                </div>
+              </div>
+              ${diningTableSaveError ? `<p class="error-message">${escapeHtml(diningTableSaveError)}</p>` : ""}
+            </div>
+            <div class="sale-modal-actions">
+              ${table?.status === "occupied"
+                ? '<button class="sale-action sale-action-secondary" data-request-dining-table-closing type="button" ' + (diningTableSaving ? "disabled" : "") + '>Pedir conta</button>'
+                : ""}
+              <button class="sale-action sale-action-primary" type="submit" ${diningTableSaving ? "disabled" : ""}>${diningTableSaving ? "Salvando..." : escapeHtml(presentation.actionLabel)}</button>
+              <button class="sale-action sale-action-secondary" data-close-dining-table type="button" ${diningTableSaving ? "disabled" : ""}>Cancelar</button>
+            </div>
+          </form>
+        </section>
+      </div>
+    `;
+  };
+
   const fiscalStatusLabel = (status) => ({
     not_requested: "Não solicitada",
     pending: "Pendente",
@@ -168,13 +398,13 @@ export function createSaleScreen({
   };
 
   const recentSalesMarkup = () => `
-    <div class="classic-modal-backdrop" data-recent-sales-backdrop>
-      <section class="classic-modal recent-sales-modal" role="dialog" aria-modal="true" aria-labelledby="recent-sales-title">
-        <div class="classic-panel-header modal-panel-header">
-          <span id="recent-sales-title">Vendas recentes</span>
-          <button class="modal-close-button" data-close-recent-sales type="button" aria-label="Fechar" title="Fechar">×</button>
+    <div class="sale-modal-backdrop" data-recent-sales-backdrop>
+      <section class="sale-modal recent-sales-modal" role="dialog" aria-modal="true" aria-labelledby="recent-sales-title">
+        <div class="sale-modal-header">
+          <h2 id="recent-sales-title">Vendas recentes</h2>
+          <button class="sale-modal-close" data-close-recent-sales type="button" aria-label="Fechar" title="Fechar"><i data-lucide="x"></i></button>
         </div>
-        <div class="classic-form-body">
+        <div class="sale-modal-body">
           ${recentSalesLoading ? '<p class="modal-help-text">Carregando vendas...</p>' : ""}
           ${recentSalesError ? `<p class="error-message">${escapeHtml(recentSalesError)}</p>` : ""}
           ${!recentSalesLoading && !recentSalesError && !recentSales.length ? '<p class="modal-help-text">Nenhuma venda encontrada.</p>' : ""}
@@ -259,6 +489,26 @@ export function createSaleScreen({
         </div>
       </header>
 
+      <nav class="sale-mode-tabs" aria-label="Modo da frente de caixa">
+        <button class="sale-mode-button ${saleMode === "counter" ? "is-active" : ""}" data-sale-mode="counter" type="button"><i data-lucide="shopping-basket"></i><span>Balcão</span></button>
+        <button class="sale-mode-button ${saleMode === "tables" ? "is-active" : ""}" data-sale-mode="tables" type="button"><i data-lucide="utensils"></i><span>Mesas</span></button>
+      </nav>
+      ${saleMode === "tables" ? `
+      <section class="workspace dining-tables-workspace">
+        <div class="catalog-panel dining-tables-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Organização</p>
+              <h2>Mapa de Mesas</h2>
+            </div>
+            <span class="dining-table-count">${diningTables.length} ${diningTables.length === 1 ? "Mesa" : "Mesas"}</span>
+          </div>
+          ${diningTableFeedback ? `<div class="dining-table-feedback success-message" role="status">${escapeHtml(diningTableFeedback)}</div>` : ""}
+          ${diningTablesMarkup()}
+        </div>
+        ${diningTableControlMarkup()}
+      </section>
+      ` : `
       <section class="workspace">
         <div class="catalog-panel">
           <div class="panel-heading">
@@ -358,6 +608,7 @@ export function createSaleScreen({
           }>Ir para pagamento <span>→</span></button>
         </aside>
       </section>
+      `}
       ${
         paymentOpen
           ? `
@@ -368,9 +619,9 @@ export function createSaleScreen({
                     <p class="eyebrow">Finalizar venda</p>
                     <h2 id="payment-title">Pagamento</h2>
                   </div>
-                  <button class="modal-close-button" data-close-payment type="button" aria-label="Fechar" title="Fechar"><i data-lucide="x"></i></button>
+                  <button class="sale-modal-close" data-close-payment type="button" aria-label="Fechar" title="Fechar"><i data-lucide="x"></i></button>
                 </div>
-                <form data-payment-form>
+                <form class="sale-modal-body" data-payment-form>
                   <label class="form-field">
                     <span>Forma de pagamento</span>
                     <select data-payment-method ${
@@ -414,7 +665,7 @@ export function createSaleScreen({
                       ? `<p class="payment-error">${escapeHtml(paymentError)}</p>`
                       : ""
                   }
-                  <button class="primary-button" type="submit" ${
+                  <button class="sale-action sale-action-primary" type="submit" ${
                     paymentLoading || !paymentMethods.length || submittingPayment
                       ? "disabled"
                       : ""
@@ -425,20 +676,18 @@ export function createSaleScreen({
           `
           : ""
       }
+      ${diningTableModalOpen ? diningTableModalMarkup() : ""}
       ${
         apiConfigOpen
           ? `
-            <div class="classic-modal-backdrop" data-api-config-backdrop>
-              <section class="classic-modal api-connection-modal" role="dialog" aria-modal="true" aria-labelledby="api-config-title">
-                <div class="classic-panel-header modal-panel-header">
-                  <div>
-                    <span class="eyebrow">Conexão do terminal</span>
-                    <span id="api-config-title">API indisponível</span>
-                  </div>
-                  <button class="modal-close-button" data-close-api-config type="button" aria-label="Fechar" title="Continuar sem conexão">×</button>
+            <div class="sale-modal-backdrop" data-api-config-backdrop>
+              <section class="sale-modal api-connection-modal" role="dialog" aria-modal="true" aria-labelledby="api-config-title">
+                <div class="sale-modal-header">
+                  <h2 id="api-config-title">API indisponível</h2>
+                  <button class="sale-modal-close" data-close-api-config type="button" aria-label="Fechar" title="Continuar sem conexão"><i data-lucide="x"></i></button>
                 </div>
                 <form data-api-config-form>
-                  <div class="classic-form-body">
+                  <div class="sale-modal-body">
                     <p class="modal-help-text">Não foi possível conectar ao servidor do PDV. Informe o IP ou nome do computador que executa a API e a porta publicada.</p>
                     <label class="form-field">
                       <span>Endereço da API</span>
@@ -446,9 +695,9 @@ export function createSaleScreen({
                     </label>
                     ${apiConfigError ? `<p class="error-message">${escapeHtml(apiConfigError)}</p>` : ""}
                   </div>
-                  <div class="classic-form-actions">
-                    <button class="classic-button primary" type="submit" ${apiConfigSaving ? "disabled" : ""}>${apiConfigSaving ? "Testando..." : "Salvar e testar"}</button>
-                    <button class="classic-button" data-close-api-config type="button" ${apiConfigSaving ? "disabled" : ""}>Continuar sem conexão</button>
+                  <div class="sale-modal-actions">
+                    <button class="sale-action sale-action-primary" type="submit" ${apiConfigSaving ? "disabled" : ""}>${apiConfigSaving ? "Testando..." : "Salvar e testar"}</button>
+                    <button class="sale-action sale-action-secondary" data-close-api-config type="button" ${apiConfigSaving ? "disabled" : ""}>Continuar sem conexão</button>
                   </div>
                 </form>
               </section>
@@ -461,6 +710,7 @@ export function createSaleScreen({
 
     bindEvents();
     bindNumberMasks(root);
+    renderLucideIcons(root);
   };
 
   const addProduct = (idProduct) => {
@@ -609,7 +859,7 @@ export function createSaleScreen({
           throw new Error("Não foi possível conectar a esse endereço. Verifique o IP, a porta e o firewall do servidor.");
         }
         apiConfigOpen = false;
-        await Promise.all([fetchCatalog(), fetchPaymentMethods()]);
+        await Promise.all([fetchCatalog(), fetchPaymentMethods(), fetchDiningTables()]);
       } catch (error) {
         apiConfigError = error instanceof Error ? error.message : String(error);
       } finally {
@@ -621,6 +871,246 @@ export function createSaleScreen({
       searchTerm = event.target.value;
       updateProductGrid();
     });
+    root.querySelectorAll("[data-sale-mode]").forEach((button) => {
+      button.addEventListener("click", () => {
+        saleMode = button.dataset.saleMode;
+        diningTableFeedback = "";
+        if (saleMode === "counter") {
+          setSaleFeedback("Modo Balcão ativado.");
+        }
+        if (saleMode === "tables") diningTableSelection = "";
+        render();
+        if (saleMode === "tables" && !diningTablesLoading) {
+          void fetchDiningTables();
+        }
+        if (saleMode === "tables") {
+          root.querySelector("[data-dining-table-selection]")?.focus();
+        }
+      });
+    });
+    root.querySelectorAll("[data-edit-dining-table]").forEach((button) => {
+      button.addEventListener("click", () => {
+        editingDiningTable = diningTables.find((table) => String(table.id) === String(button.dataset.editDiningTable)) || null;
+        diningTableSaveError = "";
+        if (editingDiningTable?.status === "occupied") {
+          diningTableFeedback = `Mesa ${editingDiningTable.visualIdentifier} ocupada. Tela de lançamentos será aberta aqui.`;
+          render();
+          return;
+        }
+        diningTableModalOpen = true;
+        render();
+        if (editingDiningTable?.status === "free") {
+          root.querySelector('[data-dining-table-form] input[name="name"]')?.focus();
+        }
+      });
+    });
+    root.querySelectorAll("[data-dining-table-people-step]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const input = root.querySelector('[data-dining-table-form] input[name="people"]');
+        if (!input) return;
+        const step = Number(button.dataset.diningTablePeopleStep);
+        const current = Number.parseInt(input.value, 10);
+        input.value = String(Math.max(1, (Number.isInteger(current) ? current : 1) + step));
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    });
+    root.querySelector("[data-dining-table-back]")?.addEventListener("click", () => {
+      diningTableSelection = "";
+      diningTableFeedback = "";
+      if (typeof onEnvironmentSelection === "function") {
+        onEnvironmentSelection();
+        return;
+      }
+      saleMode = "counter";
+      setSaleFeedback("Modo Balcão ativado.");
+      render();
+    });
+    root.querySelectorAll("[data-dining-table-key]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const key = button.dataset.diningTableKey;
+        if (key === "back") {
+          diningTableSelection = diningTableSelection.slice(0, -1);
+        } else if (key === "confirm") {
+          confirmDiningTableSelection();
+          return;
+        } else {
+          if (diningTableSelection.length < 3) diningTableSelection += key;
+        }
+        render();
+      });
+    });
+    root.querySelector("[data-request-dining-table-closing]")?.addEventListener("click", (event) => {
+      const form = event.currentTarget.closest("[data-dining-table-form]");
+      if (form) void saveDiningTable(form, "closing");
+    });
+    root.querySelectorAll("[data-close-dining-table]").forEach((button) => {
+      button.addEventListener("click", () => {
+        if (diningTableSaving) return;
+        diningTableModalOpen = false;
+        editingDiningTable = null;
+        diningTableSaveError = "";
+        render();
+      });
+    });
+    root.querySelector("[data-dining-table-backdrop]")?.addEventListener("click", (event) => {
+      if (event.target === event.currentTarget && !diningTableSaving) {
+        diningTableModalOpen = false;
+        editingDiningTable = null;
+        diningTableSaveError = "";
+        render();
+      }
+    });
+    root.querySelector("[data-dining-table-form]")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      void saveDiningTable(event.currentTarget);
+    });
+    root.querySelector("[data-retry-dining-tables]")?.addEventListener("click", () => {
+      void fetchDiningTables();
+    });
+    root.querySelector("[data-print-dining-table-summary]")?.addEventListener("click", () => {
+      void printDiningTableSummary();
+    });
+    root.querySelector("[data-dining-table-selection]")?.addEventListener("input", (event) => {
+      diningTableSelection = event.currentTarget.value.replace(/\D/g, "").slice(0, 3);
+      event.currentTarget.value = diningTableSelection;
+    });
+    root.querySelector("[data-dining-table-selection]")?.addEventListener("keydown", (event) => {
+      if (event.key === "Backspace") {
+        event.preventDefault();
+        diningTableSelection = diningTableSelection.slice(0, -1);
+        event.currentTarget.value = diningTableSelection;
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        if (diningTableSelection.length === 0) return;
+        void confirmDiningTableSelection();
+      } else if (/^[0-9]$/.test(event.key)) {
+        event.preventDefault();
+        if (diningTableSelection.length < 3) diningTableSelection += event.key;
+        event.currentTarget.value = diningTableSelection;
+      }
+    });
+    if (saleMode === "tables" && !diningTableModalOpen) {
+      root.querySelector("[data-dining-table-selection]")?.focus();
+    }
+  };
+
+  const fetchDiningTables = async () => {
+    diningTablesLoading = true;
+    diningTablesError = "";
+    render();
+    try {
+      const [diningResponse, settingsResponse] = await Promise.all([
+        apiFetch(`${getApiUrl()}/api/dining-tables`),
+        apiFetch(`${getApiUrl()}/api/general-settings`)
+      ]);
+      const [payload, settingsPayload] = await Promise.all([
+        diningResponse.json(),
+        settingsResponse.json()
+      ]);
+      if (!diningResponse.ok || !Array.isArray(payload.diningTables)) {
+        throw new Error(payload.error || "Não foi possível carregar as Mesas.");
+      }
+      diningTables = sortDiningTables(payload.diningTables);
+      if (settingsResponse.ok && Array.isArray(settingsPayload.settings)) {
+        const inactivitySetting = settingsPayload.settings.find(
+          (setting) => setting.keyGeneralSetting === "diningTableInactivityMinutes"
+        );
+        const configuredMinutes = Number(inactivitySetting?.valueGeneralSetting);
+        if (Number.isInteger(configuredMinutes) && configuredMinutes >= 1 && configuredMinutes <= 1440) {
+          diningTableInactivityMinutes = configuredMinutes;
+        }
+      }
+    } catch (error) {
+      diningTablesError = error instanceof Error ? error.message : "Falha ao carregar as Mesas.";
+    } finally {
+      diningTablesLoading = false;
+      render();
+    }
+  };
+
+  const printDiningTableSummary = async () => {
+    if (!window.__TAURI_INTERNALS__) {
+      setSaleFeedback("O resumo impresso exige o aplicativo Tauri.");
+      render();
+      return;
+    }
+    try {
+      const settingsResponse = await apiFetch(`${getApiUrl()}/api/printer-settings`);
+      const settings = await settingsResponse.json();
+      if (!settingsResponse.ok) {
+        throw new Error(settings.error || "Não foi possível consultar a impressora.");
+      }
+      if (!settings.receiptPrinterName) {
+        throw new Error("Configure a impressora padrão de Cupom antes de imprimir.");
+      }
+      const occupiedTables = sortDiningTables(diningTables)
+        .filter((table) => table.status === "occupied");
+      const totalPeople = occupiedTables.reduce((sum, table) => sum + Number(table.people || 0), 0);
+      const text = [
+        "RESUMO DAS MESAS",
+        "================================================",
+        ...occupiedTables.map((table) =>
+          [
+            `Mesa ${table.visualIdentifier}${table.name ? ` - ${table.name}` : ""}`,
+            `Pessoas: ${table.people || 0}`,
+            "Status: Ocupada",
+            "Valor da Comanda: não informado nesta versão"
+          ].join("\n"),
+        ),
+        "================================================",
+        `Mesas ocupadas: ${occupiedTables.length}`,
+        `Pessoas: ${totalPeople}`,
+        "Total geral: não informado nesta versão",
+        "================================================"
+      ].join("\n");
+      const result = await invoke("print_receipt", {
+        request: {
+          printerName: settings.receiptPrinterName,
+          text,
+          lines: null
+        }
+      });
+      setSaleFeedback(result || "Resumo das Mesas enviado para impressão.");
+      render();
+    } catch (printError) {
+      setSaleFeedback(printError instanceof Error ? printError.message : "Não foi possível imprimir o resumo das Mesas.");
+      render();
+    }
+  };
+
+  const saveDiningTable = async (form, statusOverride = "") => {
+    diningTableSaving = true;
+    diningTableSaveError = "";
+    renderPreservingFormDraft(root, render);
+    try {
+      const data = new FormData(form);
+      const presentation = getDiningTableModalPresentation(editingDiningTable?.status);
+      const table = normalizeDiningTablePayload({
+        visualIdentifier: editingDiningTable?.visualIdentifier || "",
+        name: data.get("name"),
+        people: data.get("people"),
+        status: statusOverride || presentation.nextStatus
+      });
+      const id = editingDiningTable?.id;
+      const response = await apiFetch(`${getApiUrl()}/api/dining-tables${id ? `/${id}` : ""}`, {
+        method: id ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(table)
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || "Não foi possível salvar a Mesa.");
+      }
+      diningTableModalOpen = false;
+      editingDiningTable = null;
+      await fetchDiningTables();
+    } catch (error) {
+      diningTableSaveError = error instanceof Error ? error.message : "Falha ao salvar a Mesa.";
+      renderPreservingFormDraft(root, render);
+    } finally {
+      diningTableSaving = false;
+      render();
+    }
   };
 
   const fetchRecentSales = async () => {
@@ -788,5 +1278,17 @@ export function createSaleScreen({
   void fetchCatalog();
   void fetchPaymentMethods();
   void fetchCash();
+  if (diningTableTimeTimer) window.clearInterval(diningTableTimeTimer);
+  diningTableTimeTimer = window.setInterval(() => {
+    if (saleMode === "tables" && diningTables.some((table) => table.status === "occupied")) {
+      render();
+    }
+  }, 60000);
+  root.addEventListener("keydown", handleDiningTableKeyboard);
+  root.tabIndex = -1;
+  root.cleanup = () => {
+    if (diningTableTimeTimer) window.clearInterval(diningTableTimeTimer);
+    root.removeEventListener("keydown", handleDiningTableKeyboard);
+  };
   return root;
 }

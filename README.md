@@ -76,6 +76,10 @@ A fundação inicial já está criada:
   `SMALLINT UNSIGNED` para evitar estouro do contador de caixas.
 - valores monetários normalizados em duas casas com arredondamento para cima,
   preservando escalas específicas para quantidades, percentuais e conversões.
+- organização do mapa de Mesas na frente de caixa, com cadastro persistente,
+  identificador visual, nome opcional, quantidade de pessoas e estado Livre,
+  Ocupada ou Em fechamento; o número de Mesas é configurado em Configurações
+  gerais entre 1 e 200 e o padrão é 20.
 
 O catálogo da interface depende da API e pode aparecer vazio até que produtos
 sejam cadastrados no MariaDB. Uma venda só será considerada persistida quando o
