@@ -311,7 +311,7 @@ export function createFiscalEntryDesignScreen({ onBack, ...handlers }) {
       listSearch = event.currentTarget.value;
       rerenderPreservingInputSelection(event.currentTarget, render, () => root.querySelector("[data-manual-entry-search]"));
     });
-    root.querySelector("[data-new-entry]")?.addEventListener("click", () => { current = null; draft = blank(); resetItemDraft(); error = ""; setMessage("Nova entrada preparada."); render(); });
+    root.querySelector("[data-new-entry]")?.addEventListener("click", () => { current = null; draft = blank(); resetItemDraft(); error = ""; render(); });
     root.querySelector("[data-supplier-toggle]")?.addEventListener("click", () => {
       supplierPicker.isOpen = !supplierPicker.isOpen;
       productPicker.isOpen = false;
@@ -467,7 +467,6 @@ export function createFiscalEntryDesignScreen({ onBack, ...handlers }) {
       const value = parseInputNumber(calculatorDisplay);
       itemDraft.unitPrice = value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       calculatorOpen = false;
-      setMessage("Valor transferido para o preço unitário.");
       render();
     });
     root.querySelector("[data-add-item]")?.addEventListener("click", () => {
@@ -479,11 +478,11 @@ export function createFiscalEntryDesignScreen({ onBack, ...handlers }) {
     root.querySelector("[data-add-payment]")?.addEventListener("click", () => {
       const form = root.querySelector("[data-manual-form]"); const amount = parseInputNumber(form.paymentAmount.value);
       if (!form.paymentDescription.value.trim() || !Number.isFinite(amount) || amount <= 0) { error = "Informe descrição e valor do pagamento."; render(); return; }
-      draft.payments.push({ description: form.paymentDescription.value.trim(), amount }); error = ""; setMessage("Pagamento adicionado à entrada."); render();
+      draft.payments.push({ description: form.paymentDescription.value.trim(), amount }); error = ""; render();
     });
-    root.querySelectorAll("[data-remove-item]").forEach((button) => button.addEventListener("click", () => { draft.items.splice(Number(button.dataset.removeItem), 1); setMessage("Item removido da entrada."); render(); }));
-    root.querySelectorAll("[data-remove-payment]").forEach((button) => button.addEventListener("click", () => { draft.payments.splice(Number(button.dataset.removePayment), 1); setMessage("Pagamento removido da entrada."); render(); }));
-    root.querySelector("[data-clear]")?.addEventListener("click", () => { current = null; draft = blank(); resetItemDraft(); error = ""; setMessage("Formulário limpo."); render(); });
+    root.querySelectorAll("[data-remove-item]").forEach((button) => button.addEventListener("click", () => { draft.items.splice(Number(button.dataset.removeItem), 1); render(); }));
+    root.querySelectorAll("[data-remove-payment]").forEach((button) => button.addEventListener("click", () => { draft.payments.splice(Number(button.dataset.removePayment), 1); render(); }));
+    root.querySelector("[data-clear]")?.addEventListener("click", () => { current = null; draft = blank(); resetItemDraft(); error = ""; render(); });
     root.querySelector("[data-save-draft]")?.addEventListener("click", () => void save("draft"));
     root.querySelector("[data-save-entry]")?.addEventListener("click", () => void save("open"));
     root.querySelector("[data-reopen]")?.addEventListener("click", () => void save("draft"));
@@ -527,7 +526,6 @@ export function createFiscalEntryDesignScreen({ onBack, ...handlers }) {
       payments: (data.payments || []).map((payment) => ({ description: payment.description, amount: Number(payment.amount) }))
     };
     error = "";
-    setMessage(`Entrada ${id} aberta.`);
     render();
   };
   const save = async (status) => {
@@ -578,14 +576,14 @@ export function createFiscalEntryDesignScreen({ onBack, ...handlers }) {
         body: JSON.stringify({ items: [] })
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Não foi possível confirmar a entrada.");
+      if (!response.ok) throw new Error(result.error || "Não foi possível concluir a confirmação da entrada fiscal.");
       current.statusFiscalEntry = result.statusFiscalEntry;
       error = "";
+      await load();
       setMessage(result.updatedRecipeCount
         ? `Entrada ${entryId} confirmada. ${formatUpdatedRecipeStructures(result.updatedRecipeCount)}`
         : `Entrada ${entryId} confirmada.`);
       render();
-      await load();
     } catch (reviewError) {
       error = reviewError instanceof Error ? reviewError.message : "Falha ao revisar o impacto da entrada.";
       render();

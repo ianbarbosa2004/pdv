@@ -4,8 +4,27 @@ Este documento registra as mudanças funcionais e técnicas agrupadas por versã
 O número da versão só deve ser incrementado após pedido explícito. Builds e
 releases não alteram a versão automaticamente.
 
+## 0.21.0 - 2026-11-23
+
+- Consolidada a tela de Mesas na Frente de Caixa, com mapa ocupacional,
+  seleção rápida por visor numérico, backspace, confirmação por Enter e
+  resumo impresso das Mesas abertas.
+- Padronizado o comportamento global de ESC nos modais da Frente de Caixa,
+  incluindo pagamento, Mesa, Vendas recentes e configuração da API.
+- Revisados os feedbacks da Entrada Manual e da confirmação de Entradas fiscais,
+  removendo mensagens desnecessárias ao abrir registros e evitando feedback
+  duplicado após sucesso ou falha.
+- Centralizada a consulta de CNPJ com fallback entre BrasilAPI e ReceitaWS,
+  timeout e aplicação de capitalização de títulos nos resultados de CNPJ e CEP.
+- Alterações no frontend do PDV exigem novo bundle/distribuição do cliente;
+  alterações em `src/server/` ou instalação da API exigem reinício da API publicada.
+
 ## 0.20.0 - 2026-11-19
 
+- Corrigida a inicialização do cliente Tauri quando `C:\ProgramData\PDV\logs`
+  não permite escrita pelo usuário do terminal: o log passa a usar primeiro
+  `%LOCALAPPDATA%\PDV\logs` e não aborta o aplicativo caso nenhum diretório
+  de arquivo esteja disponível.
 - Documentado o plano de migração da API de `node:http` para Express, com
   inventário de rotas, middlewares, testes, rollback e preservação das
   transações MariaDB.

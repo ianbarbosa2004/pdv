@@ -30,6 +30,22 @@ CREATE TABLE IF NOT EXISTS technical_logs (
   KEY idxTechnicalLogsOccurred (occurredAtTechnicalLog),
   KEY idxTechnicalLogsSourceLevel (sourceTechnicalLog, levelTechnicalLog, occurredAtTechnicalLog)
 ) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS dining_tables (
+  idDiningTable BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  visualIdentifierDiningTable VARCHAR(40) NOT NULL,
+  nameDiningTable VARCHAR(120) NOT NULL DEFAULT '',
+  statusDiningTable ENUM('free', 'occupied', 'closing') NOT NULL DEFAULT 'free',
+  peopleDiningTable SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+  sortPositionDiningTable INT UNSIGNED NOT NULL DEFAULT 0,
+  isActiveDiningTable TINYINT(1) NOT NULL DEFAULT 1,
+  createdAtDiningTable TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAtDiningTable TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (idDiningTable),
+  UNIQUE KEY uqDiningTablesVisualIdentifier (visualIdentifierDiningTable),
+  KEY idxDiningTablesStatus (statusDiningTable, sortPositionDiningTable)
+) ENGINE=InnoDB;
+
 CREATE TABLE IF NOT EXISTS `groups` (
   idGroup BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   descriptionGroup VARCHAR(120) NOT NULL,
@@ -755,6 +771,14 @@ CREATE TABLE IF NOT EXISTS general_settings (
   PRIMARY KEY (idGeneralSetting),
   UNIQUE KEY uqGeneralSettingsKey (keyGeneralSetting)
 ) ENGINE=InnoDB;
+
+INSERT INTO general_settings
+  (keyGeneralSetting, labelGeneralSetting, typeGeneralSetting, valueGeneralSetting)
+VALUES
+  ('diningTableCount', 'Número de Mesas visíveis', 'number', '20')
+ON DUPLICATE KEY UPDATE
+  labelGeneralSetting = VALUES(labelGeneralSetting),
+  typeGeneralSetting = VALUES(typeGeneralSetting);
 
 CREATE TABLE IF NOT EXISTS company_settings (
   idCompanySetting TINYINT UNSIGNED NOT NULL,

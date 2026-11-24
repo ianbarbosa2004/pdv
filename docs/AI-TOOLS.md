@@ -76,6 +76,30 @@ npm.cmd run tauri -- build --no-bundle
 Para alterações somente documentais, `git diff --check` é suficiente, desde
 que nenhum arquivo funcional tenha sido alterado.
 
+## Registro de insatisfação e comportamento esperado
+
+Em 19 de novembro de 2026, o usuário registrou insatisfação com respostas que
+repetiam suposição ou afirmavam impossibilidade de testar mesmo havendo acesso
+seguro à API, à autenticação instalada ou aos scripts operacionais. Isso não
+deve ser tratado como uma falha isolada de uma tarefa: é uma diretriz permanente
+de atuação.
+
+As ferramentas de IA devem:
+
+1. analisar o fluxo completo antes de pedir intervenção humana;
+2. confirmar o código usado no checkout e no ambiente publicado;
+3. reutilizar credenciais já configuradas localmente sem exibí-las;
+4. reproduzir o problema com o menor teste direto possível;
+5. diferenciar resultado confirmado de hipótese ou bloqueio real;
+6. executar correções e validações completas antes de declarar conclusão;
+7. evitar voltar ao usuário com um pedido de teste quando a própria tarefa
+   permite executá-lo.
+
+Não use a falta temporária de informação como desculpa para encerrar uma
+investigação sem tentar os recursos disponíveis. Quando houver um bloqueio
+necessário, explique objetivamente qual acesso, autorização ou informação
+realmente falta e o próximo resultado que essa ausência impede.
+
 ## Arquivos protegidos
 
 Nunca versione ou envie:

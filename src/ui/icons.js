@@ -1,5 +1,7 @@
 import {
   ArrowRightCircle,
+  ArrowLeft,
+  CornerDownLeft,
   Building2,
   Calculator,
   ChartColumn,
@@ -10,6 +12,7 @@ import {
   createIcons,
   Database,
   DollarSign,
+  Delete,
   Eye,
   EyeOff,
   FileCheck2,
@@ -36,6 +39,8 @@ export const renderLucideIcons = (root) => {
   createIcons({
     icons: {
       ArrowRightCircle,
+      ArrowLeft,
+      CornerDownLeft,
       Building2,
       Calculator,
       ChartColumn,
@@ -45,6 +50,7 @@ export const renderLucideIcons = (root) => {
       Copy,
       Database,
       DollarSign,
+      Delete,
       Eye,
       EyeOff,
       FileCheck2,

@@ -112,6 +112,23 @@ const ensureTechnicalLogSchema = () => {
   return technicalLogSchemaPromise;
 };
 
+const ensureDiningTableSchema = async () => {
+  await pool.query(`CREATE TABLE IF NOT EXISTS dining_tables (
+    idDiningTable BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    visualIdentifierDiningTable VARCHAR(40) NOT NULL,
+    nameDiningTable VARCHAR(120) NOT NULL DEFAULT '',
+    statusDiningTable ENUM('free', 'occupied', 'closing') NOT NULL DEFAULT 'free',
+    peopleDiningTable SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+    sortPositionDiningTable INT UNSIGNED NOT NULL DEFAULT 0,
+    isActiveDiningTable TINYINT(1) NOT NULL DEFAULT 1,
+    createdAtDiningTable TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updatedAtDiningTable TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (idDiningTable),
+    UNIQUE KEY uqDiningTablesVisualIdentifier (visualIdentifierDiningTable),
+    KEY idxDiningTablesStatus (statusDiningTable, sortPositionDiningTable)
+  ) ENGINE=InnoDB`);
+};
+
 const ensureGeneralSettingsSchema = async () => {
   await pool.query(`CREATE TABLE IF NOT EXISTS general_settings (
     idGeneralSetting BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -162,7 +179,8 @@ const ensureGeneralSettingsSchema = async () => {
       ('nfceQueryProductionUrl', 'URL consulta NFC-e - produção', 'text', ?),
       ('nfeDistributionHomologationUrl', 'URL distribuição XML - homologação', 'text', ?),
       ('nfeDistributionProductionUrl', 'URL distribuição XML - produção', 'text', ?),
-      ('nfceManualQueryUrl', 'URL consulta manual NFC-e', 'text', 'https://portalsped.fazenda.mg.gov.br/portalnfce/sistema/consultaresumida.xhtml')
+      ('nfceManualQueryUrl', 'URL consulta manual NFC-e', 'text', 'https://portalsped.fazenda.mg.gov.br/portalnfce/sistema/consultaresumida.xhtml'),
+      ('diningTableCount', 'Número de Mesas visíveis', 'number', '20')
      ON DUPLICATE KEY UPDATE
        labelGeneralSetting = VALUES(labelGeneralSetting),
        typeGeneralSetting = VALUES(typeGeneralSetting)`,
@@ -3208,6 +3226,7 @@ const ensureOperatorCashSchema = async () => {
     ensureFiscalCatalogSchema,
     ensurePrinterSettingsSchema,
     ensureTechnicalLogSchema,
+    ensureDiningTableSchema,
     ensureGeneralSettingsSchema,
     loadGeneralSourceSettings,
     ensureCustomerConsumerSchema,

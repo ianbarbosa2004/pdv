@@ -120,17 +120,39 @@ test("a entrada manual mostra feedback nas ações pós clique", async () => {
     "utf8"
   );
 
-  assert.match(source, /setMessage\("Nova entrada preparada\."\)/u);
-  assert.match(source, /setMessage\("Valor transferido para o preço unitário\."\)/u);
   assert.match(source, /setMessage\("Item adicionado à entrada\."\)/u);
-  assert.match(source, /setMessage\("Pagamento adicionado à entrada\."\)/u);
-  assert.match(source, /setMessage\("Item removido da entrada\."\)/u);
-  assert.match(source, /setMessage\("Pagamento removido da entrada\."\)/u);
-  assert.match(source, /setMessage\("Formulário limpo\."\)/u);
-  assert.match(source, /Entrada \$\{id\} aberta/u);
+  assert.doesNotMatch(source, /Nova entrada preparada/u);
+  assert.doesNotMatch(source, /Valor transferido para o preço unitário/u);
+  assert.doesNotMatch(source, /Pagamento adicionado à entrada/u);
+  assert.doesNotMatch(source, /Item removido da entrada/u);
+  assert.doesNotMatch(source, /Pagamento removido da entrada/u);
+  assert.doesNotMatch(source, /Formulário limpo/u);
+  assert.doesNotMatch(source, /setMessage\(`Entrada \$\{id\} aberta\.`\)/u);
 });
 
-test("a confirmação manual define o feedback antes de recarregar a entrada", async () => {
+test("abrir uma entrada manual não cria feedback de operação", async () => {
+  const source = await readFile(
+    new URL("../../src/stock/fiscal-entry-design-screen.js", import.meta.url),
+    "utf8"
+  );
+  const openStart = source.indexOf("const openEntry = async");
+  const openEnd = source.indexOf("\n  const save = async", openStart);
+  const openBlock = source.slice(openStart, openEnd);
+  assert.doesNotMatch(openBlock, /setMessage/u);
+});
+
+test("falha ao confirmar entrada manual usa mensagem específica", async () => {
+  const source = await readFile(
+    new URL("../../src/stock/fiscal-entry-design-screen.js", import.meta.url),
+    "utf8"
+  );
+  assert.match(
+    source,
+    /Não foi possível concluir a confirmação da entrada fiscal/u
+  );
+});
+
+test("a confirmação manual define o feedback depois de recarregar a entrada", async () => {
   const source = await readFile(
     new URL("../../src/stock/fiscal-entry-design-screen.js", import.meta.url),
     "utf8"
@@ -140,13 +162,9 @@ test("a confirmação manual define o feedback antes de recarregar a entrada", a
   const confirmationBlock = source.slice(confirmationStart, confirmationEnd);
 
   assert.ok(confirmationBlock, "o fluxo de confirmação manual deve existir");
-  assert.match(
-    confirmationBlock,
-    /setMessage\(result\.updatedRecipeCount[\s\S]*await load\(\);/u
-  );
   assert.ok(
-    confirmationBlock.indexOf("setMessage(result.updatedRecipeCount") <
-      confirmationBlock.indexOf("await load();"),
-    "o sucesso deve ser definido antes da nova leitura"
+    confirmationBlock.indexOf("await load();") <
+      confirmationBlock.indexOf("setMessage(result.updatedRecipeCount"),
+    "o sucesso deve ser definido após a nova leitura"
   );
 });

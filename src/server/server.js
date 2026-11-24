@@ -13,6 +13,11 @@ import {
 } from "./margin-service.js";
 import { parseImportBoolean, parseImportStatus } from "../shared/import-values.js";
 import { roundCostUpToCents } from "../shared/decimal.js";
+import { validateFiscalUrl } from "../shared/fiscal-url.js";
+import {
+  normalizeDiningTableCount,
+  normalizeDiningTablePayload
+} from "../shared/dining-table.js";
 import {
   calculateCmvPrice,
   calculateMarginMetrics,
@@ -104,24 +109,7 @@ const packageJson = JSON.parse(readFileSync(new URL("../../package.json", import
 const applicationVersion = String(packageJson.version);
 const config = await loadRuntimeConfig();
 
-const validateFiscalQueryUrl = (value, label, { service = true, pathSuffix = "" } = {}) => {
-  let url;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new Error(`Informe uma URL HTTPS válida para ${label}.`);
-  }
-  if (url.protocol !== "https:" || !url.hostname.endsWith(".fazenda.mg.gov.br")) {
-    throw new Error(`${label} deve usar HTTPS e pertencer ao domínio oficial da SEFAZ/MG.`);
-  }
-  if (pathSuffix && !url.pathname.endsWith(pathSuffix)) {
-    throw new Error(`${label} deve apontar para o serviço oficial esperado.`);
-  }
-  if (service && !pathSuffix && !url.pathname.endsWith("/NFeConsultaProtocolo4")) {
-    throw new Error(`${label} deve apontar para o serviço NFeConsultaProtocolo4.`);
-  }
-  return url.toString();
-};
+const validateFiscalQueryUrl = validateFiscalUrl;
 
 if (!config.apiToken) {
   throw new Error("PDV_API_TOKEN não configurado. A API não pode iniciar sem autenticação.");
@@ -155,9 +143,59 @@ const {
   ensureSupplierSchema,
   ensureOperatorCashSchema,
   ensureTechnicalLogSchema,
+  ensureDiningTableSchema,
   ensureMarginSchema
 } = createSchemaManager({ pool, config });
 const technicalLogs = createTechnicalLogService({ pool });
+
+const synchronizeConfiguredDiningTables = async () => {
+  await ensureDiningTableSchema();
+  await ensureGeneralSettingsSchema();
+  const [settingRows] = await pool.query(
+    `SELECT valueGeneralSetting
+     FROM general_settings
+     WHERE keyGeneralSetting = 'diningTableCount'
+     LIMIT 1`
+  );
+  const count = normalizeDiningTableCount(settingRows[0]?.valueGeneralSetting || 20);
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    await connection.query("UPDATE dining_tables SET isActiveDiningTable = 0");
+    for (let position = 1; position <= count; position += 1) {
+      const visualIdentifier = String(position);
+      const [rows] = await connection.query(
+        `SELECT idDiningTable
+         FROM dining_tables
+         WHERE visualIdentifierDiningTable = ?
+         LIMIT 1`,
+        [visualIdentifier]
+      );
+      if (rows.length) {
+        await connection.query(
+          `UPDATE dining_tables
+           SET isActiveDiningTable = 1, sortPositionDiningTable = ?
+           WHERE idDiningTable = ?`,
+          [position, rows[0].idDiningTable]
+        );
+      } else {
+        await connection.query(
+          `INSERT INTO dining_tables
+            (visualIdentifierDiningTable, nameDiningTable, statusDiningTable,
+             peopleDiningTable, sortPositionDiningTable, isActiveDiningTable)
+           VALUES (?, '', 'free', 1, ?, 1)`,
+          [visualIdentifier, position]
+        );
+      }
+    }
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
 const realLogs = createRealLogReader();
 const nodeLogWriter = createComponentLogWriter({ fileName: "pdv-node.log" });
 const formatConsoleValue = (value) => {
@@ -2340,6 +2378,95 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "GET" && request.url === "/api/dining-tables") {
+    try {
+      await synchronizeConfiguredDiningTables();
+      const [rows] = await pool.query(
+        `SELECT idDiningTable, visualIdentifierDiningTable, nameDiningTable,
+                statusDiningTable, peopleDiningTable, sortPositionDiningTable
+         FROM dining_tables
+         WHERE isActiveDiningTable = 1
+         ORDER BY sortPositionDiningTable ASC, visualIdentifierDiningTable ASC`
+      );
+      json(response, 200, {
+        diningTables: rows.map((row) => ({
+          id: row.idDiningTable,
+          visualIdentifier: row.visualIdentifierDiningTable,
+          name: row.nameDiningTable,
+          status: row.statusDiningTable,
+          people: row.peopleDiningTable,
+          sortPosition: row.sortPositionDiningTable
+        }))
+      });
+    } catch (error) {
+      handleError(response, error, {
+        log: "Falha ao carregar Mesas:",
+        message: "Não foi possível carregar as Mesas.",
+        duplicate: ""
+      });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/api/dining-tables") {
+    try {
+      const payload = await readJsonBody(request);
+      const table = normalizeDiningTablePayload(payload);
+      await ensureDiningTableSchema();
+      const [[positionRow]] = await pool.query(
+        "SELECT COALESCE(MAX(sortPositionDiningTable), 0) AS maxPosition FROM dining_tables"
+      );
+      const [result] = await pool.query(
+        `INSERT INTO dining_tables
+          (visualIdentifierDiningTable, nameDiningTable, statusDiningTable,
+           peopleDiningTable, sortPositionDiningTable)
+         VALUES (?, ?, ?, ?, ?)`,
+        [table.visualIdentifier, table.name, table.status, table.people, Number(positionRow.maxPosition) + 1]
+      );
+      json(response, 201, {
+        diningTable: {
+          id: result.insertId,
+          ...table,
+          sortPosition: Number(positionRow.maxPosition) + 1
+        }
+      });
+    } catch (error) {
+      handleError(response, error, {
+        log: "Falha ao cadastrar Mesa:",
+        message: "Não foi possível cadastrar a Mesa.",
+        duplicate: "Já existe uma Mesa com este identificador visual."
+      });
+    }
+    return;
+  }
+
+  if (request.method === "PUT" && /^\/api\/dining-tables\/\d+$/.test(new URL(request.url, "http://localhost").pathname)) {
+    try {
+      const tableId = Number(new URL(request.url, "http://localhost").pathname.split("/").pop());
+      const payload = await readJsonBody(request);
+      const table = normalizeDiningTablePayload(payload);
+      await ensureDiningTableSchema();
+      const [result] = await pool.query(
+        `UPDATE dining_tables
+         SET visualIdentifierDiningTable = ?, nameDiningTable = ?, statusDiningTable = ?,
+             peopleDiningTable = ?
+         WHERE idDiningTable = ? AND isActiveDiningTable = 1`,
+        [table.visualIdentifier, table.name, table.status, table.people, tableId]
+      );
+      if (!result.affectedRows) {
+        throw new SaleValidationError("Mesa não encontrada.", 404);
+      }
+      json(response, 200, { diningTable: { id: tableId, ...table } });
+    } catch (error) {
+      handleError(response, error, {
+        log: "Falha ao atualizar Mesa:",
+        message: "Não foi possível atualizar a Mesa.",
+        duplicate: "Já existe uma Mesa com este identificador visual."
+      });
+    }
+    return;
+  }
+
   if (request.method === "GET" && request.url === "/api/general-settings") {
     try {
       await ensureGeneralSettingsSchema();
@@ -2383,7 +2510,10 @@ const server = createServer(async (request, response) => {
         "nfeQueryProductionUrl",
         "nfceQueryHomologationUrl",
         "nfceQueryProductionUrl",
-        "nfceManualQueryUrl"
+        "nfceManualQueryUrl",
+        "nfeDistributionHomologationUrl",
+        "nfeDistributionProductionUrl",
+        "diningTableCount"
       ]);
       if (!allowedKeys.has(key)) {
         throw new SaleValidationError("Configuração geral não reconhecida.");
@@ -2413,6 +2543,13 @@ const server = createServer(async (request, response) => {
         if (type === "number" && (!value || !Number.isFinite(Number(value)))) {
           throw new SaleValidationError("Informe um número válido.");
         }
+        if (key === "diningTableCount") {
+          try {
+            normalizeDiningTableCount(value);
+          } catch (error) {
+            throw new SaleValidationError(error.message);
+          }
+        }
         if (type === "json") {
           try {
             JSON.parse(value);
@@ -2437,7 +2574,11 @@ const server = createServer(async (request, response) => {
               pathSuffix: key === "nfeDistributionHomologationUrl"
                 || key === "nfeDistributionProductionUrl"
                 ? "/NFeDistribuicaoDFe.asmx"
-                : ""
+                : "",
+              allowedHostSuffixes: key === "nfeDistributionHomologationUrl"
+                || key === "nfeDistributionProductionUrl"
+                ? [".fazenda.gov.br"]
+                : [".fazenda.mg.gov.br"]
             });
           } catch (error) {
             throw new SaleValidationError(error.message);
@@ -2449,11 +2590,20 @@ const server = createServer(async (request, response) => {
            WHERE keyGeneralSetting = ?`,
           [value, key]
         );
+        if (key === "diningTableCount") {
+          await synchronizeConfiguredDiningTables();
+        }
         if (key === "ncmSourceUrl") {
           config.ncmSourceUrl = value;
         }
         if (key === "cestSourceUrl") {
           config.cestSourceUrl = value;
+        }
+        if (key === "nfeDistributionHomologationUrl") {
+          config.nfeDistributionHomologationUrl = value;
+        }
+        if (key === "nfeDistributionProductionUrl") {
+          config.nfeDistributionProductionUrl = value;
         }
         if (key === "nfeQueryHomologationUrl") config.nfeQueryHomologationUrl = value;
         if (key === "nfeQueryProductionUrl") config.nfeQueryProductionUrl = value;
@@ -5209,11 +5359,16 @@ const server = createServer(async (request, response) => {
         const nextStock = grouped.controlsStockProduct
           ? sequence.nextStock
           : grouped.previousStock;
+        const numericNextStock = Number(nextStock);
+        const numericNextCost = Number(sequence.nextCost);
+        if (!Number.isFinite(numericNextStock) || !Number.isFinite(numericNextCost)) {
+          throw new SaleValidationError("Saldo ou custo atualizado inválido.");
+        }
         await connection.query(
           `UPDATE products
            SET stockQuantityProduct = ?, costPriceProduct = ?
            WHERE idProduct = ?`,
-          [nextStock.toFixed(4), sequence.nextCost.toFixed(4), idProduct]
+          [numericNextStock.toFixed(4), numericNextCost.toFixed(4), idProduct]
         );
         for (const [index, step] of sequence.steps.entries()) {
           const entry = grouped.entries[index];
@@ -5223,6 +5378,15 @@ const server = createServer(async (request, response) => {
           const movementNextStock = grouped.controlsStockProduct
             ? step.nextStock
             : step.previousStock;
+          const numericMovementQuantity = Number(movementQuantity);
+          const numericPreviousStock = Number(step.previousStock);
+          const numericMovementNextStock = Number(movementNextStock);
+          const numericPreviousCost = Number(step.previousCost);
+          const numericNextStepCost = Number(step.nextCost);
+          if (![numericMovementQuantity, numericPreviousStock, numericMovementNextStock,
+            numericPreviousCost, numericNextStepCost].every(Number.isFinite)) {
+            throw new SaleValidationError("Movimento de estoque com valores inválidos.");
+          }
           await connection.query(
             `INSERT INTO inventory_movements
               (idProduct, idFiscalEntry, typeInventoryMovement,
@@ -5231,9 +5395,9 @@ const server = createServer(async (request, response) => {
                nextCostInventoryMovement, costPolicyInventoryMovement,
                reasonInventoryMovement, idOperator)
              VALUES (?, ?, 'fiscal_entry', ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [idProduct, idFiscalEntry, movementQuantity.toFixed(4),
-              step.previousStock.toFixed(4), movementNextStock.toFixed(4),
-              step.previousCost.toFixed(4), step.nextCost.toFixed(4),
+            [idProduct, idFiscalEntry, numericMovementQuantity.toFixed(4),
+              numericPreviousStock.toFixed(4), numericMovementNextStock.toFixed(4),
+              numericPreviousCost.toFixed(4), numericNextStepCost.toFixed(4),
               step.policy, "Confirmação de entrada fiscal", session.idOperator]
           );
         }
@@ -5266,7 +5430,7 @@ const server = createServer(async (request, response) => {
       }
       handleError(response, error, {
         log: "Falha ao confirmar entrada fiscal:",
-        message: "Não foi possível confirmar a entrada fiscal.",
+        message: "Não foi possível concluir a confirmação da entrada fiscal.",
         duplicate: ""
       });
     }
@@ -7831,7 +7995,8 @@ server.listen(config.apiPort, config.apiHost, () => {
     ensureRecipeSchema(),
     ensureNavigationSchema(),
     ensureOperatorCashSchema(),
-    ensureTechnicalLogSchema()
+    ensureTechnicalLogSchema(),
+    ensureDiningTableSchema()
   ])
     .then(() => ensureMarginSchema())
     .then(() => ensureMonetaryScaleSchema())

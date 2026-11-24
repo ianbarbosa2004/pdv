@@ -223,6 +223,12 @@ test("modal de componente alinha o X no cabeçalho e a aplicação instala ESC g
   assert.match(styles, /\.recipe-component-modal \.classic-panel-header[\s\S]*?justify-content: space-between/u);
   assert.match(mainSource, /installGlobalModalEscape\(\)/u);
   assert.match(modalSource, /event\.key !== "Escape"/u);
+  assert.match(modalSource, /\.sale-modal-backdrop:not\(\[hidden\]\)/u);
+  assert.match(modalSource, /\.modal-backdrop:not\(\[hidden\]\)/u);
+  assert.match(modalSource, /\[data-close-payment\]/u);
+  assert.match(modalSource, /\[data-close-dining-table\]/u);
+  assert.match(modalSource, /\[data-close-recent-sales\]/u);
+  assert.match(modalSource, /\[data-close-api-config\]/u);
 });
 
 test("salvar Receita e Ficha Técnica propaga custos para dependências em cascata", async () => {

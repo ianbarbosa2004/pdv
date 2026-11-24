@@ -1,6 +1,8 @@
 const getOpenModal = () => {
   const modals = [
     ...document.querySelectorAll(".classic-modal-backdrop:not([hidden])"),
+    ...document.querySelectorAll(".sale-modal-backdrop:not([hidden])"),
+    ...document.querySelectorAll(".modal-backdrop:not([hidden])"),
     ...document.querySelectorAll(".page-feedback[role='dialog']")
   ];
   return modals.at(-1) || null;
@@ -31,7 +33,7 @@ export const installGlobalModalEscape = () => {
     if (!modal) return;
 
     const closeButton = modal.querySelector(
-      ".modal-close-button, [data-confirmation-cancel], [data-cancel], [data-cancel-edit], [data-cancel-component-edit], [data-close-backup-cancel]"
+      ".modal-close-button, .sale-modal-close, [data-confirmation-cancel], [data-cancel], [data-cancel-edit], [data-cancel-component-edit], [data-close-backup-cancel], [data-close-payment], [data-close-dining-table], [data-close-recent-sales], [data-close-api-config], [data-cancel-reason]"
     );
     if (!closeButton || closeButton.disabled) return;
 

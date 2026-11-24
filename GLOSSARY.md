@@ -5,6 +5,30 @@ caixa e vendas.
 
 ## Operação
 
+**Balcão**:
+Modo de frente de caixa destinado à venda direta, com lançamento e pagamento
+na mesma operação.
+_Evitar_: mesa, venda em comanda.
+
+**Mesas**:
+Modo de frente de caixa destinado ao atendimento com lançamentos associados a
+Mesas e suas Comandas.
+_Evitar_: várias vendas separadas, balcão.
+
+**Mapa em grade**:
+Visualização das Mesas organizadas em uma grade numerada.
+_Evitar_: mapa físico do salão, lista apenas textual.
+
+**Ordenação da grade**:
+Posicionamento automático das Mesas conforme seu Identificador visual, adaptado
+ao número de colunas disponíveis na tela sem exigir posição manual.
+_Evitar_: coordenadas fixas, arraste na versão inicial.
+
+**Mapa do salão**:
+Visualização das Mesas posicionadas sobre uma representação configurável do
+salão.
+_Evitar_: planta arquitetônica, grade numerada.
+
 **Operador**:
 Pessoa autenticada individualmente no PDV para executar operações autorizadas.
 _Evitar_: usuário genérico, terminal.
@@ -26,6 +50,65 @@ _Evitar_: entrada de operador.
 Encerramento de uma sessão financeira com valor contado, diferença e
 justificativa quando necessária.
 _Evitar_: logout.
+
+**Mesa**:
+Local físico numerado do serviço em Mesas que pode receber uma ou mais
+Comandas, conforme a configuração operacional.
+_Evitar_: venda aberta, comanda, ocupação da sala.
+
+**Identificador visual da Mesa**:
+Número ou texto configurado para localizar uma Mesa no mapa, separado de sua
+identidade interna estável.
+_Evitar_: código técnico da Mesa, nome obrigatório.
+
+**Comanda**:
+Conta aberta vinculada a uma Mesa para registrar lançamentos até o seu
+pagamento ou cancelamento. Uma Mesa pode manter mais de uma Comanda ativa.
+_Evitar_: mesa física, venda ainda não confirmada.
+
+**Lançamento em Comanda**:
+Registro de uma quantidade de um Produto comercial em uma Comanda ativa.
+_Evitar_: venda confirmada, movimento isolado de estoque.
+
+**Pagamento agrupado**:
+Liquidação de uma seleção de Comandas em uma única operação de pagamento,
+preservando uma Venda separada para cada Comanda.
+_Evitar_: uma única venda da Mesa, fusão das Comandas.
+
+**Livre**:
+Estado de uma Mesa sem Comanda ativa.
+_Evitar_: mesa vazia sem ocupação.
+
+**Ocupada**:
+Estado de uma Mesa com uma Comanda ativa que ainda pode receber lançamentos.
+_Evitar_: mesa física reservada, pagamento concluído.
+
+**Ocupação da Mesa**:
+Registro da quantidade de pessoas atendidas em uma Mesa. O valor inicial é um
+e pode ser alterado a qualquer momento pelo operador.
+_Evitar_: divisão da conta, preço por pessoa.
+
+**Em fechamento**:
+Estado de uma Mesa cuja Comanda está em conferência e encerra novos
+lançamentos até o pagamento ser concluído ou a Mesa retornar a Ocupada.
+_Evitar_: fechamento de caixa, conta impressa.
+
+**Seleção rápida da Mesa**:
+Escolha de uma Mesa pelo seu Identificador visual por entrada numérica antes
+de abrir seu estado operacional. A confirmação direciona para o mesmo fluxo
+da seleção direta no Mapa em grade.
+_Evitar_: alterar o Identificador visual, criar uma nova Mesa.
+
+**Resumo das Mesas abertas**:
+Referência operacional impresso das Mesas que possuem Comandas abertas, com
+identificação, nome de referência, ocupação, estado e valor de cada Comanda,
+acrescido do total geral. Não altera estados, lançamentos ou pagamentos.
+_Evitar_: relatório financeiro, impressão de itens, fechamento de Mesa.
+
+**Indicação visual de inatividade**:
+Sinal visual derivado do tempo sem atividade registrada em uma Mesa. Não altera
+seus estados, lançamentos ou pagamentos e pode ser configurado por limite geral.
+_Evitar_: mesa abandonada, estado de Mesa, bloqueio de consumo.
 
 **Cancelamento auditado de venda**:
 Operação autorizada que marca uma venda como cancelada, registra operador,

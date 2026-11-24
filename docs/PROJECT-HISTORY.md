@@ -7,6 +7,46 @@ inicial do produto até o estado atual do workspace. Ele complementa o
 
 ## 0. Estado mais recente
 
+### Mesa operacional e comportamento global de modais — 2026-11-23
+
+A tela Mesas recebeu um teclado operacional com visor único integrado ao
+Backspace, confirmação por Enter e números visuais proporcionais ao mapa.
+A seta superior da versão anterior foi retirada. Mesa Livre continua aberta
+por modal próprio; Mesa Ocupada apresenta feedback provisório até a tela
+de lançamentos em Comandas ser implementada.
+
+Todos os modais próprios da Frente de Caixa passaram a reconhecer ESC:
+pagamento, abertura de Mesa, vendas recentes e configuração da API fecham
+pela tecla sem alterar os dados confirmados.
+
+As consultas externas de CNPJ passaram a usar BrasilAPI como fonte principal
+e ReceitaWS como fallback, com timeout e capitalização de títulos. A entrada
+manual eliminou feedbacks operacionais triviais e preservou apenas confirmações
+relevantes.
+
+### Organização visual das Mesas — 2026-11-19
+
+A frente de caixa passou a oferecer os modos Balcão e Mesas. O modo Mesas
+apresenta um mapa responsivo, ordenado pelo identificador visual, e permite
+cadastrar ou editar Mesas persistidas pela API. Cada Mesa possui identidade
+interna separada do rótulo exibido, nome opcional, quantidade de pessoas e
+estado Livre, Ocupada ou Em fechamento.
+
+A quantidade visível é uma configuração geral, aceita valores inteiros de 1
+a 200 e começa em 20. Ao alterar o valor ou consultar o mapa, a API sincroniza
+Mesas numeradas sequencialmente e mantém apenas os números configurados ativos.
+
+Esta etapa cobre somente organização e cadastro. Vendas, Comandas, lançamentos,
+pagamentos, cancelamentos e fechamento de Mesa não foram incorporados ao fluxo.
+A alteração exige reinício da API publicada por incluir rotas e preparação de
+schema para `dining_tables`.
+
+O painel operacional da tela Mesas passou a incluir uma seta de retorno à escolha
+de Vendas/Caixa/Retaguarda, seleção rápida por teclado numérico, contadores
+informativos de Mesas disponíveis e ocupadas e ação de impressão do resumo das
+Mesas abertas. Mesa Livre continua usando o modal de abertura; Mesa Ocupada
+exibe um feedback provisório até a tela de lançamentos em Comandas ser criada.
+
 ### Plano de migração da API para Express — 2026-11-19
 
 Foi registrada uma avaliação técnica da migração do servidor de `node:http`

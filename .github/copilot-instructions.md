@@ -44,6 +44,31 @@ compile com `npm.cmd run tauri -- build --no-bundle`.
 
 ## Convenções
 
+- **Execução eficaz e objetiva:** atue como engenheiro responsável do PDV,
+  investigue o fluxo completo de uma vez e execute a validação mínima possível
+  antes de concluir. Não faça o usuário repetir testes que a IA pode realizar
+  com ferramentas, scripts oficiais ou a API já instalada.
+- Priorize evidência sobre suposição: consulte código, estado publicado,
+  autenticação oficial, banco e nova leitura da operação. Não peça credenciais,
+  tokens ou senha quando já existirem mecanismos locais seguros no repositório
+  ou na instalação operacional.
+- Não diga que não consegue testar sem primeiro verificar scripts, ambiente,
+  serviços e endpoints disponíveis. Apenas declare um bloqueio quando uma
+  ferramenta ou autorização realmente estiver ausente.
+- Evite idas e vindas: enumere separadamente fatos confirmados, hipóteses
+  descartadas e hipótese remanescente; execute o menor teste que confirme ou
+  refute a hipótese remanescente.
+- Ao alterar API, banco, configuração ou publicação, informe se reinício,
+  migração, bundle ou distribuição são necessários e prove o estado final
+  com saída direta da ferramenta ou da API quando estiver autorizado a fazê-lo.
+- Não registre nem exponha credenciais, payloads sensíveis ou dados reais.
+  Respostas finais devem indicar o resultado, a evidência essencial e a
+  intervenção operacional restante, sem oferecer testes desnecessários.
+- Nenhuma autorização ampla de deploy foi criada pelas regras acima. Commit,
+  push, merge, publicação ou migração destrutiva continuam exigindo autorização
+  explícita, exceto quando uma instrução deste projeto já autorizar claramente
+  a operação.
+
 - Faça alterações pequenas, testáveis e compatíveis com os contratos existentes.
 - Use SQL parametrizado e trate erros de banco explicitamente.
 - Regras de domínio devem ser reutilizáveis entre cliente e servidor quando

@@ -19,8 +19,11 @@ test("manual entries preserve the shared transactional lifecycle", async () => {
   assert.match(source, /VALUES \(\?, \?, 1, \?, \?, \?, \?\)/u);
   assert.match(source, /VALUES \(\?, \?, \?, 1, 'linked'\)/u);
   assert.match(source, /fiscalEntryConfirmMatch/u);
+  assert.match(source, /const numericNextStock = Number\(nextStock\)/u);
+  assert.match(source, /const numericNextCost = Number\(sequence\.nextCost\)/u);
   assert.match(source, /fiscalEntryReverseMatch/u);
   assert.match(source, /fiscalEntryDeleteMatch/u);
+  assert.match(source, /Não foi possível concluir a confirmação da entrada fiscal/u);
   assert.match(source, /Já existe uma Entrada Manual com este fornecedor/u);
   assert.match(schema, /originFiscalDocument ENUM\('imported', 'manual'\)/u);
   assert.match(schema, /idSupplierFiscalDocument BIGINT UNSIGNED NULL/u);

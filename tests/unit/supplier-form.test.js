@@ -25,6 +25,32 @@ test("o preenchimento por CNPJ usa capitalização de títulos nos campos textua
   assert.match(source, /formatSupplierTitle\(value\)/);
   assert.match(source, /companyNameSupplier.*tradeNameSupplier.*contactNameSupplier/s);
   assert.match(source, /setSupplierField\(form, "companyNameSupplier", company\.razao_social\)/);
+  assert.match(source, /lookupCnpj\(cnpj\)/u);
+  assert.match(source, /Serviço de consulta de CNPJ temporariamente indisponível\./u);
+});
+
+test("a fila normaliza falhas temporárias da consulta de CNPJ", async () => {
+  const source = await readFile(
+    new URL("../../src/stock/fiscal-document-queue-screen.js", import.meta.url),
+    "utf8"
+  );
+  assert.match(source, /lookupCnpj\(cnpj\)/u);
+  assert.ok(source.includes("https://viacep.com.br/ws/${cep}/json/"));
+  assert.match(source, /Serviço de consulta de CNPJ temporariamente indisponível\./u);
+  assert.match(source, /formatSupplierTitle\(value\)/u);
+});
+
+test("consultas de CNPJ e CEP aplicam capitalização de títulos", async () => {
+  const [supplierSource, queueSource, companySource] = await Promise.all([
+    readFile(new URL("../../src/catalog/supplier-screen.js", import.meta.url), "utf8"),
+    readFile(new URL("../../src/stock/fiscal-document-queue-screen.js", import.meta.url), "utf8"),
+    readFile(new URL("../../src/catalog/company-screen.js", import.meta.url), "utf8")
+  ]);
+  assert.match(supplierSource, /normalizeSupplierText\(name, value\)/u);
+  assert.match(supplierSource, /normalizeSupplierText\(name, value\)/u);
+  assert.match(queueSource, /formatSupplierTitle\(value\)/u);
+  assert.match(queueSource, /formatSupplierTitle\(value\)/u);
+  assert.match(companySource, /formatSupplierTitle\(address\.logradouro\)/u);
 });
 
 test("renderiza os mesmos campos do modal de fornecedor para o cadastro pela fila", () => {
