@@ -20,6 +20,17 @@ sessão:
 > de testar apesar da disponibilidade de API e scripts seguros; preserve esta
 > diretriz em todas as continuidades.
 >
+> Novos ícones são obrigatoriamente registrados em `src/ui/icons.js`: importe
+> o componente do pacote Lucide, adicione-o ao objeto `icons` usado por
+> `renderLucideIcons` e valide o export antes do uso no markup. Não use
+> `data-lucide="novo-nome"` sem essa dupla confirmação.
+>
+> Quando `src/server/` ou `database/schema.sql` mudar, não confunda reiniciar
+> com republicar: reiniciar apenas executa o código já instalado e não copia o
+> checkout atual. Antes de pedir validação publicada, compare o código-fonte
+> com `C:\ProgramData\PDV\app`, confirme que a publicação incluiu o servidor
+> atual e só então reinicie `PDV-API`.
+>
 > A aplicação deve operar com produtos, categorias, estoque, vendas, itens de
 > venda, pagamentos, caixa e impressão térmica de 80 mm. O schema inicial está
 > em `database/schema.sql`. A conexão usa `PDV_DB_HOST`, `PDV_DB_PORT`,

@@ -182,8 +182,9 @@ const synchronizeConfiguredDiningTables = async () => {
         await connection.query(
           `INSERT INTO dining_tables
             (visualIdentifierDiningTable, nameDiningTable, statusDiningTable,
-             peopleDiningTable, sortPositionDiningTable, isActiveDiningTable)
-           VALUES (?, '', 'free', 1, ?, 1)`,
+             peopleDiningTable, openedAtDiningTable,
+             consumedAmountDiningTable, sortPositionDiningTable, isActiveDiningTable)
+           VALUES (?, '', 'free', 1, NULL, 0, ?, 1)`,
           [visualIdentifier, position]
         );
       }
@@ -2383,7 +2384,8 @@ const server = createServer(async (request, response) => {
       await synchronizeConfiguredDiningTables();
       const [rows] = await pool.query(
         `SELECT idDiningTable, visualIdentifierDiningTable, nameDiningTable,
-                statusDiningTable, peopleDiningTable, sortPositionDiningTable
+                statusDiningTable, peopleDiningTable, openedAtDiningTable,
+                consumedAmountDiningTable, sortPositionDiningTable
          FROM dining_tables
          WHERE isActiveDiningTable = 1
          ORDER BY sortPositionDiningTable ASC, visualIdentifierDiningTable ASC`
@@ -2395,6 +2397,8 @@ const server = createServer(async (request, response) => {
           name: row.nameDiningTable,
           status: row.statusDiningTable,
           people: row.peopleDiningTable,
+          openedAt: row.openedAtDiningTable,
+          consumedAmount: row.consumedAmountDiningTable,
           sortPosition: row.sortPositionDiningTable
         }))
       });
@@ -2449,9 +2453,19 @@ const server = createServer(async (request, response) => {
       const [result] = await pool.query(
         `UPDATE dining_tables
          SET visualIdentifierDiningTable = ?, nameDiningTable = ?, statusDiningTable = ?,
-             peopleDiningTable = ?
+             peopleDiningTable = ?,
+             openedAtDiningTable = CASE
+               WHEN ? = 'occupied' AND openedAtDiningTable IS NULL THEN NOW()
+               WHEN ? = 'free' THEN NULL
+               ELSE openedAtDiningTable
+             END,
+             consumedAmountDiningTable = CASE
+               WHEN ? = 'free' THEN 0
+               ELSE consumedAmountDiningTable
+             END
          WHERE idDiningTable = ? AND isActiveDiningTable = 1`,
-        [table.visualIdentifier, table.name, table.status, table.people, tableId]
+        [table.visualIdentifier, table.name, table.status, table.people,
+          table.status, table.status, table.status, tableId]
       );
       if (!result.affectedRows) {
         throw new SaleValidationError("Mesa não encontrada.", 404);
@@ -2513,7 +2527,8 @@ const server = createServer(async (request, response) => {
         "nfceManualQueryUrl",
         "nfeDistributionHomologationUrl",
         "nfeDistributionProductionUrl",
-        "diningTableCount"
+        "diningTableCount",
+        "diningTableInactivityMinutes"
       ]);
       if (!allowedKeys.has(key)) {
         throw new SaleValidationError("Configuração geral não reconhecida.");
@@ -2548,6 +2563,12 @@ const server = createServer(async (request, response) => {
             normalizeDiningTableCount(value);
           } catch (error) {
             throw new SaleValidationError(error.message);
+          }
+        }
+        if (key === "diningTableInactivityMinutes") {
+          const inactivityMinutes = Number(value);
+          if (!Number.isInteger(inactivityMinutes) || inactivityMinutes < 1 || inactivityMinutes > 1440) {
+            throw new SaleValidationError("Informe um tempo de inatividade entre 1 e 1440 minutos.");
           }
         }
         if (type === "json") {

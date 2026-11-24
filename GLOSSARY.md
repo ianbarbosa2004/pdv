@@ -54,7 +54,9 @@ _Evitar_: logout.
 **Mesa**:
 Local físico numerado do serviço em Mesas que pode receber uma ou mais
 Comandas, conforme a configuração operacional.
-_Evitar_: venda aberta, comanda, ocupação da sala.
+Suas referências não são removidas nem renumeradas ao excluir uma ocupação;
+fechar ou cancelar uma ocupação libera a Mesa sem excluir a Mesa física.
+_Evitar_: venda aberta, comanda, ocupação da sala, exclusão física da Mesa.
 
 **Identificador visual da Mesa**:
 Número ou texto configurado para localizar uma Mesa no mapa, separado de sua

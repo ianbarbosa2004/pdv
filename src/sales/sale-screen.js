@@ -133,6 +133,8 @@ export function createSaleScreen({
   let diningTableSaveError = "";
   let diningTableSelection = "";
   let diningTableFeedback = "";
+  let diningTableInactivityMinutes = 20;
+  let diningTableTimeTimer = null;
   const scheduleSaleFeedbackClear = createFeedbackTimer();
   const setSaleFeedback = (message) => {
     saleFeedback = message;
@@ -217,6 +219,28 @@ export function createSaleScreen({
     closing: "Fechamento"
   }[status] || "Livre");
 
+  const formatDiningTableOpenedTime = (openedAt) => {
+    const opened = new Date(openedAt);
+    if (!openedAt || Number.isNaN(opened.getTime())) return "-";
+    const elapsedMinutes = Math.max(0, Math.floor((Date.now() - opened.getTime()) / 60000));
+    const hours = Math.floor(elapsedMinutes / 60);
+    const minutes = elapsedMinutes % 60;
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+  };
+
+  const isDiningTableInactive = (openedAt) => {
+    const opened = new Date(openedAt);
+    if (!openedAt || Number.isNaN(opened.getTime())) return false;
+    const elapsedMinutes = Math.max(0, Math.floor((Date.now() - opened.getTime()) / 60000));
+    return elapsedMinutes >= diningTableInactivityMinutes;
+  };
+
+  const formatDiningTableConsumedAmount = (amount) =>
+    new Intl.NumberFormat("pt-BR", {
+      style: "currency",
+      currency: "BRL"
+    }).format(Number(amount || 0));
+
   const diningTablesMarkup = () => {
     if (diningTablesLoading) {
       return '<p class="empty-state">Carregando mesas...</p>';
@@ -230,11 +254,16 @@ export function createSaleScreen({
     return `
       <div class="dining-table-grid">
         ${sortDiningTables(diningTables).map((table) => `
-          <button class="dining-table-card dining-table-status-${escapeHtml(table.status)}" data-edit-dining-table="${table.id}" type="button">
+          <button class="dining-table-card dining-table-status-${escapeHtml(table.status)}${table.status === "occupied" && isDiningTableInactive(table.openedAt) ? " dining-table-status-inactive" : ""}" data-edit-dining-table="${table.id}" type="button">
             <strong class="dining-table-number">${escapeHtml(table.visualIdentifier)}</strong>
-            ${table.name ? `<span class="dining-table-name">${escapeHtml(table.name)}</span>` : ""}
-            <span class="dining-table-status">${escapeHtml(diningTableStatusLabel(table.status))}</span>
-            ${table.status === "occupied" ? `<span class="dining-table-people">${escapeHtml(getDiningTablePeopleLabel(table.people))}</span>` : ""}
+            ${table.status === "occupied" ? `
+              <span class="dining-table-external dining-table-external-occupied">
+                <span>${escapeHtml(String(table.name || "Sem referência").toLocaleUpperCase("pt-BR"))} <i data-lucide="user-round"></i></span>
+                <span>${escapeHtml(getDiningTablePeopleLabel(table.people))} <i data-lucide="users"></i></span>
+                <span>${escapeHtml(formatDiningTableOpenedTime(table.openedAt))} <i data-lucide="clock-3"></i></span>
+                <span>${escapeHtml(formatDiningTableConsumedAmount(table.consumedAmount))} <i data-lucide="circle-dollar-sign"></i></span>
+              </span>
+            ` : ""}
           </button>
         `).join("")}
       </div>
@@ -970,12 +999,27 @@ export function createSaleScreen({
     diningTablesError = "";
     render();
     try {
-      const response = await apiFetch(`${getApiUrl()}/api/dining-tables`);
-      const payload = await response.json();
-      if (!response.ok || !Array.isArray(payload.diningTables)) {
+      const [diningResponse, settingsResponse] = await Promise.all([
+        apiFetch(`${getApiUrl()}/api/dining-tables`),
+        apiFetch(`${getApiUrl()}/api/general-settings`)
+      ]);
+      const [payload, settingsPayload] = await Promise.all([
+        diningResponse.json(),
+        settingsResponse.json()
+      ]);
+      if (!diningResponse.ok || !Array.isArray(payload.diningTables)) {
         throw new Error(payload.error || "Não foi possível carregar as Mesas.");
       }
       diningTables = sortDiningTables(payload.diningTables);
+      if (settingsResponse.ok && Array.isArray(settingsPayload.settings)) {
+        const inactivitySetting = settingsPayload.settings.find(
+          (setting) => setting.keyGeneralSetting === "diningTableInactivityMinutes"
+        );
+        const configuredMinutes = Number(inactivitySetting?.valueGeneralSetting);
+        if (Number.isInteger(configuredMinutes) && configuredMinutes >= 1 && configuredMinutes <= 1440) {
+          diningTableInactivityMinutes = configuredMinutes;
+        }
+      }
     } catch (error) {
       diningTablesError = error instanceof Error ? error.message : "Falha ao carregar as Mesas.";
     } finally {
@@ -1234,9 +1278,16 @@ export function createSaleScreen({
   void fetchCatalog();
   void fetchPaymentMethods();
   void fetchCash();
+  if (diningTableTimeTimer) window.clearInterval(diningTableTimeTimer);
+  diningTableTimeTimer = window.setInterval(() => {
+    if (saleMode === "tables" && diningTables.some((table) => table.status === "occupied")) {
+      render();
+    }
+  }, 60000);
   root.addEventListener("keydown", handleDiningTableKeyboard);
   root.tabIndex = -1;
   root.cleanup = () => {
+    if (diningTableTimeTimer) window.clearInterval(diningTableTimeTimer);
     root.removeEventListener("keydown", handleDiningTableKeyboard);
   };
   return root;

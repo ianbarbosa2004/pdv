@@ -37,6 +37,8 @@ CREATE TABLE IF NOT EXISTS dining_tables (
   nameDiningTable VARCHAR(120) NOT NULL DEFAULT '',
   statusDiningTable ENUM('free', 'occupied', 'closing') NOT NULL DEFAULT 'free',
   peopleDiningTable SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+  openedAtDiningTable DATETIME NULL,
+  consumedAmountDiningTable DECIMAL(12,2) NOT NULL DEFAULT 0,
   sortPositionDiningTable INT UNSIGNED NOT NULL DEFAULT 0,
   isActiveDiningTable TINYINT(1) NOT NULL DEFAULT 1,
   createdAtDiningTable TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

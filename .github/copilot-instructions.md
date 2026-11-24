@@ -48,6 +48,23 @@ compile com `npm.cmd run tauri -- build --no-bundle`.
   investigue o fluxo completo de uma vez e execute a validação mínima possível
   antes de concluir. Não faça o usuário repetir testes que a IA pode realizar
   com ferramentas, scripts oficiais ou a API já instalada.
+- Mudanças exclusivamente visuais ou de estilo exigem apenas o teste unitário
+  diretamente relacionado ao comportamento ou seletor afetado. Não execute
+  nem crie suites amplas para uma simples alteração visual. Testes amplos só
+  são necessários para mudanças de API, banco, transação, domínio ou contrato.
+- Ícones novos são obrigatoriamente registrados em `src/ui/icons.js`: importe
+  o componente de `lucide`, adicione-o ao objeto `icons` usado por
+  `renderLucideIcons` e valide o export antes do uso no markup. Não use
+  `<i data-lucide="nome-novo">` sem essa dupla confirmação.
+- Nas áreas operacionais de Frente de Caixa, Caixa, Balcão e Mesas use fonte
+  explícita Inter/system-ui e tamanho mínimo padrão de `1rem`. Não use
+  `1.7rem` nesses ambientes nem pesos superiores a `700` em controles,
+  textos fortes e títulos operacionais.
+- Quando `src/server/` ou `database/schema.sql` mudar, republicar a API atualizada
+  é obrigatório antes da validação em ambiente publicado. Reiniciar apenas o
+  serviço não copia o código novo e não basta. Primeiro comparar
+  `src/server/server.js` com `C:\ProgramData\PDV\app\src\server\server.js`;
+  só reiniciar depois da publicação confirmada.
 - Priorize evidência sobre suposição: consulte código, estado publicado,
   autenticação oficial, banco e nova leitura da operação. Não peça credenciais,
   tokens ou senha quando já existirem mecanismos locais seguros no repositório

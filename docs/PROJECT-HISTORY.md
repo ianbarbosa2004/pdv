@@ -24,6 +24,12 @@ e ReceitaWS como fallback, com timeout e capitalização de títulos. A entrada
 manual eliminou feedbacks operacionais triviais e preservou apenas confirmações
 relevantes.
 
+As Mesas ocupadas passaram a mostrar nome de referência, quantidade de pessoas,
+tempo em HH:MM, e valor consumido. O fundo vermelho é acionado pelo
+`diningTableInactivityMinutes`, com valor padrão 20 minutos. Enquanto não houver
+Comandas persistidas, o valor consumido permanece R$ 0,00 e o tempo usa o
+`openedAtDiningTable` real do registro.
+
 ### Organização visual das Mesas — 2026-11-19
 
 A frente de caixa passou a oferecer os modos Balcão e Mesas. O modo Mesas

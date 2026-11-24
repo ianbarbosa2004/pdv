@@ -21,6 +21,11 @@ npm.cmd test
 git diff --check
 ```
 
+Para alterações exclusivamente visuais ou de estilo, não execute a suíte
+completa nem crie testes amplos. Use `node --check` nos arquivos JavaScript
+modificados e o teste unitário diretamente relacionado ao componente quando
+existir.
+
 Execute `npm.cmd run build` somente quando a alteração envolver o bundle,
 Vite/Tauri, versionamento ou uma validação de produção. Use `node --check` nos
 arquivos JavaScript modificados.

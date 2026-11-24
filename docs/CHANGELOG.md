@@ -16,8 +16,13 @@ releases não alteram a versão automaticamente.
   duplicado após sucesso ou falha.
 - Centralizada a consulta de CNPJ com fallback entre BrasilAPI e ReceitaWS,
   timeout e aplicação de capitalização de títulos nos resultados de CNPJ e CEP.
-- Alterações no frontend do PDV exigem novo bundle/distribuição do cliente;
-  alterações em `src/server/` ou instalação da API exigem reinício da API publicada.
+- Adicionada a configuração geral “Tempo de Inatividade (min)”, padrão 20
+  minutos, aplicada ao tempo aberto das Mesas ocupadas. Mesas cujo tempo
+  alcance o limite ficam com fundo vermelho; o cartão mantém nome, pessoas,
+  tempo e valor consumido sem textos “Livre” ou “Ocupada”.
+- Alterações no frontend do PDV exigem novo bundle/distribuição do cliente.
+- Alterações em `src/server/` exigem republicar a API atualizada e, depois,
+  reiniciar o serviço; reiniciar sozinho não copia o código novo.
 
 ## 0.20.0 - 2026-11-19
 

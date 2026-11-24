@@ -96,7 +96,9 @@ export function createGeneralSettingsScreen({
                                 ${setting.typeGeneralSetting === "number"
                                   ? (setting.keyGeneralSetting === "diningTableCount"
                                     ? 'min="1" max="200" step="1"'
-                                    : 'step="any"')
+                                    : (setting.keyGeneralSetting === "diningTableInactivityMinutes"
+                                      ? 'min="1" max="1440" step="1"'
+                                      : 'step="any"'))
                                   : ""}
                               />`}
                         </td>

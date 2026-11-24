@@ -109,8 +109,9 @@ test("the sales screen uses the terminal visual palette", async () => {
   ]);
   assert.match(screenSource, /data-sale-mode="tables"/u);
   assert.match(stylesSource, /background: #08799a/u);
-  assert.match(stylesSource, /grid-template-columns: repeat\(9, minmax/u);
-  assert.match(stylesSource, /min-height: 112px/u);
+  assert.match(stylesSource, /grid-template-columns:\s*repeat\(auto-fill,\s*180px\)/u);
+  assert.match(stylesSource, /\.dining-table-card\s*\{[^}]*width:\s*180px/u);
+  assert.match(stylesSource, /\.dining-table-card\s*\{[^}]*height:\s*120px/u);
 });
 
 test("occupied tables and counter mode show temporary navigation feedback", async () => {
@@ -139,6 +140,8 @@ test("the table screen provides keypad, counts and summary controls", async () =
   assert.match(screenSource, /Valor da Comanda: não informado nesta versão/u);
   assert.match(screenSource, /Total geral: não informado nesta versão/u);
   assert.match(stylesSource, /\.dining-tables-workspace\s*\{/u);
+  assert.match(stylesSource, /\.dining-tables-workspace\s*\{[^}]*max-width:\s*1440px/u);
+  assert.match(stylesSource, /\.dining-tables-workspace\s*\{[^}]*box-sizing:\s*border-box/u);
   assert.match(screenSource, /onEnvironmentSelection/u);
   assert.match(screenSource, /typeof onEnvironmentSelection === "function"/u);
   assert.doesNotMatch(screenSource, /data-dining-table-keypad-page/u);
@@ -149,6 +152,10 @@ test("the table keypad has autofocus and accepts physical keyboard keys", async 
     readFile(new URL("../../src/sales/sale-screen.js", import.meta.url), "utf8"),
     readFile(new URL("../../src/styles.css", import.meta.url), "utf8")
   ]);
+  assert.match(styles, /\.sale-screen \.dining-table-number,\s*\.sale-screen \.dining-table-keypad button,\s*\.sale-screen \.dining-table-selection/u);
+  assert.match(styles, /font-size:\s*2\.15rem/u);
+  assert.match(styles, /font-weight:\s*700/u);
+  assert.match(styles, /\.dining-table-number\s*\{[^}]*font-size:\s*2\.15rem[^}]*line-height:\s*1[^}]*font-family:\s*inherit[^}]*font-weight:\s*700/u);
   assert.match(source, /data-dining-table-selection type="text"/u);
   assert.match(source, /dining-table-selection-back/u);
   assert.match(source, /data-dining-table-key="back"/u);
@@ -185,6 +192,19 @@ test("typing table 2 opens occupied feedback when table 2 is occupied", () => {
   );
   assert.equal(table.visualIdentifier, "2");
   assert.equal(table.status, "occupied");
+});
+
+test("Mesa não é excluída fisicamente ao fechar uma ocupação", async () => {
+  const [screenSource, serverSource] = await Promise.all([
+    readFile(new URL("../../src/sales/sale-screen.js", import.meta.url), "utf8"),
+    readFile(new URL("../../src/server/server.js", import.meta.url), "utf8")
+  ]);
+  assert.doesNotMatch(serverSource, /DELETE\s+FROM\s+dining_tables/iu);
+  assert.match(screenSource, /Pedir conta/u);
+  assert.match(serverSource, /consumedAmountDiningTable = CASE/u);
+  assert.match(serverSource, /diningTableInactivityMinutes/u);
+  assert.match(screenSource, /diningTableInactivityMinutes/u);
+  assert.match(screenSource, /dining-table-status-inactive/u);
 });
 
 test("general settings accepts all schema-backed settings", async () => {
