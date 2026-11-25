@@ -1,8 +1,8 @@
 ---
-agent: 'agent'
+name: debug-issue
 description: 'Investigar e corrigir um problema do PDV de ponta a ponta'
+disable-model-invocation: true
 ---
-
 Investigue o defeito informado sem usar dados reais. Trace interface, payload,
 rota, validação, MariaDB, transação, estoque, resposta e renderização.
 

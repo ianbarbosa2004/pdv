@@ -1,8 +1,8 @@
 ---
-agent: 'agent'
+name: write-tests
 description: 'Criar cobertura node:test para um comportamento do PDV'
+disable-model-invocation: true
 ---
-
 Adicione testes com `node:test` para o comportamento solicitado. Escolha
 `tests/unit` para regras isoladas e `tests/integration` para API, MariaDB e
 contratos HTTP.

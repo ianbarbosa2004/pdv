@@ -20,6 +20,15 @@ releases não alteram a versão automaticamente.
   minutos, aplicada ao tempo aberto das Mesas ocupadas. Mesas cujo tempo
   alcance o limite ficam com fundo vermelho; o cartão mantém nome, pessoas,
   tempo e valor consumido sem textos “Livre” ou “Ocupada”.
+- Criado o painel separado “Mesas” em Configurações Gerais. Ele concentra
+  quantidade de Mesas visíveis, tempo de inatividade e cores dos estados Livre,
+  Inativa e Em fechamento, aceitando hexadecimal ou RGB e aplicando as cores
+  aos cartões da Frente de Caixa.
+- A configuração das Mesas passou a incluir o estado Ocupada com cor azul
+  turquesa `#20a7cf` como padrão. Os ícones Balcão e Mesas foram registrados
+  no catálogo compartilhado de ícones.
+- Removidos o título “Mapa de Mesas” e o contador textual do total no mapa.
+  O teclado numérico passou a ficar diretamente ligado aos contadores de Mesas.
 - Alterações no frontend do PDV exigem novo bundle/distribuição do cliente.
 - Alterações em `src/server/` exigem republicar a API atualizada e, depois,
   reiniciar o serviço; reiniciar sozinho não copia o código novo.

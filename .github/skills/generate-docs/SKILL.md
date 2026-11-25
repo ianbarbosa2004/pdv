@@ -1,8 +1,8 @@
 ---
-agent: 'agent'
+name: generate-docs
 description: 'Atualizar documentação do PDV com base em mudanças verificadas'
+disable-model-invocation: true
 ---
-
 Atualize somente a documentação afetada pela mudança solicitada. Para uma
 consolidação histórica, atualize também `docs/PROJECT-HISTORY.md`. Compare
 código, testes, scripts npm, workflow e documentos operacionais antes de

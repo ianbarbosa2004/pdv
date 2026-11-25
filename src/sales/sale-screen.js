@@ -134,6 +134,10 @@ export function createSaleScreen({
   let diningTableSelection = "";
   let diningTableFeedback = "";
   let diningTableInactivityMinutes = 20;
+  let diningTableFreeColor = "#b9c7d1";
+  let diningTableOccupiedColor = "#20a7cf";
+  let diningTableInactiveColor = "#c84d45";
+  let diningTableClosingColor = "#727b86";
   let diningTableTimeTimer = null;
   const scheduleSaleFeedbackClear = createFeedbackTimer();
   const setSaleFeedback = (message) => {
@@ -253,8 +257,22 @@ export function createSaleScreen({
     }
     return `
       <div class="dining-table-grid">
-        ${sortDiningTables(diningTables).map((table) => `
-          <button class="dining-table-card dining-table-status-${escapeHtml(table.status)}${table.status === "occupied" && isDiningTableInactive(table.openedAt) ? " dining-table-status-inactive" : ""}" data-edit-dining-table="${table.id}" type="button">
+        ${sortDiningTables(diningTables).map((table) => {
+          const isInactive = table.status === "occupied" && isDiningTableInactive(table.openedAt);
+          const cardColor = table.status === "free"
+            ? diningTableFreeColor
+            : table.status === "closing"
+              ? diningTableClosingColor
+              : isInactive
+                ? diningTableInactiveColor
+                : diningTableOccupiedColor;
+          return `
+          <button
+            class="dining-table-card dining-table-status-${escapeHtml(table.status)}${isInactive ? " dining-table-status-inactive" : ""}"
+            ${cardColor ? `style="--dining-table-card-color: ${escapeHtml(cardColor)}"` : ""}
+            data-edit-dining-table="${table.id}"
+            type="button"
+          >
             <strong class="dining-table-number">${escapeHtml(table.visualIdentifier)}</strong>
             ${table.status === "occupied" ? `
               <span class="dining-table-external dining-table-external-occupied">
@@ -264,8 +282,8 @@ export function createSaleScreen({
                 <span>${escapeHtml(formatDiningTableConsumedAmount(table.consumedAmount))} <i data-lucide="circle-dollar-sign"></i></span>
               </span>
             ` : ""}
-          </button>
-        `).join("")}
+          </button>`;
+        }).join("")}
       </div>
     `;
   };
@@ -496,13 +514,6 @@ export function createSaleScreen({
       ${saleMode === "tables" ? `
       <section class="workspace dining-tables-workspace">
         <div class="catalog-panel dining-tables-panel">
-          <div class="panel-heading">
-            <div>
-              <p class="eyebrow">Organização</p>
-              <h2>Mapa de Mesas</h2>
-            </div>
-            <span class="dining-table-count">${diningTables.length} ${diningTables.length === 1 ? "Mesa" : "Mesas"}</span>
-          </div>
           ${diningTableFeedback ? `<div class="dining-table-feedback success-message" role="status">${escapeHtml(diningTableFeedback)}</div>` : ""}
           ${diningTablesMarkup()}
         </div>
@@ -1019,6 +1030,20 @@ export function createSaleScreen({
         if (Number.isInteger(configuredMinutes) && configuredMinutes >= 1 && configuredMinutes <= 1440) {
           diningTableInactivityMinutes = configuredMinutes;
         }
+        const colorKeys = {
+          diningTableFreeColor: (value) => { diningTableFreeColor = value; },
+          diningTableOccupiedColor: (value) => { diningTableOccupiedColor = value; },
+          diningTableInactiveColor: (value) => { diningTableInactiveColor = value; },
+          diningTableClosingColor: (value) => { diningTableClosingColor = value; }
+        };
+        Object.entries(colorKeys).forEach(([key, setColor]) => {
+          const value = settingsPayload.settings.find(
+            (setting) => setting.keyGeneralSetting === key
+          )?.valueGeneralSetting;
+          if (/^#[0-9a-f]{6}$/iu.test(String(value || "").trim())) {
+            setColor(String(value).trim().toLowerCase());
+          }
+        });
       }
     } catch (error) {
       diningTablesError = error instanceof Error ? error.message : "Falha ao carregar as Mesas.";

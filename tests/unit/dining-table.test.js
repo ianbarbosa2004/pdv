@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import {
   normalizeDiningTablePayload,
   normalizeDiningTableCount,
+  normalizeDiningTableColor,
   sortDiningTables,
   getDiningTableModalPresentation,
   getDiningTablePeopleLabel
@@ -22,6 +23,15 @@ test("normalizes a dining table payload", () => {
     people: 4,
     status: "occupied"
   });
+});
+
+test("normalizes dining table card colors in hex or rgb format", () => {
+  assert.equal(normalizeDiningTableColor("#b9C7d1"), "#b9c7d1");
+  assert.equal(normalizeDiningTableColor("rgb(199, 77, 69)"), "#c74d45");
+  assert.throws(
+    () => normalizeDiningTableColor("blue"),
+    /cor válida/u
+  );
 });
 
 test("rejects invalid dining table payload values", () => {
@@ -207,6 +217,16 @@ test("Mesa não é excluída fisicamente ao fechar uma ocupação", async () => 
   assert.match(screenSource, /dining-table-status-inactive/u);
 });
 
+test("mapa das Mesas não mostra título nem contador de total", async () => {
+  const [screenSource, stylesSource] = await Promise.all([
+    readFile(new URL("../../src/sales/sale-screen.js", import.meta.url), "utf8"),
+    readFile(new URL("../../src/styles.css", import.meta.url), "utf8")
+  ]);
+  assert.doesNotMatch(screenSource, /Mapa de Mesas/u);
+  assert.doesNotMatch(screenSource, /<span class="dining-table-count"/u);
+  assert.match(stylesSource, /\.dining-table-control-summary\s*\{[^}]*margin-top:\s*20px/isu);
+});
+
 test("general settings accepts all schema-backed settings", async () => {
   const source = await readFile(
     new URL("../../src/server/server.js", import.meta.url),
@@ -215,8 +235,36 @@ test("general settings accepts all schema-backed settings", async () => {
   assert.match(source, /"nfeDistributionHomologationUrl"/u);
   assert.match(source, /"nfeDistributionProductionUrl"/u);
   assert.match(source, /"diningTableCount"/u);
+  assert.match(source, /"diningTableFreeColor"/u);
+  assert.match(source, /"diningTableInactiveColor"/u);
+  assert.match(source, /"diningTableClosingColor"/u);
+  assert.match(source, /"diningTableOccupiedColor"/u);
   assert.match(source, /config\.nfeDistributionHomologationUrl = value/u);
   assert.match(source, /config\.nfeDistributionProductionUrl = value/u);
+});
+
+test("general settings exposes a separate dining tables panel", async () => {
+  const source = await readFile(
+    new URL("../../src/settings/general-settings-screen.js", import.meta.url),
+    "utf8"
+  );
+  assert.match(source, /data-dining-form/u);
+  assert.match(source, /<div class="classic-panel-header">Mesas<\/div>/u);
+  assert.match(source, /diningTableFreeColor/u);
+  assert.match(source, /diningTableInactiveColor/u);
+  assert.match(source, /diningTableClosingColor/u);
+  assert.match(source, /diningTableOccupiedColor/u);
+});
+
+test("mode buttons use registered mode icons", async () => {
+  const [screenSource, iconsSource] = await Promise.all([
+    readFile(new URL("../../src/sales/sale-screen.js", import.meta.url), "utf8"),
+    readFile(new URL("../../src/ui/icons.js", import.meta.url), "utf8")
+  ]);
+  assert.match(screenSource, /data-lucide="shopping-basket"/u);
+  assert.match(screenSource, /data-lucide="utensils"/u);
+  assert.match(iconsSource, /ShoppingBasket/u);
+  assert.match(iconsSource, /Utensils/u);
 });
 
 test("accepts official SEFAZ distribution URLs", () => {

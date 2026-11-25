@@ -1,8 +1,8 @@
 ---
-agent: 'agent'
+name: code-review
 description: 'Revisar mudanças do PDV quanto a correção, segurança e operação'
+disable-model-invocation: true
 ---
-
 Revise as alterações atuais como mantenedor do PDV.
 
 Inspecione o caminho completo entre interface, payload, API, validação,

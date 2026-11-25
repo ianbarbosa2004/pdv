@@ -30,6 +30,11 @@ tempo em HH:MM, e valor consumido. O fundo vermelho é acionado pelo
 Comandas persistidas, o valor consumido permanece R$ 0,00 e o tempo usa o
 `openedAtDiningTable` real do registro.
 
+Configurações Gerais passou a separar Mesas em um painel próprio. Além do
+número de Mesas visíveis e do tempo de inatividade, o painel permite escolher
+cores hexadecimal ou RGB para Livre, Inativa e Em fechamento; a API valida e
+normaliza os valores antes de aplicá-los aos cartões da Frente de Caixa.
+
 ### Organização visual das Mesas — 2026-11-19
 
 A frente de caixa passou a oferecer os modos Balcão e Mesas. O modo Mesas

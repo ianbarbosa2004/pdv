@@ -29,11 +29,13 @@ import {
   Search,
   Settings2,
   ShoppingCart,
+  ShoppingBasket,
   Store,
   TriangleAlert,
   Trash2,
   UserRound,
   UserRoundCog,
+  Utensils,
   WalletCards,
   X
 } from "lucide";
@@ -70,11 +72,13 @@ export const renderLucideIcons = (root) => {
       Search,
       Settings2,
       ShoppingCart,
+      ShoppingBasket,
       Store,
       TriangleAlert,
       Trash2,
       UserRound,
       UserRoundCog,
+      Utensils,
       WalletCards,
       X
     },
