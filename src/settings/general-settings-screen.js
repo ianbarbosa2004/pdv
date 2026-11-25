@@ -44,6 +44,16 @@ export function createGeneralSettingsScreen({
   let apiUrlError = "";
   let apiUrl = getConfiguredApiUrl() || getApiUrl();
   const scheduleMessageClear = createFeedbackTimer();
+  const diningSettingKeys = new Set([
+    "diningTableCount",
+    "diningTableInactivityMinutes",
+    "diningTableFreeColor",
+    "diningTableOccupiedColor",
+    "diningTableInactiveColor",
+    "diningTableClosingColor"
+  ]);
+  const getDiningSettingValue = (key, fallback) =>
+    String(settings.find((setting) => setting.keyGeneralSetting === key)?.valueGeneralSetting || fallback);
 
   const request = async (path, options) => {
     const response = await apiFetch(`${getApiUrl()}${path}`, {
@@ -56,6 +66,7 @@ export function createGeneralSettingsScreen({
   };
 
   const render = () => {
+    const generalSettings = settings.filter((setting) => !diningSettingKeys.has(setting.keyGeneralSetting));
     root.className = "catalog-screen settings-screen general-settings-screen";
     root.innerHTML = `
       <header class="classic-titlebar">
@@ -75,7 +86,7 @@ export function createGeneralSettingsScreen({
               : `<table class="classic-table general-settings-table">
                   <thead><tr><th>Configuração</th><th>Valor</th></tr></thead>
                   <tbody>
-                    ${settings.map((setting) => `
+                    ${generalSettings.map((setting) => `
                       <tr>
                         <td><strong>${escapeHtml(setting.labelGeneralSetting)}</strong></td>
                         <td>
@@ -110,6 +121,73 @@ export function createGeneralSettingsScreen({
           </div>
           <div class="classic-form-actions">
             <button class="classic-button primary" type="submit" ${loading || saving ? "disabled" : ""}>${saving ? "Salvando..." : "Salvar configurações"}</button>
+          </div>
+        </form>
+        <form class="classic-form-panel settings-form dining-settings-form" data-dining-form>
+          <div class="classic-panel-header">Mesas</div>
+          <div class="classic-form-body dining-settings-body">
+            ${loading
+              ? '<p class="classic-empty">Carregando configurações...</p>'
+              : `<div class="dining-settings-grid">
+                  <label class="form-field">
+                    <span>Número de Mesas visíveis</span>
+                    <input
+                      class="classic-input"
+                      name="diningTableCount"
+                      type="number"
+                      min="1"
+                      max="200"
+                      step="1"
+                      value="${escapeHtml(getDiningSettingValue("diningTableCount", "20"))}"
+                    />
+                  </label>
+                  <label class="form-field">
+                    <span>Tempo de Inatividade (min)</span>
+                    <input
+                      class="classic-input"
+                      name="diningTableInactivityMinutes"
+                      type="number"
+                      min="1"
+                      max="1440"
+                      step="1"
+                      value="${escapeHtml(getDiningSettingValue("diningTableInactivityMinutes", "20"))}"
+                    />
+                  </label>
+                  ${[
+                    ["diningTableFreeColor", "Livre", "#b9c7d1"],
+                    ["diningTableOccupiedColor", "Ocupada", "#1aadb4"],
+                    ["diningTableInactiveColor", "Inativa", "#c84d45"],
+                    ["diningTableClosingColor", "Em fechamento", "#727b86"]
+                  ].map(([key, label, fallback]) => {
+                    const value = getDiningSettingValue(key, fallback);
+                    const hexValue = /^#[0-9a-f]{6}$/iu.test(value) ? value : fallback;
+                    return `
+                      <div class="dining-color-setting">
+                        <span>${label}</span>
+                        <div class="dining-color-controls">
+                          <input
+                            class="dining-color-picker"
+                            type="color"
+                            data-dining-color-picker="${key}"
+                            value="${escapeHtml(hexValue)}"
+                            aria-label="Selecionar cor de Mesa ${escapeHtml(label)}"
+                          />
+                          <input
+                            class="classic-input"
+                            name="${key}"
+                            type="text"
+                            value="${escapeHtml(value)}"
+                            placeholder="#RRGGBB ou rgb(R, G, B)"
+                            aria-label="Cor hexadecimal ou RGB de Mesa ${escapeHtml(label)}"
+                          />
+                        </div>
+                      </div>`;
+                  }).join("")}
+                </div>`}
+            ${error ? `<p class="error-message">${escapeHtml(error)}</p>` : ""}
+          </div>
+          <div class="classic-form-actions">
+            <button class="classic-button primary" type="submit" ${loading || saving ? "disabled" : ""}>${saving ? "Salvando..." : "Salvar Mesas"}</button>
           </div>
         </form>
         <form class="classic-form-panel settings-form api-settings-form" data-api-form>
@@ -219,7 +297,7 @@ export function createGeneralSettingsScreen({
       error = "";
       render();
       try {
-        for (const setting of settings) {
+        for (const setting of settings.filter((item) => !diningSettingKeys.has(item.keyGeneralSetting))) {
           const input = form.elements[setting.keyGeneralSetting];
           await request("/api/general-settings", {
             method: "PUT",
@@ -243,6 +321,51 @@ export function createGeneralSettingsScreen({
         saving = false;
         render();
       }
+    });
+    root.querySelector("[data-dining-form]")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      saving = true;
+      message = "";
+      error = "";
+      render();
+      try {
+        for (const setting of settings.filter((item) => diningSettingKeys.has(item.keyGeneralSetting))) {
+          const input = form.elements[setting.keyGeneralSetting];
+          await request("/api/general-settings", {
+            method: "PUT",
+            body: JSON.stringify({
+              keyGeneralSetting: setting.keyGeneralSetting,
+              ...(setting.typeGeneralSetting === "number"
+                ? { valueGeneralSetting: input?.value ?? "" }
+                : { valueGeneralSetting: input?.value ?? "" })
+            })
+          });
+        }
+        message = "Configurações das Mesas salvas no banco de dados.";
+        scheduleMessageClear(() => {
+          message = "";
+          clearRenderedFeedback(root);
+        });
+        await load();
+      } catch (saveError) {
+        error = saveError instanceof Error ? saveError.message : String(saveError);
+      } finally {
+        saving = false;
+        render();
+      }
+    });
+    root.querySelectorAll("[data-dining-color-picker]").forEach((picker) => {
+      const key = picker.dataset.diningColorPicker;
+      const textInput = root.querySelector(`[name="${key}"]`);
+      picker.addEventListener("change", () => {
+        if (textInput) textInput.value = picker.value;
+      });
+      textInput?.addEventListener("input", () => {
+        if (/^#[0-9a-f]{6}$/iu.test(textInput.value.trim())) {
+          picker.value = textInput.value.trim();
+        }
+      });
     });
     root.querySelectorAll(".settings-toggle input").forEach((input) => {
       input.addEventListener("change", () => {

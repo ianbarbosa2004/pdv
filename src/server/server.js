@@ -16,6 +16,7 @@ import { roundCostUpToCents } from "../shared/decimal.js";
 import { validateFiscalUrl } from "../shared/fiscal-url.js";
 import {
   normalizeDiningTableCount,
+  normalizeDiningTableColor,
   normalizeDiningTablePayload
 } from "../shared/dining-table.js";
 import {
@@ -2528,7 +2529,11 @@ const server = createServer(async (request, response) => {
         "nfeDistributionHomologationUrl",
         "nfeDistributionProductionUrl",
         "diningTableCount",
-        "diningTableInactivityMinutes"
+        "diningTableInactivityMinutes",
+        "diningTableFreeColor",
+        "diningTableOccupiedColor",
+        "diningTableInactiveColor",
+        "diningTableClosingColor"
       ]);
       if (!allowedKeys.has(key)) {
         throw new SaleValidationError("Configuração geral não reconhecida.");
@@ -2551,7 +2556,7 @@ const server = createServer(async (request, response) => {
           [booleanValue, key]
         );
       } else {
-        const value = String(payload.valueGeneralSetting ?? "").trim();
+        let value = String(payload.valueGeneralSetting ?? "").trim();
         if (type === "text" && !value) {
           throw new SaleValidationError("Informe um valor para a configuração.");
         }
@@ -2569,6 +2574,16 @@ const server = createServer(async (request, response) => {
           const inactivityMinutes = Number(value);
           if (!Number.isInteger(inactivityMinutes) || inactivityMinutes < 1 || inactivityMinutes > 1440) {
             throw new SaleValidationError("Informe um tempo de inatividade entre 1 e 1440 minutos.");
+          }
+        }
+        if (key === "diningTableFreeColor"
+          || key === "diningTableOccupiedColor"
+          || key === "diningTableInactiveColor"
+          || key === "diningTableClosingColor") {
+          try {
+            value = normalizeDiningTableColor(value);
+          } catch (error) {
+            throw new SaleValidationError(error.message);
           }
         }
         if (type === "json") {

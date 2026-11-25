@@ -1,8 +1,8 @@
 ---
-agent: 'agent'
+name: refactor-code
 description: 'Refatorar o PDV preservando comportamento e contratos'
+disable-model-invocation: true
 ---
-
 Refatore cirurgicamente. Identifique comportamento atual, consumidores,
 payloads, efeitos no MariaDB, estoque, impressão e testes antes de editar.
 

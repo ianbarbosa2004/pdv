@@ -777,7 +777,12 @@ CREATE TABLE IF NOT EXISTS general_settings (
 INSERT INTO general_settings
   (keyGeneralSetting, labelGeneralSetting, typeGeneralSetting, valueGeneralSetting)
 VALUES
-  ('diningTableCount', 'Número de Mesas visíveis', 'number', '20')
+  ('diningTableCount', 'Número de Mesas visíveis', 'number', '20'),
+  ('diningTableInactivityMinutes', 'Tempo de Inatividade (min)', 'number', '20'),
+  ('diningTableFreeColor', 'Cor das Mesas Livres', 'text', '#b9c7d1'),
+  ('diningTableOccupiedColor', 'Cor das Mesas Ocupadas', 'text', '#1aadb4'),
+  ('diningTableInactiveColor', 'Cor das Mesas Inativas', 'text', '#c84d45'),
+  ('diningTableClosingColor', 'Cor das Mesas em Fechamento', 'text', '#727b86')
 ON DUPLICATE KEY UPDATE
   labelGeneralSetting = VALUES(labelGeneralSetting),
   typeGeneralSetting = VALUES(typeGeneralSetting);

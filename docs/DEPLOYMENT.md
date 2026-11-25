@@ -372,6 +372,12 @@ chamado pelo instalador, o script recebe o arquivo temporário já preparado e
 também valida a credencial antes das etapas demoradas, sem solicitar a senha
 novamente.
 
+Os scripts de Windows localizam primeiro `mysql.exe` no `PATH` e, quando ele não
+está disponível, procuram automaticamente versões instaladas em diretórios
+`MariaDB*` e `MySQL*` dentro de `C:\Program Files` e
+`C:\Program Files (x86)`. Assim, instalações como MariaDB 13.2 não dependem de
+uma entrada fixa por versão no script.
+
 O script de publicação copia a aplicação para `C:\ProgramData\PDV\app`,
 preservando o `.env` operacional e excluindo `.git`, `.env`, `dist`,
 `src-tauri\target` e `backups`, concede as permissões

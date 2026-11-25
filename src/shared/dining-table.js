@@ -1,5 +1,24 @@
 const diningTableStatuses = new Set(["free", "occupied", "closing"]);
 
+export const normalizeDiningTableColor = (value) => {
+  const raw = String(value ?? "").trim();
+  const hexMatch = raw.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/iu);
+  if (hexMatch) {
+    const digits = hexMatch[1].toLowerCase();
+    return digits.length === 3
+      ? `#${digits.split("").map((digit) => `${digit}${digit}`).join("")}`
+      : `#${digits}`;
+  }
+  const rgbMatch = raw.match(/^rgb\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)$/iu);
+  if (rgbMatch) {
+    const channels = rgbMatch.slice(1).map(Number);
+    if (channels.every((channel) => Number.isInteger(channel) && channel >= 0 && channel <= 255)) {
+      return `#${channels.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
+    }
+  }
+  throw new Error("Informe uma cor válida em hexadecimal ou RGB.");
+};
+
 export const normalizeDiningTablePayload = (payload = {}) => {
   const visualIdentifier = String(payload.visualIdentifier ?? "").trim();
   const name = String(payload.name ?? "").trim();

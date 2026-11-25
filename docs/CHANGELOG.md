@@ -4,6 +4,27 @@ Este documento registra as mudanças funcionais e técnicas agrupadas por versã
 O número da versão só deve ser incrementado após pedido explícito. Builds e
 releases não alteram a versão automaticamente.
 
+## 0.22.0 - 2026-11-25
+
+- Refinada a Frente de Caixa no modo Balcão: Venda Atual passou a ficar à
+  esquerda, Produtos à direita, com quatro cards por linha, busca de 500 px,
+  atalho F2 e filtros sem rolagem horizontal.
+- Padronizados os cards de Produtos sem borda ou cantos arredondados, com nome
+  em maiúsculas, fonte `1.2rem`, peso `500`, preço `1rem` e peso `200`.
+- Atualizado o carrinho: lançamentos numerados em ordem DESC, nome em laranja
+  em uma linha quando possível, quantidade com controles `−/+`, indicador
+  visual da quantidade fracionada e total destacado por linha.
+- Produtos fracionados passaram a abrir modal próprio de quantidade com máscara
+  brasileira de três casas, valor inicial `0,000`, campo selecionado e atalhos
+  Enter/F10 para adicionar ao carrinho.
+- Corrigida a descoberta de `mysql.exe` nos scripts Windows de instalação,
+  configuração e publicação, incluindo instalações MariaDB 13.2 e versões
+  futuras sem caminho fixo por versão.
+- Alterações no frontend do PDV exigem novo bundle/distribuição do cliente.
+- Alterações em scripts de publicação exigem nova execução autorizada do
+  instalador ou procedimento aprovado; mudanças somente visuais não reiniciam
+  a API e não exigem migração de banco.
+
 ## 0.21.1 - 2026-11-24
 
 - Consolidada a tela de Mesas na Frente de Caixa, com mapa ocupacional,
@@ -20,6 +41,15 @@ releases não alteram a versão automaticamente.
   minutos, aplicada ao tempo aberto das Mesas ocupadas. Mesas cujo tempo
   alcance o limite ficam com fundo vermelho; o cartão mantém nome, pessoas,
   tempo e valor consumido sem textos “Livre” ou “Ocupada”.
+- Criado o painel separado “Mesas” em Configurações Gerais. Ele concentra
+  quantidade de Mesas visíveis, tempo de inatividade e cores dos estados Livre,
+  Inativa e Em fechamento, aceitando hexadecimal ou RGB e aplicando as cores
+  aos cartões da Frente de Caixa.
+- A configuração das Mesas passou a incluir o estado Ocupada com cor azul
+  turquesa `#1aadb4` como padrão. Os ícones Balcão e Mesas foram registrados
+  no catálogo compartilhado de ícones.
+- Removidos o título “Mapa de Mesas” e o contador textual do total no mapa.
+  O teclado numérico passou a ficar diretamente ligado aos contadores de Mesas.
 - Alterações no frontend do PDV exigem novo bundle/distribuição do cliente.
 - Alterações em `src/server/` exigem republicar a API atualizada e, depois,
   reiniciar o serviço; reiniciar sozinho não copia o código novo.

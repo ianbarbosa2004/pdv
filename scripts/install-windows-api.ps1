@@ -53,12 +53,25 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $nodePath = (Get-Command node.exe -ErrorAction Stop).Source
 $npmPath = (Get-Command npm.cmd -ErrorAction Stop).Source
-$mysqlPath = @(
-  'C:\Program Files\MariaDB 13.0\bin\mysql.exe',
-  'C:\Program Files\MariaDB 11.4\bin\mysql.exe',
-  'C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe'
-) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-if (-not $mysqlPath) { throw 'mysql.exe não foi encontrado.' }
+$mysqlCommand = Get-Command mysql.exe -ErrorAction SilentlyContinue
+$mysqlPath = if ($mysqlCommand) {
+  if ($mysqlCommand.PSObject.Properties.Name -contains 'Source') {
+    $mysqlCommand.Source
+  } else {
+    $mysqlCommand.Path
+  }
+} else {
+  $mysqlCandidates = @(
+    Get-ChildItem 'C:\Program Files\MariaDB*\bin\mysql.exe' -ErrorAction SilentlyContinue
+    Get-ChildItem 'C:\Program Files\MySQL*\bin\mysql.exe' -ErrorAction SilentlyContinue
+    Get-ChildItem 'C:\Program Files (x86)\MariaDB*\bin\mysql.exe' -ErrorAction SilentlyContinue
+    Get-ChildItem 'C:\Program Files (x86)\MySQL*\bin\mysql.exe' -ErrorAction SilentlyContinue
+  )
+  $mysqlCandidates |
+    Sort-Object -Property FullName -Descending |
+    Select-Object -First 1 -ExpandProperty FullName
+}
+if (-not $mysqlPath) { throw 'mysql.exe não foi encontrado no PATH nem nas instalações comuns do MariaDB/MySQL.' }
 
 $rootPasswordSecure = Read-MariaDbPassword 'Senha do usuário administrativo do MariaDB'
 $rootPassword = [System.Net.NetworkCredential]::new('', $rootPasswordSecure).Password
