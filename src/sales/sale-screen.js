@@ -37,6 +37,7 @@ const loadProducts = async () => {
     id: String(product.idProduct),
     name: product.nameProduct,
     price: Number(product.priceProduct),
+    isFractionalProduct: Number(product.isFractionalProduct) === 1,
     group: product.descriptionGroup || "Sem grupo"
   }));
 };
@@ -100,6 +101,7 @@ export function createSaleScreen({
   let paymentMethods = [];
   let customers = [];
   const cart = [];
+  let cartSequence = 0;
   let activeGroup = "Todos";
   let searchTerm = "";
   let loading = true;
@@ -135,10 +137,28 @@ export function createSaleScreen({
   let diningTableFeedback = "";
   let diningTableInactivityMinutes = 20;
   let diningTableFreeColor = "#b9c7d1";
-  let diningTableOccupiedColor = "#20a7cf";
+  let diningTableOccupiedColor = "#1aadb4";
   let diningTableInactiveColor = "#c84d45";
   let diningTableClosingColor = "#727b86";
   let diningTableTimeTimer = null;
+  let fractionalQuantityModalOpen = false;
+  let fractionalQuantityProduct = null;
+  let fractionalQuantityValue = "0,000";
+  let fractionalQuantityError = "";
+  const handleSearchShortcut = (event) => {
+    if (event.key !== "F2") return;
+    event.preventDefault();
+    if (saleMode !== "counter") {
+      saleMode = "counter";
+      render();
+    }
+    root.querySelector("[data-search]")?.focus();
+  };
+  const handleFractionalQuantityShortcut = (event) => {
+    if (event.key !== "F10" || !fractionalQuantityModalOpen) return;
+    event.preventDefault();
+    confirmFractionalQuantity();
+  };
   const scheduleSaleFeedbackClear = createFeedbackTimer();
   const setSaleFeedback = (message) => {
     saleFeedback = message;
@@ -207,8 +227,6 @@ export function createSaleScreen({
       .map(
         (product) => `
           <button class="product-card" data-product="${product.idProduct}" type="button">
-            <span class="product-icon">${escapeHtml(product.name.charAt(0))}</span>
-            <span class="product-category">${escapeHtml(product.group)}</span>
             <strong>${escapeHtml(product.name)}</strong>
             <span class="product-price">${formatCurrency(product.price)}</span>
           </button>
@@ -520,15 +538,11 @@ export function createSaleScreen({
         ${diningTableControlMarkup()}
       </section>
       ` : `
-      <section class="workspace">
+      <section class="workspace counter-workspace">
         <div class="catalog-panel">
           <div class="panel-heading">
-            <div>
-              <p class="eyebrow">Produtos</p>
-              <h2>Selecione um item</h2>
-            </div>
             <label class="search">
-              <span aria-hidden="true">⌕</span>
+              <span class="search-icon" aria-hidden="true"><i data-lucide="search"></i></span>
               <input
                 name="productSearch"
                 data-search
@@ -536,7 +550,9 @@ export function createSaleScreen({
                 placeholder="Buscar produto"
                 value="${escapeHtml(searchTerm)}"
                 aria-label="Buscar produto"
+                autofocus
               />
+              <kbd class="search-shortcut" aria-label="Atalho F2">F2</kbd>
             </label>
             ${paymentMethods.find((method) => String(method.idPaymentMethod) === String(idPaymentMethod))?.namePaymentMethod?.toLocaleUpperCase("pt-BR") === "VALE" ? `
               <label class="form-field">
@@ -571,7 +587,7 @@ export function createSaleScreen({
           <div class="panel-heading cart-heading">
             <div>
               <p class="eyebrow">Venda atual</p>
-              <h2>Carrinho <span class="item-count">${itemCount}</span></h2>
+              <h2>Carrinho</h2>
             </div>
             <button class="text-button" data-clear type="button" ${
               cart.length ? "" : "disabled"
@@ -582,17 +598,26 @@ export function createSaleScreen({
           <div class="cart-items">
             ${
               cart.length
-                ? cart
+                ? [...cart].sort((left, right) => right.sequence - left.sequence)
                     .map(
-                      (item) => `
+                      (item, index) => `
                         <article class="cart-item">
-                          <div>
-                            <strong>${escapeHtml(item.name)}</strong>
-                            <span><input data-quantity="${item.id}" type="number" min="${item.isFractionalProduct ? "0.001" : "1"}" step="${item.isFractionalProduct ? "0.001" : "1"}" value="${item.quantity}" aria-label="Quantidade de ${escapeHtml(item.name)}" /> × ${formatCurrency(item.price)}</span>
+                          <div class="cart-item-index-column">
+                            <span class="cart-index" aria-label="Lançamento ${item.sequence}">${String(item.sequence).padStart(2, "0")}</span>
+                            <button class="cart-remove-button" data-remove="${item.id}" type="button" aria-label="Remover ${escapeHtml(item.name)}"><i data-lucide="trash-2"></i></button>
                           </div>
-                          <div class="cart-item-actions">
-                            <strong>${formatCurrency(item.price * item.quantity)}</strong>
-                            <button data-remove="${item.id}" type="button" aria-label="Remover ${escapeHtml(item.name)}">×</button>
+                          <div class="cart-item-main">
+                            <strong>${escapeHtml(item.name.toLocaleUpperCase("pt-BR"))} <span class="cart-unit-price">(${formatCurrency(item.price)})</span></strong>
+                            <div class="cart-quantity-row">
+                              ${item.isFractionalProduct
+                                ? `<input class="cart-fractional-quantity" data-quantity="${item.id}" data-number-mask="fractional-3" inputmode="decimal" type="text" value="${escapeHtml(formatMaskedNumber(item.quantity, 3))}" aria-label="Quantidade fracionada de ${escapeHtml(item.name)}" />`
+                                : `<div class="cart-quantity-stepper">
+                                    <button type="button" data-cart-quantity-step="-1" data-cart-id="${item.id}" aria-label="Diminuir quantidade de ${escapeHtml(item.name)}">−</button>
+                                    <input data-quantity="${item.id}" type="number" min="1" step="1" value="${item.quantity}" aria-label="Quantidade de ${escapeHtml(item.name)}" />
+                                    <button type="button" data-cart-quantity-step="1" data-cart-id="${item.id}" aria-label="Aumentar quantidade de ${escapeHtml(item.name)}">+</button>
+                                  </div>`}
+                              <strong class="cart-item-total">${formatCurrency(item.price * item.quantity)}</strong>
+                            </div>
                           </div>
                         </article>
                       `
@@ -610,7 +635,6 @@ export function createSaleScreen({
           ` : ""}
 
           <div class="sale-summary">
-            <div><span>Itens</span><strong>${itemCount}</strong></div>
             <div><span>Subtotal</span><strong>${formatCurrency(total)}</strong></div>
             <div class="sale-total"><span>Total</span><strong>${formatCurrency(total)}</strong></div>
           </div>
@@ -620,6 +644,43 @@ export function createSaleScreen({
         </aside>
       </section>
       `}
+      ${
+        fractionalQuantityModalOpen
+          ? `
+            <div class="sale-modal-backdrop" data-fractional-quantity-backdrop>
+              <section class="sale-modal fractional-quantity-modal" role="dialog" aria-modal="true" aria-labelledby="fractional-quantity-title">
+                <div class="sale-modal-header">
+                  <h2 id="fractional-quantity-title">${escapeHtml(String(fractionalQuantityProduct?.name || "Produto fracionado").toLocaleUpperCase("pt-BR"))}</h2>
+                  <button class="sale-modal-close" data-close-fractional-quantity type="button" aria-label="Fechar" title="Fechar"><i data-lucide="x"></i></button>
+                </div>
+                <form data-fractional-quantity-form>
+                  <div class="sale-modal-body">
+                    <label class="form-field">
+                      <span>Quantidade</span>
+                      <input
+                        class="fractional-quantity-input"
+                        data-fractional-quantity-input
+                        data-number-mask="fractional-3"
+                        inputmode="decimal"
+                        type="text"
+                        value="${escapeHtml(fractionalQuantityValue)}"
+                        aria-label="Quantidade fracionada"
+                        autofocus
+                        required
+                      />
+                    </label>
+                    ${fractionalQuantityError ? `<p class="payment-error">${escapeHtml(fractionalQuantityError)}</p>` : ""}
+                  </div>
+                  <div class="sale-modal-actions">
+                    <button class="sale-action sale-action-primary" type="submit">Adicionar ao carrinho <kbd class="fractional-action-shortcut">F10</kbd></button>
+                    <button class="sale-action sale-action-secondary" data-close-fractional-quantity type="button">Cancelar</button>
+                  </div>
+                </form>
+              </section>
+            </div>
+          `
+          : ""
+      }
       ${
         paymentOpen
           ? `
@@ -729,11 +790,27 @@ export function createSaleScreen({
     if (!product) {
       return;
     }
+    if (product.isFractionalProduct) {
+      fractionalQuantityProduct = product;
+      fractionalQuantityValue = "0,000";
+      fractionalQuantityError = "";
+      fractionalQuantityModalOpen = true;
+      render();
+      const input = root.querySelector("[data-fractional-quantity-input]");
+      input?.focus();
+      input?.select();
+      return;
+    }
     const existing = cart.find(({ id }) => id === product.idProduct);
+    cartSequence += 1;
     if (existing) {
-      existing.quantity += 1;
+      existing.quantity += product.isFractionalProduct ? 0.001 : 1;
+      if (product.isFractionalProduct) {
+        existing.quantity = Math.round(existing.quantity * 1000) / 1000;
+      }
+      existing.sequence = cartSequence;
     } else {
-      cart.push({ ...product, quantity: 1 });
+      cart.push({ ...product, quantity: product.isFractionalProduct ? 0.001 : 1, sequence: cartSequence });
     }
     render();
   };
@@ -743,11 +820,47 @@ export function createSaleScreen({
     if (index === -1) {
       return;
     }
+    if (cart[index].isFractionalProduct) {
+      cart.splice(index, 1);
+      if (!cart.length) cartSequence = 0;
+      render();
+      return;
+    }
     if (cart[index].quantity > 1) {
       cart[index].quantity -= 1;
     } else {
       cart.splice(index, 1);
+      if (!cart.length) cartSequence = 0;
     }
+    render();
+  };
+
+  const confirmFractionalQuantity = () => {
+    if (!fractionalQuantityProduct) return;
+    const quantity = normalizeMaskedNumber(fractionalQuantityValue, 3);
+    const numericQuantity = Number(quantity);
+    if (!Number.isFinite(numericQuantity) || numericQuantity <= 0) {
+      fractionalQuantityError = "Informe uma quantidade fracionada maior que zero.";
+      render();
+      root.querySelector("[data-fractional-quantity-input]")?.select();
+      return;
+    }
+    cartSequence += 1;
+    const existing = cart.find(({ id }) => id === fractionalQuantityProduct.id);
+    if (existing) {
+      existing.quantity = Math.round((existing.quantity + numericQuantity) * 1000) / 1000;
+      existing.sequence = cartSequence;
+    } else {
+      cart.push({
+        ...fractionalQuantityProduct,
+        quantity: numericQuantity,
+        sequence: cartSequence
+      });
+    }
+    fractionalQuantityModalOpen = false;
+    fractionalQuantityProduct = null;
+    fractionalQuantityValue = "0,000";
+    fractionalQuantityError = "";
     render();
   };
 
@@ -759,20 +872,70 @@ export function createSaleScreen({
 
   const bindEvents = () => {
     bindProductEvents();
+    root.querySelector("[data-fractional-quantity-input]")?.addEventListener("input", (event) => {
+      fractionalQuantityValue = event.currentTarget.value;
+      if (fractionalQuantityError) {
+        fractionalQuantityError = "";
+        const error = root.querySelector(".fractional-quantity-modal .payment-error");
+        error?.remove();
+      }
+    });
+    root.querySelector("[data-fractional-quantity-form]")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      confirmFractionalQuantity();
+    });
+    root.querySelectorAll("[data-close-fractional-quantity]").forEach((button) => {
+      button.addEventListener("click", () => {
+        fractionalQuantityModalOpen = false;
+        fractionalQuantityProduct = null;
+        fractionalQuantityValue = "0,000";
+        fractionalQuantityError = "";
+        render();
+      });
+    });
+    root.querySelector("[data-fractional-quantity-backdrop]")?.addEventListener("click", (event) => {
+      if (event.target === event.currentTarget) {
+        fractionalQuantityModalOpen = false;
+        fractionalQuantityProduct = null;
+        fractionalQuantityValue = "0,000";
+        fractionalQuantityError = "";
+        render();
+      }
+    });
     root.querySelectorAll("[data-remove]").forEach((button) => {
       button.addEventListener("click", () => removeProduct(button.dataset.remove));
+    });
+    root.querySelectorAll("[data-cart-quantity-step]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const item = cart.find(({ id }) => id === button.dataset.cartId);
+        if (!item) return;
+        const step = item.isFractionalProduct
+          ? Number(button.dataset.cartQuantityStep) * 0.001
+          : Number(button.dataset.cartQuantityStep);
+        const nextQuantity = Number(item.quantity) + step;
+        const minimum = item.isFractionalProduct ? 0.001 : 1;
+        item.quantity = Math.max(minimum, item.isFractionalProduct
+          ? Math.round(nextQuantity * 1000) / 1000
+          : nextQuantity);
+        render();
+      });
     });
     root.querySelectorAll("[data-quantity]").forEach((input) => {
       input.addEventListener("change", () => {
         const item = cart.find(({ id }) => id === input.dataset.quantity);
-        const quantity = Number(input.value);
-        if (!item || !Number.isFinite(quantity) || quantity <= 0
-          || Math.round(quantity * 1000) !== quantity * 1000
-          || (!item.isFractionalProduct && !Number.isInteger(quantity))) {
+        const quantity = item?.isFractionalProduct
+          ? normalizeMaskedNumber(input.value, 3)
+          : input.value;
+        const numericQuantity = Number(quantity);
+        if (!item || !Number.isFinite(numericQuantity) || numericQuantity <= 0
+          || Math.round(numericQuantity * 1000) !== numericQuantity * 1000
+          || (!item.isFractionalProduct && !Number.isInteger(numericQuantity))) {
           render();
           return;
         }
-        item.quantity = quantity;
+        item.quantity = item.isFractionalProduct
+          ? Math.round(numericQuantity * 1000) / 1000
+          : numericQuantity;
         render();
       });
     });
@@ -784,6 +947,7 @@ export function createSaleScreen({
     });
     root.querySelector("[data-clear]")?.addEventListener("click", () => {
       cart.splice(0, cart.length);
+      cartSequence = 0;
       render();
     });
     root.querySelector("[data-payment]")?.addEventListener("click", () => {
@@ -891,6 +1055,9 @@ export function createSaleScreen({
         }
         if (saleMode === "tables") diningTableSelection = "";
         render();
+        if (saleMode === "counter") {
+          root.querySelector("[data-search]")?.focus();
+        }
         if (saleMode === "tables" && !diningTablesLoading) {
           void fetchDiningTables();
         }
@@ -1286,6 +1453,7 @@ export function createSaleScreen({
         ? `Venda registrada. NFC-e: ${fiscalStatus}.`
         : "Venda registrada com sucesso.";
       cart.splice(0, cart.length);
+      cartSequence = 0;
       paymentOpen = false;
       emitNfce = false;
       submittingPayment = false;
@@ -1310,10 +1478,14 @@ export function createSaleScreen({
     }
   }, 60000);
   root.addEventListener("keydown", handleDiningTableKeyboard);
+  root.addEventListener("keydown", handleSearchShortcut);
+  root.addEventListener("keydown", handleFractionalQuantityShortcut);
   root.tabIndex = -1;
   root.cleanup = () => {
     if (diningTableTimeTimer) window.clearInterval(diningTableTimeTimer);
     root.removeEventListener("keydown", handleDiningTableKeyboard);
+    root.removeEventListener("keydown", handleSearchShortcut);
+    root.removeEventListener("keydown", handleFractionalQuantityShortcut);
   };
   return root;
 }

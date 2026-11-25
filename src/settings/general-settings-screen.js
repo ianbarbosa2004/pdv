@@ -155,7 +155,7 @@ export function createGeneralSettingsScreen({
                   </label>
                   ${[
                     ["diningTableFreeColor", "Livre", "#b9c7d1"],
-                    ["diningTableOccupiedColor", "Ocupada", "#20a7cf"],
+                    ["diningTableOccupiedColor", "Ocupada", "#1aadb4"],
                     ["diningTableInactiveColor", "Inativa", "#c84d45"],
                     ["diningTableClosingColor", "Em fechamento", "#727b86"]
                   ].map(([key, label, fallback]) => {

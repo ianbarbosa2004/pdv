@@ -267,6 +267,157 @@ test("mode buttons use registered mode icons", async () => {
   assert.match(iconsSource, /Utensils/u);
 });
 
+test("counter search is prominent and reachable with F2", async () => {
+  const [screenSource, stylesSource] = await Promise.all([
+    readFile(new URL("../../src/sales/sale-screen.js", import.meta.url), "utf8"),
+    readFile(new URL("../../src/styles.css", import.meta.url), "utf8")
+  ]);
+  assert.match(stylesSource, /\.sale-screen\s+\.search\s+input\s*\{[^}]*font-size:\s*1\.2rem/isu);
+  assert.match(screenSource, /event\.key\s*!==\s*"F2"/u);
+  assert.match(screenSource, /root\.querySelector\("\[data-search\]"\)\?\.focus\(\)/u);
+  assert.match(screenSource, /autofocus/u);
+  assert.match(screenSource, /class="search-icon"/u);
+  assert.match(screenSource, /data-lucide="search"/u);
+  assert.match(screenSource, /class="search-shortcut"/u);
+  assert.match(screenSource, />F2<\/kbd>/u);
+});
+
+test("counter mode places Venda Atual before Produtos", async () => {
+  const [screenSource, stylesSource] = await Promise.all([
+    readFile(new URL("../../src/sales/sale-screen.js", import.meta.url), "utf8"),
+    readFile(new URL("../../src/styles.css", import.meta.url), "utf8")
+  ]);
+  assert.match(screenSource, /<section class="workspace counter-workspace">/u);
+  assert.match(stylesSource, /\.counter-workspace\s\.cart-panel\s*\{[^}]*order:\s*-1/isu);
+});
+
+test("Venda Atual uses the enlarged front-counter typography", async () => {
+  const stylesSource = await readFile(
+    new URL("../../src/styles.css", import.meta.url),
+    "utf8"
+  );
+  assert.match(stylesSource, /\.cart-item-main\s*>\s*strong\s*\{[^}]*font-size:\s*1\.2rem/isu);
+  assert.match(stylesSource, /\.sale-summary\s+div\s*\{[^}]*font-size:\s*1\.2rem/isu);
+  assert.match(stylesSource, /\.sale-summary\s+\.sale-total\s*\{[^}]*font-size:\s*1\.2rem/isu);
+  assert.match(stylesSource, /\.primary-button\s*\{[^}]*font-size:\s*1\.2rem/isu);
+  assert.match(stylesSource, /\.primary-button\s+span\s*\{[^}]*font-size:\s*1\.2rem/isu);
+});
+
+test("Venda Atual shows sequential launches, quantity stepper, and trash icon", async () => {
+  const [screenSource, stylesSource] = await Promise.all([
+    readFile(new URL("../../src/sales/sale-screen.js", import.meta.url), "utf8"),
+    readFile(new URL("../../src/styles.css", import.meta.url), "utf8")
+  ]);
+  assert.match(screenSource, /cart-index/u);
+  assert.match(screenSource, /String\(item\.sequence\)\.padStart\(2,\s*"0"\)/u);
+  assert.match(screenSource, /data-cart-quantity-step="-1"/u);
+  assert.match(screenSource, /data-cart-quantity-step="1"/u);
+  assert.match(screenSource, /data-lucide="trash-2"/u);
+  assert.match(screenSource, /toLocaleUpperCase\("pt-BR"\)/u);
+  assert.match(screenSource, /cart-item-index-column/u);
+  assert.match(screenSource, /cart-remove-button/u);
+  assert.match(screenSource, /cart-unit-price/u);
+  assert.match(screenSource, /cart-item-total/u);
+  assert.doesNotMatch(screenSource, /item-count/u);
+  assert.doesNotMatch(screenSource, /<span>Itens<\/span>/u);
+  assert.match(screenSource, /\[\.\.\.cart\]\.sort\(\(left,\s*right\)\s*=>\s*right\.sequence\s*-\s*left\.sequence\)/u);
+  assert.match(stylesSource, /\.cart-item-main\s*>\s*strong\s*\{[^}]*color:\s*#f88a00/isu);
+  assert.match(stylesSource, /\.cart-quantity-stepper/u);
+});
+
+test("fractional cart products use masked decimal quantity without stepper", async () => {
+  const [screenSource, maskSource] = await Promise.all([
+    readFile(new URL("../../src/sales/sale-screen.js", import.meta.url), "utf8"),
+    readFile(new URL("../../src/ui/number-mask.js", import.meta.url), "utf8")
+  ]);
+  assert.match(screenSource, /item\.isFractionalProduct\s*\?/u);
+  assert.match(screenSource, /data-number-mask="fractional-3"/u);
+  assert.match(screenSource, /formatMaskedNumber\(item\.quantity,\s*3\)/u);
+  assert.match(screenSource, /cart-fractional-quantity/u);
+  assert.match(maskSource, /if \(input\.dataset\.numberMask === "decimal-3"\)/u);
+});
+
+test("fractional cart products open quantity confirmation modal", async () => {
+  const [screenSource, stylesSource] = await Promise.all([
+    readFile(new URL("../../src/sales/sale-screen.js", import.meta.url), "utf8"),
+    readFile(new URL("../../src/styles.css", import.meta.url), "utf8")
+  ]);
+  assert.match(screenSource, /fractionalQuantityModalOpen/u);
+  assert.match(screenSource, /fractionalQuantityProduct/u);
+  assert.match(screenSource, /0,000/u);
+  assert.match(screenSource, /Adicionar ao carrinho/u);
+  assert.match(screenSource, /fractional-3/u);
+  assert.match(screenSource, /toLocaleUpperCase\("pt-BR"\)/u);
+  assert.match(screenSource, /event\.key\s*!==\s*"F10"/u);
+  assert.match(screenSource, /F10<\/kbd>/u);
+  assert.match(stylesSource, /\.fractional-quantity-modal/u);
+  assert.match(stylesSource, /\.sale-modal\.fractional-quantity-modal\s*\{[^}]*500px/isu);
+  assert.match(stylesSource, /\.sale-screen\s+\.fractional-quantity-input\s*\{[^}]*width:\s*200px/isu);
+  assert.match(stylesSource, /\.sale-screen\s+\.fractional-quantity-input\s*\{[^}]*font-size:\s*1\.7rem/isu);
+  assert.match(stylesSource, /\.sale-screen\s+\.fractional-quantity-input\s*\{[^}]*font-weight:\s*700/isu);
+  assert.match(screenSource, /fractionalQuantityError\s*=.*Informe uma quantidade fracionada maior que zero/u);
+});
+
+test("Venda Atual cart line uses compact visual hierarchy", async () => {
+  const stylesSource = await readFile(
+    new URL("../../src/styles.css", import.meta.url),
+    "utf8"
+  );
+  assert.match(stylesSource, /\.cart-item\s*\{[^}]*padding-top:\s*10px/isu);
+  assert.match(stylesSource, /\.cart-item\s*\{[^}]*padding-bottom:\s*10px/isu);
+  assert.doesNotMatch(stylesSource, /\.cart-item:hover\s*\{/u);
+  assert.match(stylesSource, /\.cart-item\s*\{[^}]*background:\s*transparent/isu);
+  assert.match(stylesSource, /\.cart-index\s*\{[^}]*background:\s*#1aadb4/isu);
+  assert.match(stylesSource, /\.cart-item\s*\{[^}]*border-bottom:\s*1px\s+solid\s+#cbd3dc/isu);
+  assert.match(stylesSource, /\.cart-quantity-stepper\s+button\s*\{[^}]*font-size:\s*1\.6rem/isu);
+  assert.match(stylesSource, /\.cart-quantity-stepper\s+input\s*\{[^}]*appearance:\s*none/isu);
+  assert.match(stylesSource, /\.cart-unit-price\s*\{[^}]*color:\s*#f88a00/isu);
+  assert.match(stylesSource, /\.cart-quantity-stepper\s+button\s*\{[^}]*font-size:\s*1\.6rem/isu);
+  assert.match(stylesSource, /\.cart-remove-button\s*\{[^}]*width:\s*32px/isu);
+  assert.match(stylesSource, /\.cart-remove-button\s+svg\s*\{[^}]*width:\s*16px/isu);
+  assert.match(stylesSource, /\.cart-item-total\s*\{[^}]*font-size:\s*1\.3rem/isu);
+  assert.match(stylesSource, /\.cart-item\s*\{[^}]*border:\s*0/isu);
+  assert.match(stylesSource, /\.cart-item\s*\{[^}]*border-bottom:\s*1px\s+solid\s+#cbd3dc/isu);
+  assert.match(stylesSource, /\.cart-item-index-column\s*\{[^}]*justify-items:\s*center/isu);
+  assert.match(stylesSource, /\.cart-item-main\s*>\s*strong\s*\{[^}]*overflow-wrap:\s*anywhere/isu);
+  assert.match(stylesSource, /\.cart-quantity-row\s+\.cart-quantity-stepper\s+(?:button|input)/u);
+  assert.match(stylesSource, /\.cart-index\s*\{[^}]*background:\s*#1aadb4/isu);
+});
+
+test("counter mode uses compact product and category presentation", async () => {
+  const [screenSource, stylesSource] = await Promise.all([
+    readFile(new URL("../../src/sales/sale-screen.js", import.meta.url), "utf8"),
+    readFile(new URL("../../src/styles.css", import.meta.url), "utf8")
+  ]);
+  assert.doesNotMatch(screenSource, /<p class="eyebrow">Produtos<\/p>/u);
+  assert.doesNotMatch(screenSource, /<h2>Selecione um item<\/h2>/u);
+  assert.doesNotMatch(screenSource, /<span class="product-category">/u);
+  assert.match(stylesSource, /\.counter-workspace\s+\.catalog-panel/u);
+  assert.match(stylesSource, /\.counter-workspace\s+\.cart-panel/u);
+  assert.match(stylesSource, /\.categories\s*\{[^}]*overflow-x:\s*visible/isu);
+  assert.match(stylesSource, /\.categories\s*\{[^}]*flex-wrap:\s*wrap/isu);
+  assert.match(stylesSource, /\.category-button\s*\{[^}]*text-transform:\s*uppercase/isu);
+  assert.match(stylesSource, /\.category-button:hover/u);
+  assert.match(stylesSource, /\.product-card\s+strong\s*\{[^}]*font-weight:\s*400|\.product-card\s+strong/isu);
+});
+
+test("counter filters and product cards use the turquoise presentation", async () => {
+  const stylesSource = await readFile(
+    new URL("../../src/styles.css", import.meta.url),
+    "utf8"
+  );
+  assert.match(stylesSource, /\.category-button\s*\{[^}]*background:\s*#172033/isu);
+  assert.match(stylesSource, /\.category-button:hover\s*\{[^}]*background:\s*#08799a/isu);
+  assert.match(stylesSource, /\.category-button\.is-active\s*\{[^}]*background:\s*#1aadb4/isu);
+  assert.match(stylesSource, /\.product-grid\s*\{[^}]*repeat\(4,\s*minmax\(0,\s*1fr\)\)/isu);
+  assert.match(stylesSource, /\.product-card\s*\{[^}]*border:\s*0[^}]*border-radius:\s*4px[^}]*color:\s*#fff[^}]*background:\s*#1aadb4/isu);
+  assert.match(stylesSource, /\.sale-screen\s+\.counter-workspace\s+\.product-card\s+strong\s*\{[^}]*font-size:\s*1\.2rem/isu);
+  assert.match(stylesSource, /\.sale-screen\s+\.counter-workspace\s+\.product-card\s+strong\s*\{[^}]*font-weight:\s*500/isu);
+  assert.match(stylesSource, /\.sale-screen\s+\.counter-workspace\s+\.product-price\s*\{[^}]*font-size:\s*1rem/isu);
+  assert.match(stylesSource, /\.sale-screen\s+\.counter-workspace\s+\.product-price\s*\{[^}]*font-weight:\s*200/isu);
+  assert.match(stylesSource, /\.sale-screen\s+\.counter-workspace\s+\.product-price\s*\{[^}]*color:\s*#fff/isu);
+});
+
 test("accepts official SEFAZ distribution URLs", () => {
   const options = {
     service: false,

@@ -207,7 +207,7 @@ const ensureGeneralSettingsSchema = async () => {
       ('diningTableCount', 'Número de Mesas visíveis', 'number', '20'),
       ('diningTableInactivityMinutes', 'Tempo de Inatividade (min)', 'number', '20'),
       ('diningTableFreeColor', 'Cor das Mesas Livres', 'text', '#b9c7d1'),
-      ('diningTableOccupiedColor', 'Cor das Mesas Ocupadas', 'text', '#20a7cf'),
+      ('diningTableOccupiedColor', 'Cor das Mesas Ocupadas', 'text', '#1aadb4'),
       ('diningTableInactiveColor', 'Cor das Mesas Inativas', 'text', '#c84d45'),
       ('diningTableClosingColor', 'Cor das Mesas em Fechamento', 'text', '#727b86')
      ON DUPLICATE KEY UPDATE

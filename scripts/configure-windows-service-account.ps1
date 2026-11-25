@@ -61,17 +61,19 @@ ALTER USER 'pdv_app'@'localhost' IDENTIFIED BY '$escapedDatabasePassword';
 
 $mysqlCommand = Get-Command mysql.exe -ErrorAction SilentlyContinue
 if (-not $mysqlCommand) {
-  $mysqlPath = @(
-    'C:\Program Files\MariaDB 13.0\bin\mysql.exe',
-    'C:\Program Files\MariaDB 11.4\bin\mysql.exe',
-    'C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe'
-  ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-  if ($mysqlPath) {
-    $mysqlCommand = Get-Item -LiteralPath $mysqlPath
-  }
+  $mysqlCandidates = @(
+    Get-ChildItem 'C:\Program Files\MariaDB*\bin\mysql.exe' -ErrorAction SilentlyContinue
+    Get-ChildItem 'C:\Program Files\MySQL*\bin\mysql.exe' -ErrorAction SilentlyContinue
+    Get-ChildItem 'C:\Program Files (x86)\MariaDB*\bin\mysql.exe' -ErrorAction SilentlyContinue
+    Get-ChildItem 'C:\Program Files (x86)\MySQL*\bin\mysql.exe' -ErrorAction SilentlyContinue
+  )
+  $mysqlPath = $mysqlCandidates |
+    Sort-Object -Property FullName -Descending |
+    Select-Object -First 1 -ExpandProperty FullName
+  if ($mysqlPath) { $mysqlCommand = Get-Item -LiteralPath $mysqlPath }
 }
 if (-not $mysqlCommand) {
-  throw 'mysql.exe não foi encontrado no PATH.'
+  throw 'mysql.exe não foi encontrado no PATH nem nas instalações comuns do MariaDB/MySQL.'
 }
 $mysqlExecutable = if ($mysqlCommand.PSObject.Properties.Name -contains 'Source') {
   $mysqlCommand.Source

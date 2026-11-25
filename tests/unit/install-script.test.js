@@ -21,3 +21,17 @@ test("instalação limpa solicita a senha sem aceitar credencial por ambiente", 
   assert.doesNotMatch(script, /WorkingDirectory \$repositoryRoot[\s\S]{0,180}ArgumentList 'ci'/u);
   assert.doesNotMatch(script, /--password\s*['"]?\s*$/mu);
 });
+
+test("scripts Windows de MariaDB descobrem instalações por versão", async () => {
+  const paths = [
+    "scripts/publish-windows-api-service.ps1",
+    "scripts/configure-windows-service-account.ps1",
+    "scripts/install-windows-api.ps1"
+  ];
+  for (const path of paths) {
+    const script = await readFile(path, "utf8");
+    assert.match(script, /Get-Command mysql\.exe/u);
+    assert.match(script, /MariaDB\*\\bin\\mysql\.exe/u);
+    assert.match(script, /MySQL\*\\bin\\mysql\.exe/u);
+  }
+});

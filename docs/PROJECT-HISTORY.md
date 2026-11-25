@@ -7,6 +7,27 @@ inicial do produto até o estado atual do workspace. Ele complementa o
 
 ## 0. Estado mais recente
 
+### Frente de Caixa, carrinho fracionado e publicação Windows — 2026-11-25
+
+A tela Balcão passou a apresentar Venda Atual à esquerda e Produtos à direita.
+Os cards de Produto usam quatro colunas, sem borda ou cantos arredondados,
+nome em maiúsculas e preço normalizado para operação rápida. Os filtros
+ficaram visíveis sem rolagem horizontal, com fundo preto, texto branco e
+hover ativo em turquesa `#08799a`.
+
+Cada lançamento do carrinho recebeu índice visual alinhado à posição persistida
+pela sequência da venda, nome com preço unitário na mesma linha, quantidade
+com controles `−/+` ou campo decimal de três casas e total destacado à direita.
+No caso de Produto fracionado, o clique abre um modal com o nome em maiúsculas,
+campo mascarado inicial `0,000`, foco e seleção automáticos, confirmação por
+Enter ou F10 e retorno ao carrinho somente após valor positivo.
+
+Os scripts Windows passaram a localizar `mysql.exe` no `PATH` ou em instalações
+`MariaDB*`/`MySQL*` de `C:\Program Files` e `C:\Program Files (x86)`. Isso
+inclui MariaDB 13.2 sem exigir atualização fixa do caminho no script. A
+credencial administrativa continua mascarada e temporária; não é registrada em
+SQL persistente nem enviada aos terminais.
+
 ### Mesa operacional e comportamento global de modais — 2026-11-23
 
 A tela Mesas recebeu um teclado operacional com visor único integrado ao
