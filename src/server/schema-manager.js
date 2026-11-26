@@ -11,6 +11,7 @@ import {
   DEFAULT_FISCAL_DISTRIBUTION_URLS,
   DEFAULT_FISCAL_QUERY_URLS
 } from "./nfce-test-service.js";
+import { ensureTableDescriptions } from "./table-descriptions.js";
 
 export const createSchemaManager = ({ pool, config }) => {
   const renumberFiscalCatalogIds = async (connection) => {
@@ -57,7 +58,7 @@ const ensureFiscalCatalogSchema = async () => {
     PRIMARY KEY (idFiscalCatalogItem),
     UNIQUE KEY uqFiscalCatalogItemsCatalogCode (catalogFiscalCatalogItem, codeFiscalCatalogItem),
     KEY idxFiscalCatalogItemsCatalogActive (catalogFiscalCatalogItem, isActiveFiscalCatalogItem, descriptionFiscalCatalogItem)
-  ) ENGINE=InnoDB`);
+  ) ENGINE=InnoDB COMMENT='Catálogos auxiliares fiscais, como CFOP e situações.'`);
   await pool.query(
     `INSERT INTO fiscal_catalog_items
       (catalogFiscalCatalogItem, codeFiscalCatalogItem, descriptionFiscalCatalogItem, valueFiscalCatalogItem)
@@ -76,7 +77,7 @@ const ensurePrinterSettingsSchema = async () => {
     receiptLayoutPrinterSetting JSON NULL,
     updatedAtPrinterSetting TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (idPrinterSetting)
-  ) ENGINE=InnoDB`);
+  ) ENGINE=InnoDB COMMENT='Configuração das impressoras e formatos de impressão.'`);
   const [columns] = await pool.query(
    `SELECT COLUMN_NAME FROM information_schema.columns
     WHERE table_schema = DATABASE() AND table_name = 'printer_settings'`
@@ -104,7 +105,7 @@ const ensureTechnicalLogSchema = () => {
       PRIMARY KEY (idTechnicalLog),
       KEY idxTechnicalLogsOccurred (occurredAtTechnicalLog),
       KEY idxTechnicalLogsSourceLevel (sourceTechnicalLog, levelTechnicalLog, occurredAtTechnicalLog)
-    ) ENGINE=InnoDB`);
+    ) ENGINE=InnoDB COMMENT='Eventos técnicos da API, frontend, banco, serviços, impressoras e sistema.'`);
   })().catch((error) => {
     technicalLogSchemaPromise = null;
     throw error;
@@ -128,7 +129,7 @@ const ensureDiningTableSchema = async () => {
     PRIMARY KEY (idDiningTable),
     UNIQUE KEY uqDiningTablesVisualIdentifier (visualIdentifierDiningTable),
     KEY idxDiningTablesStatus (statusDiningTable, sortPositionDiningTable)
-  ) ENGINE=InnoDB`);
+  ) ENGINE=InnoDB COMMENT='Mesas operacionais, estado atual, ocupantes e consumo.'`);
   const [openedAtColumn] = await pool.query(
     `SELECT COLUMN_NAME
      FROM information_schema.COLUMNS
@@ -164,7 +165,7 @@ const ensureGeneralSettingsSchema = async () => {
     updatedAtGeneralSetting TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (idGeneralSetting),
     UNIQUE KEY uqGeneralSettingsKey (keyGeneralSetting)
-  ) ENGINE=InnoDB`);
+  ) ENGINE=InnoDB COMMENT='Configurações gerais persistidas da aplicação.'`);
   const [columns] = await pool.query(
     `SELECT COLUMN_NAME, COLUMN_TYPE
      FROM information_schema.COLUMNS
@@ -268,7 +269,7 @@ const ensureCustomerConsumerSchema = async () => {
     updatedAtCustomer TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (idCustomer),
     UNIQUE KEY uqCustomersDocument (documentCustomer)
-  ) ENGINE=InnoDB`);
+  ) ENGINE=InnoDB COMMENT='Consumidores identificados nas vendas.'`);
   const [customerDocumentColumns] = await pool.query(
     `SELECT IS_NULLABLE FROM information_schema.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'customers'
@@ -292,7 +293,7 @@ const ensureCustomerConsumerSchema = async () => {
     UNIQUE KEY uqConsumersCustomer (idCustomer),
     KEY idxConsumersStatus (isActiveConsumer),
     CONSTRAINT fkConsumersCustomer FOREIGN KEY (idCustomer) REFERENCES customers (idCustomer) ON DELETE SET NULL
-  ) ENGINE=InnoDB`);
+  ) ENGINE=InnoDB COMMENT='Consumidores finais e dados opcionais de identificação.'`);
   await pool.query(`CREATE TABLE IF NOT EXISTS customer_vouchers (
     idCustomerVoucher BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     idCustomer BIGINT UNSIGNED NOT NULL,
@@ -304,7 +305,7 @@ const ensureCustomerConsumerSchema = async () => {
     PRIMARY KEY (idCustomerVoucher),
     KEY idxCustomerVouchersCustomer (idCustomer, statusCustomerVoucher),
     CONSTRAINT fkCustomerVouchersCustomer FOREIGN KEY (idCustomer) REFERENCES customers (idCustomer) ON DELETE RESTRICT
-  ) ENGINE=InnoDB`);
+  ) ENGINE=InnoDB COMMENT='Créditos e vouchers vinculados a consumidores.'`);
 };
 
 const ensureRecipeSchemaOnce = async () => {
@@ -339,7 +340,7 @@ const ensureRecipeSchemaOnce = async () => {
     CONSTRAINT fkRecipeResultProduct
       FOREIGN KEY (idResultProductRecipe) REFERENCES products (idProduct)
       ON DELETE RESTRICT
-  ) ENGINE=InnoDB`);
+  ) ENGINE=InnoDB COMMENT='Receitas, composições e formações produzidas pelo PDV.'`);
   const [recipeColumns] = await pool.query(
     `SELECT COLUMN_NAME
      FROM information_schema.COLUMNS
@@ -426,7 +427,7 @@ const ensureRecipeSchemaOnce = async () => {
       ON DELETE RESTRICT,
     KEY idxRecipeComponentsCulinaryUnit (idCulinaryUnitRecipeComponent),
     KEY idxRecipeComponentsCulinaryConversion (idCulinaryUnitConversionRecipeComponent)
-  ) ENGINE=InnoDB`);
+  ) ENGINE=InnoDB COMMENT='Componentes, quantidades, perdas e custos de receitas e formações.'`);
   const [componentColumns] = await pool.query(
     `SELECT COLUMN_NAME
      FROM information_schema.COLUMNS
@@ -490,7 +491,7 @@ const ensureRecipeSchemaOnce = async () => {
     CONSTRAINT fkProductRecipeLinksRecipe
       FOREIGN KEY (idRecipe) REFERENCES recipe_definitions (idRecipe)
       ON DELETE RESTRICT
-  ) ENGINE=InnoDB`);
+  ) ENGINE=InnoDB COMMENT='Vínculos quantificados entre produtos comerciais e receitas.'`);
   await pool.query(`CREATE TABLE IF NOT EXISTS recipe_reviews (
     idRecipeReview BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     idRecipe BIGINT UNSIGNED NOT NULL,
@@ -503,7 +504,7 @@ const ensureRecipeSchemaOnce = async () => {
     CONSTRAINT fkRecipeReviewsRecipe
       FOREIGN KEY (idRecipe) REFERENCES recipe_definitions (idRecipe)
       ON DELETE CASCADE
-  ) ENGINE=InnoDB`);
+  ) ENGINE=InnoDB COMMENT='Revisões e versões históricas das estruturas de receitas.'`);
 };
 
 let recipeSchemaPromise = null;
@@ -621,7 +622,7 @@ const ensureCompanySchema = async () => {
     createdAtCompanySetting TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updatedAtCompanySetting TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (idCompanySetting)
-  ) ENGINE=InnoDB`);
+  ) ENGINE=InnoDB COMMENT='Dados cadastrais e fiscais da empresa.'`);
   const [columns] = await pool.query(
     `SELECT COLUMN_NAME
      FROM information_schema.COLUMNS
@@ -707,7 +708,7 @@ const ensureSaleFiscalSchema = async () => {
     CONSTRAINT fkSaleFiscalDocumentSale
       FOREIGN KEY (idSale) REFERENCES sales (idSale)
       ON DELETE RESTRICT
-  ) ENGINE=InnoDB`);
+  ) ENGINE=InnoDB COMMENT='Documentos fiscais emitidos ou vinculados às vendas.'`);
 };
 
 const ensureFiscalDocumentQueueSchema = async () => {
@@ -723,7 +724,7 @@ const ensureFiscalDocumentQueueSchema = async () => {
     UNIQUE KEY uqFiscalDocumentQueueAccessKey (accessKeyFiscalDocumentQueue),
     KEY idxFiscalDocumentQueueIssuedAt (issuedAtFiscalDocumentQueue),
     KEY idxFiscalDocumentQueueIssuer (issuerDocumentFiscalDocumentQueue)
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Documentos fiscais aguardando importação ou processamento.'`);
 };
 
 const initializeFiscalEntrySchema = async () => {
@@ -775,7 +776,7 @@ const initializeFiscalEntrySchema = async () => {
     CONSTRAINT fkFiscalDocumentsQueue
       FOREIGN KEY (idFiscalDocumentQueue) REFERENCES fiscal_document_queue (idFiscalDocumentQueue)
       ON DELETE SET NULL
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Cabeçalhos persistidos de documentos fiscais importados ou manuais.'`);
   const fiscalDocumentColumns = [
     ["icmsBaseFiscalDocument", "DECIMAL(12,2) NOT NULL DEFAULT 0"],
     ["icmsAmountFiscalDocument", "DECIMAL(12,2) NOT NULL DEFAULT 0"],
@@ -849,7 +850,7 @@ const initializeFiscalEntrySchema = async () => {
     CONSTRAINT fkFiscalDocumentItemsDocument
       FOREIGN KEY (idFiscalDocument) REFERENCES fiscal_documents (idFiscalDocument)
       ON DELETE CASCADE
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Itens individuais extraídos dos documentos fiscais.'`);
   const fiscalDocumentItemColumns = await pool.query(
     `SELECT COLUMN_NAME
      FROM information_schema.COLUMNS
@@ -891,7 +892,7 @@ const initializeFiscalEntrySchema = async () => {
     CONSTRAINT fkFiscalEntriesDocument
       FOREIGN KEY (idFiscalDocument) REFERENCES fiscal_documents (idFiscalDocument)
       ON DELETE RESTRICT
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Pré-entradas e entradas fiscais em revisão ou confirmação.'`);
   await pool.query(
     "ALTER TABLE fiscal_entries MODIFY COLUMN statusFiscalEntry ENUM('draft', 'open', 'confirmed', 'cancelled') NOT NULL DEFAULT 'draft'"
   );
@@ -924,7 +925,7 @@ const initializeFiscalEntrySchema = async () => {
     CONSTRAINT fkFiscalEntryItemsDocumentItem
       FOREIGN KEY (idFiscalDocumentItem) REFERENCES fiscal_document_items (idFiscalDocumentItem)
       ON DELETE RESTRICT
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Itens vinculados às pré-entradas e ao estoque.'`);
   await pool.query(`CREATE TABLE IF NOT EXISTS product_fiscal_references (
     idProductFiscalReference BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     idProduct BIGINT UNSIGNED NOT NULL,
@@ -1140,7 +1141,7 @@ const initializeFiscalEntrySchema = async () => {
     CONSTRAINT fkFiscalEntryPaymentsEntry
       FOREIGN KEY (idFiscalEntry) REFERENCES fiscal_entries (idFiscalEntry)
       ON DELETE CASCADE
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Pagamentos associados às entradas fiscais.'`);
 };
 
 let fiscalEntrySchemaPromise = null;
@@ -1234,7 +1235,7 @@ const ensureProductCatalogSchema = () => {
     isActiveProductType TINYINT(1) NOT NULL DEFAULT 1,
     PRIMARY KEY (idProductType),
     UNIQUE KEY uqProductTypesDescription (descriptionProductType)
-  ) ENGINE=InnoDB`);
+  ) ENGINE=InnoDB COMMENT='Tipos fiscais e operacionais usados pelos produtos.'`);
   const [productTypeColumns] = await pool.query(
     `SELECT COLUMN_NAME
      FROM information_schema.COLUMNS
@@ -1258,7 +1259,7 @@ const ensureProductCatalogSchema = () => {
     isActiveUnit TINYINT(1) NOT NULL DEFAULT 1,
     PRIMARY KEY (idUnit),
     UNIQUE KEY uqUnitsCode (codeUnit)
-  ) ENGINE=InnoDB`);
+  ) ENGINE=InnoDB COMMENT='Unidades fiscais e culinárias usadas no estoque e na produção.'`);
   const [unitColumns] = await pool.query(
     `SELECT COLUMN_NAME
      FROM information_schema.COLUMNS
@@ -1369,7 +1370,7 @@ const ensureMarginSchema = () => {
       CONSTRAINT chkMarginGroupTarget CHECK (targetMarginPercentage >= 0 AND targetMarginPercentage < 100),
       CONSTRAINT fkMarginGroupOverrideGroup FOREIGN KEY (idGroup)
         REFERENCES \`groups\` (idGroup) ON DELETE CASCADE
-    ) ENGINE=InnoDB`);
+    ) ENGINE=InnoDB COMMENT='Limites e metas de margem específicos por grupo.'`);
     await pool.query(
       `ALTER TABLE margin_group_overrides
        MODIFY COLUMN minimumMarginPercentage DECIMAL(5,2) NOT NULL DEFAULT 0,
@@ -1417,7 +1418,7 @@ const ensureMarginSchema = () => {
       ),
       CONSTRAINT fkMarginProductMetricProduct FOREIGN KEY (idProduct)
         REFERENCES products (idProduct) ON DELETE CASCADE
-    ) ENGINE=InnoDB`);
+    ) ENGINE=InnoDB COMMENT='Snapshots calculados de custo, preço e margem dos produtos.'`);
 
     await pool.query(`CREATE TABLE IF NOT EXISTS margin_price_audits (
       idMarginPriceAudit BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -1435,7 +1436,7 @@ const ensureMarginSchema = () => {
         REFERENCES products (idProduct) ON DELETE RESTRICT,
       CONSTRAINT fkMarginPriceAuditOperator FOREIGN KEY (idOperator)
         REFERENCES operators (idOperator) ON DELETE RESTRICT
-    ) ENGINE=InnoDB`);
+    ) ENGINE=InnoDB COMMENT='Histórico de alterações realizadas pelos balizadores de margem.'`);
 
     await pool.query("DROP TRIGGER IF EXISTS trgMarginProductCostOrPrice");
     await pool.query("DROP TRIGGER IF EXISTS trgMarginGroupBalancerUpdate");
@@ -1568,7 +1569,7 @@ const ensureMarginSchemaLegacy = () => {
       PRIMARY KEY (idMarginGeneralSettings),
       CONSTRAINT chkMarginGeneralMinimum CHECK (minimumMarginPercentage IS NULL OR (minimumMarginPercentage >= 0 AND minimumMarginPercentage < 100)),
       CONSTRAINT chkMarginGeneralTarget CHECK (targetMarginPercentage IS NULL OR (targetMarginPercentage >= 0 AND targetMarginPercentage < 100))
-    ) ENGINE=InnoDB`);
+    ) ENGINE=InnoDB COMMENT='Configuração geral de margem mínima e alvo.'`);
 
     await pool.query(
       `INSERT INTO margin_general_settings (
@@ -1590,7 +1591,7 @@ const ensureMarginSchemaLegacy = () => {
       CONSTRAINT chkMarginGroupTarget CHECK (targetMarginPercentage IS NULL OR (targetMarginPercentage >= 0 AND targetMarginPercentage < 100)),
       CONSTRAINT fkMarginGroupOverrideGroup FOREIGN KEY (idGroup)
         REFERENCES \`groups\` (idGroup) ON DELETE CASCADE
-    ) ENGINE=InnoDB`);
+    ) ENGINE=InnoDB COMMENT='Limites e metas de margem específicos por grupo.'`);
 
     await pool.query(`CREATE TABLE IF NOT EXISTS margin_product_overrides (
       idProduct BIGINT UNSIGNED NOT NULL,
@@ -1602,7 +1603,7 @@ const ensureMarginSchemaLegacy = () => {
       CONSTRAINT chkMarginProductTarget CHECK (targetMarginPercentage IS NULL OR (targetMarginPercentage >= 0 AND targetMarginPercentage < 100)),
       CONSTRAINT fkMarginProductOverrideProduct FOREIGN KEY (idProduct)
         REFERENCES products (idProduct) ON DELETE CASCADE
-    ) ENGINE=InnoDB`);
+    ) ENGINE=InnoDB COMMENT='Balizadores específicos por produto para margem mínima e alvo.'`);
 
     await pool.query(`CREATE TABLE IF NOT EXISTS margin_product_metrics (
       idMarginProductMetric BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -1636,7 +1637,7 @@ const ensureMarginSchemaLegacy = () => {
       ),
       CONSTRAINT fkMarginProductMetricProduct FOREIGN KEY (idProduct)
         REFERENCES products (idProduct) ON DELETE CASCADE
-    ) ENGINE=InnoDB`);
+    ) ENGINE=InnoDB COMMENT='Snapshots calculados de custo, preço e margem dos produtos.'`);
 
     const [marginMetricColumns] = await pool.query("SHOW COLUMNS FROM margin_product_metrics");
     const marginMetricColumnNames = new Set(
@@ -1739,7 +1740,7 @@ const ensureMarginSchemaLegacy = () => {
         REFERENCES operators (idOperator) ON DELETE RESTRICT,
       CONSTRAINT chkMarginPriceAuditPreviousCmv CHECK (previousCmvPercentage IS NULL OR (previousCmvPercentage >= 0 AND previousCmvPercentage <= 100)),
       CONSTRAINT chkMarginPriceAuditNewCmv CHECK (newCmvPercentage IS NULL OR (newCmvPercentage >= 0 AND newCmvPercentage <= 100))
-    ) ENGINE=InnoDB`);
+    ) ENGINE=InnoDB COMMENT='Histórico de alterações realizadas pelos balizadores de margem.'`);
 
     await pool.query("DROP TRIGGER IF EXISTS trgMarginProductCostOrPrice");
     await pool.query("DROP TRIGGER IF EXISTS trgMarginGeneralBalancerUpdate");
@@ -2070,7 +2071,7 @@ const ensureInventorySchema = () => {
       CONSTRAINT fkInventoryMovementsOperator
         FOREIGN KEY (idOperator) REFERENCES operators (idOperator)
         ON DELETE SET NULL
-    ) ENGINE=InnoDB`);
+    ) ENGINE=InnoDB COMMENT='Movimentos de estoque, custo anterior e custo posterior.'`);
     await pool.query(`CREATE TABLE IF NOT EXISTS inventory_counts (
       idInventoryCount BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       idOperator BIGINT UNSIGNED NULL,
@@ -2081,7 +2082,7 @@ const ensureInventorySchema = () => {
       CONSTRAINT fkInventoryCountsOperator
         FOREIGN KEY (idOperator) REFERENCES operators (idOperator)
         ON DELETE SET NULL
-    ) ENGINE=InnoDB`);
+    ) ENGINE=InnoDB COMMENT='Contagens físicas de estoque abertas, concluídas ou canceladas.'`);
     await pool.query(`CREATE TABLE IF NOT EXISTS inventory_count_items (
       idInventoryCountItem BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       idInventoryCount BIGINT UNSIGNED NOT NULL,
@@ -2098,7 +2099,7 @@ const ensureInventorySchema = () => {
       CONSTRAINT fkInventoryCountItemsProduct
         FOREIGN KEY (idProduct) REFERENCES products (idProduct)
         ON DELETE RESTRICT
-    ) ENGINE=InnoDB`);
+    ) ENGINE=InnoDB COMMENT='Itens e quantidades informados nas contagens físicas.'`);
   })().catch((error) => {
     inventorySchemaPromise = null;
     throw error;
@@ -2116,7 +2117,7 @@ const ensureCulinarySchema = () => culinarySchemaPromise ??= (async () => {
     namePhysicalState VARCHAR(50) NOT NULL,
     descriptionPhysicalState VARCHAR(150) NULL,
     isActivePhysicalState TINYINT(1) NOT NULL DEFAULT 1
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Estados físicos usados por unidades culinárias e conversões.'`);
   await pool.query(`CREATE TABLE IF NOT EXISTS unit_conversions (
     idUnitConversion INT NOT NULL AUTO_INCREMENT,
     idFromUnitConversion BIGINT UNSIGNED NOT NULL,
@@ -2129,7 +2130,7 @@ const ensureCulinarySchema = () => culinarySchemaPromise ??= (async () => {
     FOREIGN KEY (idFromUnitConversion) REFERENCES units (idUnit) ON DELETE CASCADE,
     FOREIGN KEY (idToUnitConversion) REFERENCES units (idUnit) ON DELETE CASCADE,
     FOREIGN KEY (idPhysicalStateUnitConversion) REFERENCES physical_states (idPhysicalState) ON DELETE RESTRICT
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Conversões entre unidades culinárias por estado físico.'`);
 
   const units = [
     ["G", "Grama", "g", "weight", 1],
@@ -2269,7 +2270,7 @@ const prepareNavigationSchema = async () => {
     isActiveNavigationMenu TINYINT(1) NOT NULL DEFAULT 1,
     PRIMARY KEY (idNavigationMenu),
     UNIQUE KEY uqNavigationMenusKey (keyNavigationMenu)
-  ) ENGINE=InnoDB`);
+  ) ENGINE=InnoDB COMMENT='Menus principais configuráveis da interface.'`);
   await pool.query(`CREATE TABLE IF NOT EXISTS navigation_items (
     idNavigationItem BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     idNavigationMenu SMALLINT UNSIGNED NOT NULL,
@@ -2287,7 +2288,7 @@ const prepareNavigationSchema = async () => {
     KEY idxNavigationItemsMenuParentOrder (idNavigationMenu, idParentNavigationItem, orderNavigationItem),
     CONSTRAINT fkNavigationItemsMenu FOREIGN KEY (idNavigationMenu) REFERENCES navigation_menus (idNavigationMenu) ON DELETE CASCADE,
     CONSTRAINT fkNavigationItemsParent FOREIGN KEY (idParentNavigationItem) REFERENCES navigation_items (idNavigationItem) ON DELETE CASCADE
-  ) ENGINE=InnoDB`);
+  ) ENGINE=InnoDB COMMENT='Itens e atalhos configuráveis dentro dos menus.'`);
   const [navigationItemColumns] = await pool.query(
     `SELECT COLUMN_NAME
      FROM information_schema.COLUMNS
@@ -2988,7 +2989,7 @@ const ensurePaymentMethodSchema = async () => {
     isActivePaymentMethod TINYINT(1) NOT NULL DEFAULT 1,
     PRIMARY KEY (idPaymentMethod),
     UNIQUE KEY uqPaymentMethodsNamePaymentMethod (namePaymentMethod)
-  ) ENGINE=InnoDB`);
+  ) ENGINE=InnoDB COMMENT='Formas de pagamento disponíveis no PDV.'`);
   const [columns] = await pool.query(
     `SELECT COLUMN_NAME
      FROM information_schema.COLUMNS
@@ -3040,7 +3041,7 @@ const ensureSupplierSchema = async () => {
     PRIMARY KEY (idSupplier),
     UNIQUE KEY uqSuppliersDocumentType (documentSupplier, typeSupplier),
     KEY idxSuppliersTypeStatus (typeSupplier, isActiveSupplier)
-  ) ENGINE=InnoDB`);
+  ) ENGINE=InnoDB COMMENT='Cadastro de fornecedores da operação.'`);
 };
 
 const ensureOperatorCashSchema = async () => {
@@ -3056,7 +3057,7 @@ const ensureOperatorCashSchema = async () => {
     PRIMARY KEY (idOperator),
     UNIQUE KEY uqOperatorsUsername (usernameOperator),
     KEY idxOperatorsActiveRole (isActiveOperator, roleOperator)
-  ) ENGINE=InnoDB`);
+  ) ENGINE=InnoDB COMMENT='Operadores autenticados e seus perfis de acesso.'`);
   await pool.query(`CREATE TABLE IF NOT EXISTS operator_sessions (
     idOperatorSession BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     idOperator BIGINT UNSIGNED NOT NULL,
@@ -3069,14 +3070,14 @@ const ensureOperatorCashSchema = async () => {
     CONSTRAINT fkOperatorSessionsOperator
       FOREIGN KEY (idOperator) REFERENCES operators (idOperator)
       ON DELETE CASCADE
-  ) ENGINE=InnoDB`);
+  ) ENGINE=InnoDB COMMENT='Sessões autenticadas, expiração e atividade dos operadores.'`);
   await pool.query(`CREATE TABLE IF NOT EXISTS cash_registers (
     idCashRegister SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT,
     nameCashRegister VARCHAR(80) NOT NULL,
     isActiveCashRegister TINYINT(1) NOT NULL DEFAULT 1,
     PRIMARY KEY (idCashRegister),
     UNIQUE KEY uqCashRegistersName (nameCashRegister)
-  ) ENGINE=InnoDB`);
+  ) ENGINE=InnoDB COMMENT='Caixas físicos configurados na operação.'`);
   await pool.query(`CREATE TABLE IF NOT EXISTS cash_sessions (
     idCashSession BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     idCashRegister SMALLINT UNSIGNED NOT NULL,
@@ -3101,7 +3102,7 @@ const ensureOperatorCashSchema = async () => {
     CONSTRAINT fkCashSessionsClosedOperator
       FOREIGN KEY (idOperatorClosed) REFERENCES operators (idOperator)
       ON DELETE RESTRICT
-  ) ENGINE=InnoDB`);
+  ) ENGINE=InnoDB COMMENT='Aberturas, fechamentos e valores das sessões de caixa.'`);
   const [cashRegisterColumnRows] = await pool.query(
     `SELECT DATA_TYPE
      FROM information_schema.COLUMNS
@@ -3169,7 +3170,7 @@ const ensureOperatorCashSchema = async () => {
     CONSTRAINT fkCashMovementsOperator
       FOREIGN KEY (idOperator) REFERENCES operators (idOperator)
       ON DELETE RESTRICT
-  ) ENGINE=InnoDB`);
+  ) ENGINE=InnoDB COMMENT='Movimentos financeiros vinculados às sessões de caixa.'`);
 
   const [salesColumns] = await pool.query(
     `SELECT COLUMN_NAME FROM information_schema.COLUMNS
@@ -3252,6 +3253,7 @@ const ensureOperatorCashSchema = async () => {
 };
 
   return {
+    ensureTableDescriptions: () => ensureTableDescriptions(pool),
     ensureFiscalCatalogSchema,
     ensurePrinterSettingsSchema,
     ensureTechnicalLogSchema,

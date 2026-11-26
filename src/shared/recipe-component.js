@@ -68,7 +68,9 @@ export const resolveRecipeComponentConversionFactor = ({
       ? normalizeConversionFactorForProductPackage(factor, product)
       : null;
   }
-  if (String(productUnitId) === String(culinaryUnitId)) return 1;
+  if (String(productUnitId) === String(culinaryUnitId)) {
+    return normalizeConversionFactorForProductPackage(1, product);
+  }
   const matchingConversions = conversions.filter((conversion) =>
     String(conversion.idFromCulinaryUnitConversion) === String(culinaryUnitId)
     && String(conversion.idToCulinaryUnitConversion) === String(productUnitId)
@@ -99,7 +101,9 @@ export const formatRecipeComponentUnit = (unit) => {
   const description = String(unit.descriptionUnit || "").trim();
   const rawCode = String(unit.codeUnit || "").trim();
   const normalized = normalizeText(`${rawCode} ${description}`);
-  const canonicalCode = normalized.includes("quilograma") || normalized.includes(" kg ")
+  const canonicalCode = normalized.includes("mililitro") || normalized === "ml"
+    ? "ML"
+    : normalized.includes("quilograma") || normalized.includes(" kg ")
     ? "KG"
     : normalized.includes("unidade") || normalized === "un"
       ? "UN"

@@ -42,8 +42,49 @@ test("arredonda custo da Formação para cima em duas casas", () => {
   assert.equal(calculateFormationComponentCost({ quantity: "1", unitCost: "5.020" }), 5.02);
 });
 
+test("calcula custo proporcional ao conteúdo da embalagem do óleo", () => {
+  assert.equal(calculateFormationComponentCost({
+    quantity: "30",
+    unitCost: "6.29",
+    conversionFactor: "0.0011111111111111111"
+  }), 0.21);
+});
+
+test("Ficha Técnica resolve conversão culinária dos componentes de produto", async () => {
+  const [screenSource, serverSource] = await Promise.all([
+    readFile("src/catalog/product-formation-screen.js", "utf8"),
+    readFile("src/server/server.js", "utf8")
+  ]);
+  assert.match(screenSource, /resolveRecipeComponentConversionFactor/u);
+  assert.match(screenSource, /api\/unit-conversions/u);
+  assert.match(serverSource, /products\.packageQuantityProduct/u);
+  assert.match(serverSource, /components\.idCulinaryUnitRecipeComponent AS culinaryUnitId/u);
+  assert.match(serverSource, /components\.idCulinaryUnitConversionRecipeComponent AS conversionId/u);
+});
+
+test("Ficha Técnica mostra a unidade cadastrada no produto, não a conversão", async () => {
+  const source = await readFile("src/catalog/product-formation-screen.js", "utf8");
+  assert.match(
+    source,
+    /const componentUnit = \(component\) =>[\s\S]*?component\.componentCodeUnit[\s\S]*?component\.componentDescriptionUnit/u
+  );
+  assert.doesNotMatch(
+    source,
+    /const componentUnit = \(component\) =>[\s\S]*?fromCodeCulinaryUnit/u
+  );
+});
+
+test("Ficha Técnica somente leitura usa o custo persistido do componente", async () => {
+  const source = await readFile("src/catalog/product-formation-screen.js", "utf8");
+  assert.match(
+    source,
+    /const snapshotCost = Number\(component\.costFormationComponent\)[\s\S]*?if \(form\.readOnly && Number\.isFinite\(snapshotCost\)\) return snapshotCost/u
+  );
+});
+
 test("padroniza sigla e descrição da unidade final", () => {
   assert.equal(formatRecipeComponentUnit({ codeUnit: "Unidade", descriptionUnit: "Unidade" }), "UN - Unidade");
+  assert.equal(formatRecipeComponentUnit({ codeUnit: "ML", descriptionUnit: "Mililitro" }), "ML - Mililitro");
 });
 
 test("diferencia Receita e Composição no componente", () => {

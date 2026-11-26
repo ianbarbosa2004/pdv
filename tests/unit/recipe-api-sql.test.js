@@ -118,6 +118,66 @@ test("receita persiste detalhes do componente e exibe custo por unidade final", 
   assert.match(schemaSource, /ADD COLUMN detailsRecipeComponent VARCHAR\(255\) NULL/u);
 });
 
+test("Ficha Técnica oferece visualização de impressão e ação PDF", async () => {
+  const [screenSource, previewSource, exporterSource, stylesSource] = await Promise.all([
+    readFile("src/catalog/product-formation-screen.js", "utf8"),
+    readFile("src/ui/print-preview.js", "utf8"),
+    readFile("src/ui/pdf-exporter.js", "utf8"),
+    readFile("src/styles.css", "utf8")
+  ]);
+  assert.match(screenSource, /openFormationPrintPreview/u);
+  assert.match(screenSource, /data-print-formation/u);
+  assert.match(screenSource, /Ficha Técnica/u);
+  assert.match(previewSource, /print-preview-page/u);
+  assert.match(previewSource, /data-print-preview-pdf/u);
+  assert.match(previewSource, /savePageAsPdf/u);
+  assert.match(previewSource, /import\("\.\/pdf-exporter\.js"\)/u);
+  assert.match(exporterSource, /new jsPDF/u);
+  assert.match(exporterSource, /print-preview-document-meta strong/u);
+  assert.match(exporterSource, /table\.querySelectorAll\("thead th"\)/u);
+  assert.match(exporterSource, /pdf\.setFillColor\(237, 243, 246\)/u);
+  assert.match(exporterSource, /pdf\.setTextColor\(23, 32, 51\)/u);
+  assert.match(exporterSource, /const logoSize = 24\.34/u);
+  assert.match(exporterSource, /align: "center"/u);
+  assert.match(exporterSource, /getImageProperties/u);
+  assert.match(exporterSource, /aspectRatio/u);
+  assert.match(exporterSource, /print-preview-document-footer/u);
+  assert.match(exporterSource, /pdf\.output\("datauristring"\)/u);
+  assert.match(previewSource, /pdf-save-dialog/u);
+  assert.match(previewSource, /pdf-save-name/u);
+  assert.match(previewSource, /pdf-save-directory/u);
+  assert.match(previewSource, /data-pdf-save-directory readonly/u);
+  assert.match(previewSource, /data-pdf-save-browse/u);
+  assert.match(previewSource, /data-pdf-save-close/u);
+  assert.match(previewSource, /data-pdf-save-preview/u);
+  assert.match(previewSource, />Visualizar</u);
+  assert.match(previewSource, />Concluir</u);
+  assert.match(previewSource, /actions\.innerHTML/u);
+  assert.match(previewSource, /event\.key === "Escape"/u);
+  assert.match(previewSource, /PDF salvo com sucesso/u);
+  assert.match(screenSource, /Ficha-Tecnica/u);
+  assert.match(screenSource, /normalize\("NFD"\)/u);
+  assert.match(previewSource, /companyLogo/u);
+  assert.match(previewSource, /print-preview-document-meta/u);
+  assert.match(previewSource, /event\.key === "Escape"/u);
+  assert.match(stylesSource, /\.print-preview-document-meta strong\s*\{[^}]*font-size:\s*20px/isu);
+  assert.match(stylesSource, /\.print-preview-document-meta span\s*\{[^}]*font-size:\s*14px/isu);
+  assert.match(stylesSource, /\.print-preview-page\s*\{[^}]*width:\s*210mm/u);
+  assert.match(stylesSource, /@media print/u);
+});
+
+test("edição de componente recalcula custos na mesma renderização", async () => {
+  const [recipeSource, formationSource, stylesSource] = await Promise.all([
+    readFile("src/catalog/recipe-screen.js", "utf8"),
+    readFile("src/catalog/product-formation-screen.js", "utf8"),
+    readFile("src/styles.css", "utf8")
+  ]);
+  assert.match(recipeSource, /updatedComponent\.costRecipeComponent = componentCost\(updatedComponent\)/u);
+  assert.match(formationSource, /updatedComponent\.costFormationComponent = componentCost\(updatedComponent\)/u);
+  assert.match(stylesSource, /\.recipe-components-table th,\s*\n\.recipe-components-table td\s*\{[\s\S]*?vertical-align:\s*middle/u);
+  assert.match(stylesSource, /\.recipe-components-table th\.component-quantity-column\s*\{[\s\S]*?white-space:\s*normal[\s\S]*?overflow-wrap:\s*anywhere/u);
+});
+
 test("combobox de componentes é único, fecha fora e pesquisa pelo código", async () => {
   const source = await readFile("src/catalog/recipe-screen.js", "utf8");
   const combobox = await readFile("src/ui/combobox.js", "utf8");

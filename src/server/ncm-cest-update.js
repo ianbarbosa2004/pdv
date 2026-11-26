@@ -243,7 +243,7 @@ const ensureUpdateSchema = async (pool) => {
     updatedAtNcm TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (idNcm),
     UNIQUE KEY uqNcmCode (codeNcm)
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Catálogo persistido de códigos e descrições NCM.'`);
   await pool.query(`CREATE TABLE IF NOT EXISTS cest_catalog (
     idCest BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     codeCest CHAR(7) NOT NULL,
@@ -254,7 +254,7 @@ const ensureUpdateSchema = async (pool) => {
     updatedAtCest TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (idCest),
     UNIQUE KEY uqCestCode (codeCest)
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Catálogo persistido de códigos e descrições CEST.'`);
   await pool.query(`CREATE TABLE IF NOT EXISTS ncm_cest_relations (
     idNcmCestRelation BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     idNcm BIGINT UNSIGNED NOT NULL,
@@ -265,7 +265,7 @@ const ensureUpdateSchema = async (pool) => {
     KEY idxNcmCestRelationsCest (idCest),
     CONSTRAINT fkNcmCestRelationsNcm FOREIGN KEY (idNcm) REFERENCES ncm_catalog (idNcm) ON DELETE RESTRICT,
     CONSTRAINT fkNcmCestRelationsCest FOREIGN KEY (idCest) REFERENCES cest_catalog (idCest) ON DELETE RESTRICT
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Relações vigentes entre códigos NCM e CEST.'`);
   await pool.query("ALTER TABLE ncm_catalog MODIFY COLUMN descriptionNcm TEXT NOT NULL");
   await pool.query("ALTER TABLE cest_catalog MODIFY COLUMN descriptionCest TEXT NOT NULL");
   await pool.query(`CREATE TABLE IF NOT EXISTS ncm_cest_updates (
@@ -280,7 +280,7 @@ const ensureUpdateSchema = async (pool) => {
     startedAtNcmCestUpdate TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     completedAtNcmCestUpdate TIMESTAMP NULL,
     PRIMARY KEY (idNcmCestUpdate)
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Execuções e resultados das atualizações de catálogos fiscais.'`);
   for (const tableName of ["ncm_catalog", "cest_catalog", "ncm_cest_relations", "ncm_cest_updates"]) {
     await pool.query(
       `ALTER TABLE ${tableName} CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`

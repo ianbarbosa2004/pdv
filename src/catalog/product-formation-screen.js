@@ -10,8 +10,9 @@ import { calculateComponentCost } from "../shared/recipe.js";
 import { formatBrazilianDecimal, parseBrazilianDecimal, roundCostUpToCents } from "../shared/decimal.js";
 import { bindNumberMasks, formatMaskedNumber } from "../ui/number-mask.js";
 import { installComboboxDismissal, rerenderComboboxSelection } from "../ui/combobox.js";
-import { formatRecipeComponentLabel, formatRecipeComponentUnit } from "../shared/recipe-component.js";
+import { formatRecipeComponentLabel, formatRecipeComponentUnit, resolveRecipeComponentConversionFactor } from "../shared/recipe-component.js";
 import { formatProductOptionLabel } from "../shared/product.js";
+import { openPrintPreview } from "../ui/print-preview.js";
 
 const escapeHtml = (value) => String(value ?? "")
   .replaceAll("&", "&amp;")
@@ -47,11 +48,11 @@ export const formatFormationQuantity = (value) => {
   return Number.isFinite(numeric) ? numeric.toFixed(3) : "";
 };
 
-export const calculateFormationComponentCost = ({ quantity, unitCost }) =>
+export const calculateFormationComponentCost = ({ quantity, unitCost, conversionFactor = 1 }) =>
   calculateComponentCost({
     quantity: parseFormationNumber(quantity),
     unitCost: parseFormationNumber(unitCost),
-    conversionFactor: 1
+    conversionFactor: parseFormationNumber(conversionFactor)
   }) || 0;
 
 const formationNavigation = [
@@ -65,6 +66,7 @@ export function createProductFormationScreen({ onBack, onRecipes, ...menuHandler
   const root = document.createElement("main");
   let products = [];
   let componentProducts = [];
+  let conversions = [];
   let recipes = [];
   let selectedProduct = null;
   let form = { components: [], notesRecipe: "" };
@@ -81,6 +83,7 @@ export function createProductFormationScreen({ onBack, onRecipes, ...menuHandler
   let duplicateTargetOpen = false;
   let duplicating = false;
   const scheduleMessageClear = createFeedbackTimer();
+  let companyPrintData = null;
 
   const productById = (id) => products.find((product) => String(product.idProduct) === String(id));
   const componentProductById = (id) => componentProducts.find((product) => String(product.idProduct) === String(id));
@@ -95,15 +98,18 @@ export function createProductFormationScreen({ onBack, onRecipes, ...menuHandler
     }
     return component.componentProductName || componentProductById(component.productId)?.nameProduct || "Produto";
   };
-  const componentUnit = (component) => component.targetType === "recipe"
-    ? formatRecipeComponentUnit({
-      codeUnit: component.componentRecipeUnitCode,
-      descriptionUnit: component.componentRecipeUnitDescription
-    }) || "—"
-    : formatRecipeComponentUnit({
+  const componentUnit = (component) => {
+    if (component.targetType === "recipe") {
+      return formatRecipeComponentUnit({
+        codeUnit: component.componentRecipeUnitCode,
+        descriptionUnit: component.componentRecipeUnitDescription
+      }) || "—";
+    }
+    return formatRecipeComponentUnit({
       codeUnit: component.componentCodeUnit,
       descriptionUnit: component.componentDescriptionUnit
     }) || "—";
+  };
   const componentCost = (component) => {
     if (component.targetType === "recipe") {
       const snapshotCost = Number(component.costFormationComponent);
@@ -119,20 +125,103 @@ export function createProductFormationScreen({ onBack, onRecipes, ...menuHandler
         : 0;
     }
     const product = componentProductById(component.productId);
+    const snapshotCost = Number(component.costFormationComponent);
+    if (form.readOnly && Number.isFinite(snapshotCost)) return snapshotCost;
+    const conversionFactor = resolveRecipeComponentConversionFactor({
+      component,
+      product,
+      conversions
+    });
+    if (!Number.isFinite(conversionFactor) || conversionFactor <= 0) return 0;
     return calculateFormationComponentCost({
       quantity: component.quantity,
-      unitCost: product?.costPriceProduct
+      unitCost: product?.costPriceProduct,
+      conversionFactor
     });
   };
   const totalComponentCost = () => (
     roundCostUpToCents(form.components.reduce((total, component) => total + componentCost(component), 0)) || 0
   );
+  const printFileName = () => {
+    const productName = String(selectedProduct?.nameProduct || "Produto")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 80);
+    const productCode = String(selectedProduct?.pdvCodeProduct || selectedProduct?.idProduct || "")
+      .replace(/[^a-zA-Z0-9_-]+/g, "-")
+      .replace(/^-|-$/g, "");
+    return ["Ficha-Tecnica", productName || "Produto", productCode].filter(Boolean).join("-");
+  };
+  const openFormationPrintPreview = () => {
+    if (!selectedProduct) return;
+    const components = form.components.map((component, index) => `
+      <tr>
+        <td>${String(index + 1).padStart(2, "0")}</td>
+        <td>${escapeHtml(componentLabel(component))}</td>
+        <td>${escapeHtml(formatBrazilianDecimal(component.quantity, 3))}</td>
+        <td>${escapeHtml(componentUnit(component))}</td>
+        <td>${escapeHtml(Number(componentCost(component)).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}</td>
+      </tr>
+    `).join("");
+    openPrintPreview({
+      title: "Visualização de impressão",
+      fileName: printFileName(),
+      companyName: companyPrintData?.tradeNameCompany
+        || companyPrintData?.corporateNameCompany
+        || "PDV Zanzibar",
+      companyDocument: companyPrintData?.documentCompany || "",
+      companyAddress: [
+        companyPrintData?.addressCompany,
+        companyPrintData?.addressNumberCompany,
+        companyPrintData?.neighborhoodCompany,
+        companyPrintData?.cityCompany,
+        companyPrintData?.stateCompany
+      ].filter(Boolean).join(" - "),
+      companyLogo: companyPrintData?.logoDataCompany || "",
+      documentTitle: "Ficha Técnica",
+      documentFields: [
+        { label: "Produto", value: selectedProduct.nameProduct },
+        { label: "#PDV", value: selectedProduct.pdvCodeProduct || selectedProduct.idProduct }
+      ],
+      bodyHtml: `
+        <section class="print-preview-section">
+          <h2>Componentes</h2>
+          <table class="print-preview-table">
+            <thead><tr><th>#</th><th>Componente</th><th>Quantidade</th><th>Unidade</th><th>Custo</th></tr></thead>
+            <tbody>${components || '<tr><td colspan="5">Nenhum componente informado.</td></tr>'}</tbody>
+          </table>
+        </section>
+        <section class="print-preview-total">
+          <span>Custo total estimado</span>
+          <strong>R$ ${escapeHtml(totalComponentCost().toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}</strong>
+        </section>
+      `,
+      footerText: "Documento gerado pelo PDV Zanzibar"
+    });
+  };
   const load = async ({ renderState = true } = {}) => {
     loading = true;
     if (renderState) render();
     try {
-      const response = await apiFetch(`${getApiUrl()}/api/product-formations`);
-      const payload = await response.json();
+      const [formationResponse, companyResponse, conversionResponse] = await Promise.all([
+        apiFetch(`${getApiUrl()}/api/product-formations`),
+        apiFetch(`${getApiUrl()}/api/company`),
+        apiFetch(`${getApiUrl()}/api/unit-conversions`)
+      ]);
+      const [payload, companyPayload, conversionPayload] = await Promise.all([
+        formationResponse.json(),
+        companyResponse.json(),
+        conversionResponse.json()
+      ]);
+      conversions = conversionResponse.ok && Array.isArray(conversionPayload.conversions)
+        ? conversionPayload.conversions
+        : [];
+      if (companyResponse.ok && companyPayload.company) {
+        companyPrintData = companyPayload.company;
+      }
+      const response = formationResponse;
       if (!response.ok) throw new Error(payload.error || "Não foi possível carregar as Fichas Técnicas.");
       products = Array.isArray(payload.products) ? payload.products : [];
       componentProducts = Array.isArray(payload.componentProducts) ? payload.componentProducts : [];
@@ -293,7 +382,7 @@ export function createProductFormationScreen({ onBack, onRecipes, ...menuHandler
       render();
       return;
     }
-    form.components[index] = {
+    const updatedComponent = {
       ...form.components[index],
       targetType,
       productId: product ? Number(targetId) : null,
@@ -307,6 +396,8 @@ export function createProductFormationScreen({ onBack, onRecipes, ...menuHandler
       details: componentDraft.details,
       quantity: componentDraft.quantity
     };
+    updatedComponent.costFormationComponent = componentCost(updatedComponent);
+    form.components[index] = updatedComponent;
     componentDraft = { target: "", details: "", quantity: "1", searchTerm: "", open: false };
     error = "";
     render();
@@ -435,7 +526,9 @@ export function createProductFormationScreen({ onBack, onRecipes, ...menuHandler
           <div class="recipe-component-list formation-component-list">${renderComponents(readOnly)}</div>
         </section>
       </div>
-      <div class="classic-form-actions">${initial ? "" : readOnly ? '<button class="classic-button primary" type="button" data-edit-formation>Editar</button>' : `<button class="classic-button primary" type="submit" ${saving ? "disabled" : ""}>Salvar</button><button class="classic-button" type="button" data-cancel-formation>Cancelar</button>`}</div>
+      <div class="classic-form-actions">${initial ? "" : readOnly
+        ? `<button class="classic-button" type="button" data-print-formation>Imprimir</button><button class="classic-button primary" type="button" data-edit-formation>Editar</button>`
+        : `<button class="classic-button" type="button" data-print-formation>Imprimir</button><button class="classic-button primary" type="submit" ${saving ? "disabled" : ""}>Salvar</button><button class="classic-button" type="button" data-cancel-formation>Cancelar</button>`}</div>
     </form>`;
   };
 
@@ -576,6 +669,7 @@ export function createProductFormationScreen({ onBack, onRecipes, ...menuHandler
       render();
     });
     root.querySelector("[data-cancel-formation]")?.addEventListener("click", () => openProduct(selectedProduct));
+    root.querySelector("[data-print-formation]")?.addEventListener("click", openFormationPrintPreview);
     root.querySelectorAll("[data-component-toggle]").forEach((toggle) => toggle.addEventListener("click", () => {
       componentDraft.open = !componentDraft.open;
       render();

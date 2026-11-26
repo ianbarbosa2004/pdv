@@ -3935,6 +3935,284 @@ h2 {
 }
 
 .receipt-library-panel,
+.print-preview-backdrop {
+  position: fixed;
+  z-index: 3000;
+  inset: 0;
+  display: grid;
+  place-items: stretch;
+  background: rgb(30 48 74 / 72%);
+}
+
+.print-preview-shell {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  grid-template-rows: 64px minmax(0, 1fr);
+  background: #edf1f4;
+}
+
+.print-preview-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid #cbd4de;
+  background: #fff;
+}
+
+.print-preview-toolbar > strong {
+  color: #172033;
+  font-size: 1rem;
+}
+
+.print-preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.print-preview-button,
+.print-preview-close {
+  height: 40px;
+  border: 1px solid #b8c4d0;
+  border-radius: 4px;
+  background: #fff;
+  color: #172033;
+  cursor: pointer;
+}
+
+.print-preview-button {
+  padding: 0 14px;
+  font-weight: 700;
+}
+
+.print-preview-button.primary {
+  border-color: #08799a;
+  background: #08799a;
+  color: #fff;
+}
+
+.print-preview-close {
+  width: 40px;
+  padding: 0;
+}
+
+.print-preview-close svg {
+  width: 20px;
+  height: 20px;
+}
+
+.pdf-save-backdrop {
+  position: absolute;
+  z-index: 3010;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(30 48 74 / 72%);
+}
+
+.pdf-save-dialog {
+  width: min(520px, calc(100% - 32px));
+  border: 1px solid #b8c4d0;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 16px 40px rgb(23 32 51 / 28%);
+}
+
+.pdf-save-header {
+  height: auto;
+  padding: 12px 16px;
+}
+
+.pdf-save-body {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.pdf-save-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.pdf-save-directory-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.pdf-save-directory-row input {
+  width: 100%;
+  box-sizing: border-box;
+  background: #f1f4f7;
+}
+
+.pdf-save-feedback {
+  min-height: 20px;
+  margin: 0;
+  color: #536274;
+  font-size: 0.875rem;
+}
+
+.pdf-save-feedback.success {
+  color: #18794e;
+  font-weight: 700;
+  word-break: break-all;
+}
+
+.pdf-save-feedback.error {
+  color: #b42318;
+  font-weight: 700;
+}
+
+.print-preview-scroll {
+  overflow: auto;
+  padding: 24px;
+}
+
+.print-preview-page {
+  width: 210mm;
+  min-height: 297mm;
+  margin: 0 auto;
+  padding: 18mm 16mm;
+  box-sizing: border-box;
+  border: 1px solid #d6dee7;
+  background: #fff;
+  box-shadow: 0 12px 32px rgb(23 32 51 / 18%);
+  color: #172033;
+  font-family: Arial, sans-serif;
+}
+
+.print-preview-document-header {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid #08799a;
+}
+
+.print-preview-company-logo {
+  width: 92px;
+  height: 92px;
+  object-fit: contain;
+}
+
+.print-preview-company-info,
+.print-preview-document-meta {
+  display: grid;
+  gap: 4px;
+}
+
+.print-preview-company-info strong,
+.print-preview-document-meta strong {
+  color: #172033;
+  font-size: 20px;
+  line-height: 1.15;
+}
+
+.print-preview-company-info span,
+.print-preview-document-meta span {
+  color: #536274;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.print-preview-document-meta {
+  align-content: center;
+  min-height: 92px;
+  padding: 10px 12px;
+  border-left: 3px solid #08799a;
+  background: #edf4f6;
+}
+
+.print-preview-document-body {
+  padding-top: 16px;
+}
+
+.print-preview-section h2 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  text-transform: uppercase;
+}
+
+.print-preview-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.print-preview-table th,
+.print-preview-table td {
+  padding: 7px 6px;
+  border: 1px solid #cbd5df;
+  text-align: left;
+}
+
+.print-preview-table th {
+  background: #edf3f6;
+  font-weight: 700;
+}
+
+.print-preview-total {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 10px;
+  border-top: 1px solid #cbd5df;
+  font-size: 12px;
+}
+
+.print-preview-total strong {
+  font-size: 16px;
+}
+
+.print-preview-document-footer {
+  margin-top: 24px;
+  padding-top: 8px;
+  border-top: 1px solid #dce3e9;
+  color: #647284;
+  font-size: 9px;
+  text-align: right;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  .print-preview-backdrop,
+  .print-preview-backdrop * {
+    visibility: visible;
+  }
+
+  .print-preview-backdrop {
+    position: static;
+    background: #fff;
+  }
+
+  .print-preview-toolbar {
+    display: none;
+  }
+
+  .print-preview-scroll {
+    overflow: visible;
+    padding: 0;
+  }
+
+  .print-preview-page {
+    width: auto;
+    min-height: auto;
+    margin: 0;
+    border: 0;
+    box-shadow: none;
+  }
+}
+
 .receipt-layout-panel,
 .receipt-format-panel,
 .receipt-builder-preview,
@@ -4549,6 +4827,8 @@ h2 {
 
 .recipe-components-table th.component-quantity-column {
   text-align: center;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .recipe-components-table td.component-quantity-column {
@@ -4581,6 +4861,8 @@ h2 {
 .recipe-order-actions {
   display: flex;
   width: 100%;
+  height: 100%;
+  align-items: center;
   box-sizing: border-box;
   justify-content: center;
   gap: 0;

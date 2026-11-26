@@ -19,15 +19,32 @@ const finiteNonNegative = (value, label) => {
 export const calculateFiscalItemImpact = ({
   sourceQuantity,
   sourceTotal,
-  conversionFactor = 1
+  conversionFactor = 1,
+  packageQuantity
 }) => {
   const quantity = finiteNonNegative(sourceQuantity, "Quantidade fiscal")
     * finiteNonNegative(conversionFactor, "Fator de conversão");
   if (quantity <= 0) throw new Error("A quantidade convertida deve ser positiva.");
   const total = finiteNonNegative(sourceTotal, "Total fiscal");
+  const stockUnitCost = total / quantity;
+  const normalizedPackageQuantity = packageQuantity == null
+    ? null
+    : finiteNonNegative(packageQuantity, "Conteúdo por unidade");
+  const unitCost = normalizedPackageQuantity && normalizedPackageQuantity > 0
+    ? Math.round((stockUnitCost * normalizedPackageQuantity + Number.EPSILON) * 100) / 100
+    : stockUnitCost;
+  if (normalizedPackageQuantity && normalizedPackageQuantity > 0) {
+    return {
+      quantity,
+      unitCost,
+      total,
+      stockUnitCost,
+      packageQuantity: normalizedPackageQuantity
+    };
+  }
   return {
     quantity,
-    unitCost: total / quantity,
+    unitCost,
     total
   };
 };

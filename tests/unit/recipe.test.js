@@ -100,6 +100,7 @@ test("filtra unidade culinária e conversão conforme o componente", () => {
     10
   );
   assert.equal(formatRecipeComponentUnit({ codeUnit: "KG", descriptionUnit: "QUILOGRAMA" }), "KG - QUILOGRAMA");
+  assert.equal(formatRecipeComponentUnit({ codeUnit: "ML", descriptionUnit: "Mililitro" }), "ML - Mililitro");
   assert.equal(
     formatCulinaryUnit({ nameCulinaryUnit: "Colher de sopa", baseUnitCulinaryUnit: "ml" }),
     "Colher de sopa (ml)"
@@ -218,6 +219,29 @@ test("calcula o custo proporcional ao conteúdo da embalagem do produto", () => 
   assert.equal(
     calculateComponentCost({ quantity: 1, unitCost: 30, conversionFactor }),
     0.4
+  );
+});
+
+test("mesma unidade-base divide o custo pelo conteúdo da embalagem", () => {
+  const product = {
+    idUnitProduct: 8,
+    packageQuantityProduct: 900
+  };
+  assert.equal(
+    resolveRecipeComponentConversionFactor({
+      component: { culinaryUnitId: 8, conversionId: "" },
+      product,
+      conversions: []
+    }),
+    1 / 900
+  );
+  assert.equal(
+    calculateComponentCost({
+      quantity: 30,
+      unitCost: 6.29,
+      conversionFactor: 1 / 900
+    }),
+    0.21
   );
 });
 

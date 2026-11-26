@@ -605,6 +605,7 @@ estratégia de recuperação e autorização explícita.
 Consulte:
 
 - [Convenções de desenvolvimento](docs/DEVELOPMENT.md)
+- [Descrição das tabelas do banco](docs/DATABASE-SCHEMA.md)
 - [Histórico completo do projeto](docs/PROJECT-HISTORY.md)
 - [Ferramentas e assistência de IA](docs/AI-TOOLS.md)
 - [Automações](docs/AUTOMATIONS.md)

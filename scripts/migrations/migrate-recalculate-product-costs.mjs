@@ -46,6 +46,7 @@ const main = async () => {
     const [productRows] = await connection.query(
       `SELECT p.idProduct, p.costPolicyProduct, p.costPriceProduct,
               p.stockQuantityProduct, p.priceProduct,
+              p.packageQuantityProduct,
               types.descriptionProductType
        FROM products p
        LEFT JOIN product_types types ON types.idProductType = p.idProductTypeProduct
@@ -84,7 +85,8 @@ const main = async () => {
         const impact = calculateFiscalItemImpact({
           sourceQuantity: entry.quantityFiscalDocumentItem,
           sourceTotal: entry.totalFiscalDocumentItem,
-          conversionFactor: entry.conversionFactor
+          conversionFactor: entry.conversionFactor,
+          packageQuantity: product.packageQuantityProduct
         });
         return { quantity: impact.quantity, unitCost: impact.unitCost };
       });

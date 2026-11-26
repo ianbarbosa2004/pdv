@@ -171,6 +171,99 @@ fn open_external_url(url: String) -> Result<(), String> {
     }
 }
 
+fn sanitize_pdf_file_name(file_name: &str) -> Result<String, String> {
+    let base_name = file_name.trim();
+    if base_name.is_empty() {
+        return Err("Informe o nome do arquivo PDF.".to_string());
+    }
+    let cleaned = base_name
+        .chars()
+        .map(|character| match character {
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '-',
+            other => other,
+        })
+        .collect::<String>();
+    let cleaned = cleaned.trim_end_matches('.').trim().to_string();
+    if cleaned.is_empty() {
+        return Err("Informe um nome de arquivo válido.".to_string());
+    }
+    Ok(if cleaned.to_ascii_lowercase().ends_with(".pdf") {
+        cleaned
+    } else {
+        format!("{cleaned}.pdf")
+    })
+}
+
+#[tauri::command]
+fn get_pdf_save_directory() -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(user_profile) = std::env::var_os("USERPROFILE") {
+            let directory = std::path::PathBuf::from(user_profile)
+                .join("Documents")
+                .join("PDV Zanzibar")
+                .join("Fichas Tecnicas");
+            std::fs::create_dir_all(&directory)
+                .map_err(|error| format!("Não foi possível preparar a pasta padrão: {error}"))?;
+            return Ok(directory.to_string_lossy().to_string());
+        }
+        return Err("Não foi possível localizar a pasta Documentos do usuário.".to_string());
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("A pasta padrão de PDF está disponível apenas no Windows.".to_string())
+    }
+}
+
+#[tauri::command]
+fn save_pdf_file(file_name: String, directory: String, base64: String) -> Result<String, String> {
+    let file_name = sanitize_pdf_file_name(&file_name)?;
+    let directory = directory.trim();
+    if directory.is_empty() {
+        return Err("Informe a pasta de destino do PDF.".to_string());
+    }
+    let directory_path = std::path::PathBuf::from(directory);
+    std::fs::create_dir_all(&directory_path)
+        .map_err(|error| format!("Não foi possível acessar a pasta de destino: {error}"))?;
+    let bytes = STANDARD
+        .decode(base64.as_bytes())
+        .map_err(|_| "Os dados do PDF não são válidos.".to_string())?;
+    if bytes.is_empty() {
+        return Err("Não foi possível gerar o conteúdo do PDF.".to_string());
+    }
+    let file_path = directory_path.join(file_name);
+    std::fs::write(&file_path, bytes)
+        .map_err(|error| format!("Não foi possível salvar o PDF: {error}"))?;
+    Ok(file_path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn open_pdf_file(file_path: String) -> Result<(), String> {
+    let path = std::path::PathBuf::from(file_path.trim());
+    if path.extension().and_then(|extension| extension.to_str()).is_none_or(|extension| !extension.eq_ignore_ascii_case("pdf")) {
+        return Err("O arquivo selecionado não é um PDF.".to_string());
+    }
+    if !path.is_file() {
+        return Err("O arquivo PDF não existe no caminho informado.".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let path_text = path.to_string_lossy().to_string();
+        std::process::Command::new("rundll32.exe")
+            .args(["url.dll,FileProtocolHandler", path_text.as_str()])
+            .spawn()
+            .map_err(|error| format!("Não foi possível abrir o PDF: {error}"))?;
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("A visualização de PDF está disponível apenas no Windows.".to_string())
+    }
+}
+
 const FISCAL_WEBVIEW_LABEL: &str = "fiscal-consultation";
 const FISCAL_CONSULTATION_URL: &str =
     "https://portalsped.fazenda.mg.gov.br/portalnfce/sistema/consultaarg.xhtml";
@@ -948,6 +1041,7 @@ fn send_to_windows_driver(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_log::Builder::new()
                 .level(tauri_plugin_log::log::LevelFilter::Info)
@@ -960,6 +1054,9 @@ pub fn run() {
             list_installed_printers,
             update_window_icon,
             open_external_url,
+            get_pdf_save_directory,
+            save_pdf_file,
+            open_pdf_file,
             get_selected_printer,
             save_selected_printer,
             load_offline_config,
@@ -976,7 +1073,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::first_writable_directory;
+    use super::{first_writable_directory, sanitize_pdf_file_name};
 
     #[test]
     fn selects_a_directory_that_accepts_a_write_probe() {
@@ -994,5 +1091,17 @@ mod tests {
             std::process::id()
         )).exists());
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn sanitizes_pdf_file_name_and_preserves_pdf_extension() {
+        assert_eq!(
+            sanitize_pdf_file_name("Ficha Técnica - Batata Frita.pdf").ok(),
+            Some("Ficha Técnica - Batata Frita.pdf".to_string())
+        );
+        assert_eq!(
+            sanitize_pdf_file_name("Batata/Frita").ok(),
+            Some("Batata-Frita.pdf".to_string())
+        );
     }
 }

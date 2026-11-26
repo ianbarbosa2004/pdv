@@ -1,6 +1,6 @@
 [package]
 name = "pdv"
-version = "0.22.0"
+version = "0.22.1"
 description = "Sistema de ponto de venda offline"
 authors = ["ianbarbosa2004"]
 license = ""
@@ -26,3 +26,4 @@ log = "0.4"
 tauri = { version = "2.12.5", features = [] }
 tauri-plugin-log = "2"
 windows = { version = "0.61", features = ["Win32_Graphics_Gdi", "Win32_Graphics_Printing", "Win32_Security_Cryptography", "Win32_Storage_Xps"] }
+tauri-plugin-dialog = "2.8.4"

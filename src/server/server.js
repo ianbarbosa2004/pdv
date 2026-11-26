@@ -120,6 +120,7 @@ if (!config.database.password) {
 }
 const pool = createPool(config);
 const {
+  ensureTableDescriptions,
   ensureFiscalCatalogSchema,
   ensurePrinterSettingsSchema,
   ensureGeneralSettingsSchema,
@@ -3183,7 +3184,8 @@ const server = createServer(async (request, response) => {
       );
       const [componentProducts] = await pool.query(
         `SELECT products.idProduct, products.pdvCodeProduct, products.nameProduct,
-                products.skuProduct, products.idUnitProduct, products.costPriceProduct,
+                products.skuProduct, products.idUnitProduct, products.idPhysicalStateProduct,
+                products.packageQuantityProduct, products.costPriceProduct,
                 units.codeUnit, units.descriptionUnit
          FROM products
          LEFT JOIN units ON units.idUnit = products.idUnitProduct
@@ -3208,6 +3210,8 @@ const server = createServer(async (request, response) => {
                   components.idComponentRecipe AS recipeId,
                   components.detailsRecipeComponent AS details,
                   components.quantityRecipeComponent AS quantity,
+                  components.idCulinaryUnitRecipeComponent AS culinaryUnitId,
+                  components.idCulinaryUnitConversionRecipeComponent AS conversionId,
                   components.costFormationComponent,
                   products.nameProduct AS componentProductName,
                   units.codeUnit AS componentCodeUnit,
@@ -3982,7 +3986,9 @@ const server = createServer(async (request, response) => {
                 conv.factorUnitConversion,
                 conv.notesUnitConversion AS notesCulinaryUnitConversion,
                 conv.notesUnitConversion,
+                source.codeUnit AS fromCodeCulinaryUnit,
                 source.descriptionUnit AS fromNameCulinaryUnit,
+                target.codeUnit AS toCodeCulinaryUnit,
                 target.descriptionUnit AS toNameCulinaryUnit,
                 state.namePhysicalState
          FROM unit_conversions conv
@@ -5203,7 +5209,8 @@ const server = createServer(async (request, response) => {
                 i.quantityFiscalDocumentItem, i.totalFiscalDocumentItem,
                 p.idProduct, p.nameProduct, p.costPriceProduct,
                 p.costPolicyProduct, p.stockQuantityProduct,
-                p.controlsStockProduct, pfr.conversionFactor
+                p.controlsStockProduct, p.packageQuantityProduct,
+                pfr.conversionFactor
          FROM fiscal_entry_items ei
          JOIN fiscal_document_items i
            ON i.idFiscalDocumentItem = ei.idFiscalDocumentItem
@@ -5225,7 +5232,8 @@ const server = createServer(async (request, response) => {
         const fiscalImpact = calculateFiscalItemImpact({
           sourceQuantity: item.quantityFiscalDocumentItem,
           sourceTotal: item.totalFiscalDocumentItem,
-          conversionFactor: item.conversionFactor
+          conversionFactor: item.conversionFactor,
+          packageQuantity: item.packageQuantityProduct
         });
         const existing = groupedImpacts.get(item.idProduct);
         const entry = {
@@ -5326,7 +5334,8 @@ const server = createServer(async (request, response) => {
                   i.quantityFiscalDocumentItem, i.totalFiscalDocumentItem,
                   pfr.idProduct, pfr.conversionFactor,
                   p.costPriceProduct, p.costPolicyProduct,
-                  p.stockQuantityProduct, p.controlsStockProduct
+                  p.stockQuantityProduct, p.controlsStockProduct,
+                  p.packageQuantityProduct
            FROM fiscal_entry_items ei
            JOIN fiscal_document_items i
              ON i.idFiscalDocumentItem = ei.idFiscalDocumentItem
@@ -5358,7 +5367,8 @@ const server = createServer(async (request, response) => {
         const impact = calculateFiscalItemImpact({
           sourceQuantity: row.quantityFiscalDocumentItem,
           sourceTotal: row.totalFiscalDocumentItem,
-          conversionFactor: row.conversionFactor
+          conversionFactor: row.conversionFactor,
+          packageQuantity: row.packageQuantityProduct
         });
         const existing = groupedUpdates.get(row.idProduct);
         if (existing) {
@@ -7413,7 +7423,8 @@ const server = createServer(async (request, response) => {
         const impact = calculateFiscalItemImpact({
           sourceQuantity: entry.quantityFiscalDocumentItem,
           sourceTotal: entry.totalFiscalDocumentItem,
-          conversionFactor: entry.conversionFactor
+          conversionFactor: entry.conversionFactor,
+          packageQuantity: packageQuantityProduct
         });
         return {
           quantity: impact.quantity,
@@ -8036,6 +8047,7 @@ server.listen(config.apiPort, config.apiHost, () => {
   ])
     .then(() => ensureMarginSchema())
     .then(() => ensureMonetaryScaleSchema())
+    .then(() => ensureTableDescriptions())
     .then(() => technicalLogs.record({
       source: "api",
       level: "info",
