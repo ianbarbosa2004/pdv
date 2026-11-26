@@ -4,8 +4,29 @@ Este documento registra as mudanças funcionais e técnicas agrupadas por versã
 O número da versão só deve ser incrementado após pedido explícito. Builds e
 releases não alteram a versão automaticamente.
 
+## 0.22.1 - 2026-11-26
+
+- Corrigido o custo da Ficha Técnica para componentes de Produto, aplicando a
+  conversão culinária e o conteúdo da embalagem no recálculo persistido.
+- A visualização e o PDF da Ficha Técnica passaram a usar a unidade cadastrada
+  no Produto e a apresentação padronizada `ML - Mililitro`.
+- Corrigida a geração de PDF com cabeçalho, tabela, logotipo proporcional,
+  nome contendo o Produto, feedback, seleção de pasta e ações `Visualizar`/
+  `Concluir`.
+- Todas as tabelas conhecidas passaram a possuir descrição em português no
+  MariaDB e no catálogo `docs/DATABASE-SCHEMA.md`; a API aplica os comentários
+  após preparar o schema e novas tabelas devem criá-los no DDL.
+- Alterações em `src/server/` exigem republicar a API atualizada e reiniciar o
+  serviço; alterações no frontend exigem novo bundle/distribuição.
+
 ## 0.22.0 - 2026-11-25
 
+- Corrigido o cálculo de custo fiscal para unidades comerciais convertidas:
+  entradas em caixas usam o conteúdo por unidade do Produto; por exemplo, uma
+  caixa de óleo com 20 embalagens de 900 ml divide o total pelo fator 18000 ML
+  e mantém o custo comercial da embalagem em R$ 6,29.
+- Atualizado o script de recálculo de custos para considerar
+  `packageQuantityProduct` e evitar custos de Produto em unidade-base decimal.
 - Refinada a Frente de Caixa no modo Balcão: Venda Atual passou a ficar à
   esquerda, Produtos à direita, com quatro cards por linha, busca de 500 px,
   atalho F2 e filtros sem rolagem horizontal.

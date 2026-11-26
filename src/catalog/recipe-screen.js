@@ -847,7 +847,7 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
         render();
         return;
       }
-      form.components[editingComponentIndex] = {
+      const updatedComponent = {
         targetType,
         ...(targetType === "recipe" ? { recipeId: targetId } : { productId: targetId }),
         culinaryUnitId: targetType === "product"
@@ -872,6 +872,8 @@ export function createRecipeScreen({ onBack, onRecipes, ...menuHandlers }) {
         quantity: normalizedQuantity,
         lossPercent: normalizedLoss
       };
+      updatedComponent.costRecipeComponent = componentCost(updatedComponent);
+      form.components[editingComponentIndex] = updatedComponent;
       editingComponentIndex = null;
       componentDraft = {
         searchTerm: "",

@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS classes (
   PRIMARY KEY (idClass),
   UNIQUE KEY uqClassesDescriptionClass (descriptionClass),
   KEY idxClassesFiscalOperation (idFiscalOperationClass)
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Categorias fiscais e comerciais usadas para organizar grupos de produtos.';
 
 CREATE TABLE IF NOT EXISTS technical_logs (
   idTechnicalLog BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS technical_logs (
   PRIMARY KEY (idTechnicalLog),
   KEY idxTechnicalLogsOccurred (occurredAtTechnicalLog),
   KEY idxTechnicalLogsSourceLevel (sourceTechnicalLog, levelTechnicalLog, occurredAtTechnicalLog)
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Eventos técnicos da API, frontend, banco, serviços, impressoras e sistema.';
 
 CREATE TABLE IF NOT EXISTS dining_tables (
   idDiningTable BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS dining_tables (
   PRIMARY KEY (idDiningTable),
   UNIQUE KEY uqDiningTablesVisualIdentifier (visualIdentifierDiningTable),
   KEY idxDiningTablesStatus (statusDiningTable, sortPositionDiningTable)
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Mesas operacionais, estado atual, ocupantes e consumo.';
 
 CREATE TABLE IF NOT EXISTS `groups` (
   idGroup BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS `groups` (
   CONSTRAINT fkGroupsIdClass
     FOREIGN KEY (idClass) REFERENCES classes (idClass)
     ON DELETE RESTRICT
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Grupos comerciais vinculados a classes e exibidos no PDV.';
 
 CREATE TABLE IF NOT EXISTS physical_states (
   idPhysicalState INT AUTO_INCREMENT PRIMARY KEY,
@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS physical_states (
   namePhysicalState VARCHAR(50) NOT NULL,
   descriptionPhysicalState VARCHAR(150) NULL,
   isActivePhysicalState TINYINT(1) NOT NULL DEFAULT 1
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Estados físicos usados por unidades culinárias e conversões.';
 
 CREATE TABLE IF NOT EXISTS fiscal_document_queue (
   idFiscalDocumentQueue BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS fiscal_document_queue (
   UNIQUE KEY uqFiscalDocumentQueueAccessKey (accessKeyFiscalDocumentQueue),
   KEY idxFiscalDocumentQueueIssuedAt (issuedAtFiscalDocumentQueue),
   KEY idxFiscalDocumentQueueIssuer (issuerDocumentFiscalDocumentQueue)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Documentos fiscais aguardando importação ou processamento.';
 
 CREATE TABLE IF NOT EXISTS fiscal_documents (
   idFiscalDocument BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -138,7 +138,7 @@ CREATE TABLE IF NOT EXISTS fiscal_documents (
   CONSTRAINT fkFiscalDocumentsQueue
     FOREIGN KEY (idFiscalDocumentQueue) REFERENCES fiscal_document_queue (idFiscalDocumentQueue)
     ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Cabeçalhos persistidos de documentos fiscais importados ou manuais.';
 
 CREATE TABLE IF NOT EXISTS fiscal_document_items (
   idFiscalDocumentItem BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -172,7 +172,7 @@ CREATE TABLE IF NOT EXISTS fiscal_document_items (
   CONSTRAINT fkFiscalDocumentItemsDocument
     FOREIGN KEY (idFiscalDocument) REFERENCES fiscal_documents (idFiscalDocument)
     ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Itens individuais extraídos dos documentos fiscais.';
 
 CREATE TABLE IF NOT EXISTS fiscal_entries (
   idFiscalEntry BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -190,7 +190,7 @@ CREATE TABLE IF NOT EXISTS fiscal_entries (
   CONSTRAINT fkFiscalEntriesDocument
     FOREIGN KEY (idFiscalDocument) REFERENCES fiscal_documents (idFiscalDocument)
     ON DELETE RESTRICT
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Pré-entradas e entradas fiscais em revisão ou confirmação.';
 
 CREATE TABLE IF NOT EXISTS products (
   idProduct BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -230,7 +230,7 @@ CREATE TABLE IF NOT EXISTS products (
   CONSTRAINT fkProductsPhysicalState
     FOREIGN KEY (idPhysicalStateProduct) REFERENCES physical_states (idPhysicalState)
     ON DELETE RESTRICT
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Produtos comerciais, mercadorias, matéria-prima e produtos acabados.';
 
 CREATE TABLE IF NOT EXISTS margin_group_overrides (
   idGroup BIGINT UNSIGNED NOT NULL,
@@ -242,7 +242,7 @@ CREATE TABLE IF NOT EXISTS margin_group_overrides (
   CONSTRAINT chkMarginGroupTarget CHECK (targetMarginPercentage IS NULL OR (targetMarginPercentage >= 0 AND targetMarginPercentage < 100)),
   CONSTRAINT fkMarginGroupOverrideGroup FOREIGN KEY (idGroup)
     REFERENCES `groups` (idGroup) ON DELETE CASCADE
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Limites e metas de margem específicos por grupo.';
 
 INSERT INTO margin_group_overrides (
   idGroup,
@@ -281,7 +281,7 @@ CREATE TABLE IF NOT EXISTS margin_product_metrics (
   KEY idxMarginProductMetricProductCreated (idProduct, createdAtMarginProductMetric),
   CONSTRAINT fkMarginProductMetricProduct FOREIGN KEY (idProduct)
     REFERENCES products (idProduct) ON DELETE CASCADE
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Snapshots calculados de custo, preço e margem dos produtos.';
 
 CREATE TABLE IF NOT EXISTS recipe_definitions (
   idRecipe BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -307,7 +307,7 @@ CREATE TABLE IF NOT EXISTS recipe_definitions (
   CONSTRAINT fkRecipeResultProduct
     FOREIGN KEY (idResultProductRecipe) REFERENCES products (idProduct)
     ON DELETE RESTRICT
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Receitas, composições e formações produzidas pelo PDV.';
 
 CREATE TABLE IF NOT EXISTS recipe_components (
   idRecipeComponent BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -338,7 +338,7 @@ CREATE TABLE IF NOT EXISTS recipe_components (
     ON DELETE RESTRICT,
   KEY idxRecipeComponentsCulinaryUnit (idCulinaryUnitRecipeComponent),
   KEY idxRecipeComponentsCulinaryConversion (idCulinaryUnitConversionRecipeComponent)
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Componentes, quantidades, perdas e custos de receitas e formações.';
 
 CREATE TABLE IF NOT EXISTS product_recipe_links (
   idProductRecipeLink BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -356,7 +356,7 @@ CREATE TABLE IF NOT EXISTS product_recipe_links (
   CONSTRAINT fkProductRecipeLinksRecipe
     FOREIGN KEY (idRecipe) REFERENCES recipe_definitions (idRecipe)
     ON DELETE RESTRICT
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Vínculos quantificados entre produtos comerciais e receitas.';
 
 CREATE TABLE IF NOT EXISTS recipe_reviews (
   idRecipeReview BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -370,7 +370,7 @@ CREATE TABLE IF NOT EXISTS recipe_reviews (
   CONSTRAINT fkRecipeReviewsRecipe
     FOREIGN KEY (idRecipe) REFERENCES recipe_definitions (idRecipe)
     ON DELETE CASCADE
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Revisões e versões históricas das estruturas de receitas.';
 
 CREATE TABLE IF NOT EXISTS product_types (
   idProductType BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -379,7 +379,7 @@ CREATE TABLE IF NOT EXISTS product_types (
   isActiveProductType TINYINT(1) NOT NULL DEFAULT 1,
   PRIMARY KEY (idProductType),
   UNIQUE KEY uqProductTypesDescription (descriptionProductType)
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Tipos fiscais e operacionais usados pelos produtos.';
 
 INSERT INTO product_types (descriptionProductType, isActiveProductType)
 VALUES ('PRODUTO ACABADO', 1)
@@ -396,7 +396,7 @@ CREATE TABLE IF NOT EXISTS units (
   categoryUnit ENUM('weight', 'volume', 'unit', 'general') NULL,
   PRIMARY KEY (idUnit),
   UNIQUE KEY uqUnitsCode (codeUnit)
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Unidades fiscais e culinárias usadas no estoque e na produção.';
 
 CREATE TABLE IF NOT EXISTS unit_conversions (
   idUnitConversion INT NOT NULL AUTO_INCREMENT,
@@ -410,7 +410,7 @@ CREATE TABLE IF NOT EXISTS unit_conversions (
   CONSTRAINT fkUnitConversionsFrom FOREIGN KEY (idFromUnitConversion) REFERENCES units (idUnit) ON DELETE CASCADE,
   CONSTRAINT fkUnitConversionsTo FOREIGN KEY (idToUnitConversion) REFERENCES units (idUnit) ON DELETE CASCADE,
   CONSTRAINT fkUnitConversionsPhysicalState FOREIGN KEY (idPhysicalStateUnitConversion) REFERENCES physical_states (idPhysicalState) ON DELETE RESTRICT
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Conversões entre unidades culinárias por estado físico.';
 
 CREATE TABLE IF NOT EXISTS fiscal_entry_items (
   idFiscalEntryItem BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -430,7 +430,7 @@ CREATE TABLE IF NOT EXISTS fiscal_entry_items (
   CONSTRAINT fkFiscalEntryItemsDocumentItem
     FOREIGN KEY (idFiscalDocumentItem) REFERENCES fiscal_document_items (idFiscalDocumentItem)
     ON DELETE RESTRICT
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Itens vinculados às pré-entradas e ao estoque.';
 
 CREATE TABLE IF NOT EXISTS product_fiscal_references (
   idProductFiscalReference BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -475,7 +475,7 @@ CREATE TABLE IF NOT EXISTS fiscal_entry_payments (
   CONSTRAINT fkFiscalEntryPaymentsEntry
     FOREIGN KEY (idFiscalEntry) REFERENCES fiscal_entries (idFiscalEntry)
     ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Pagamentos associados às entradas fiscais.';
 
 CREATE TABLE IF NOT EXISTS inventory_movements (
   idInventoryMovement BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -500,7 +500,7 @@ CREATE TABLE IF NOT EXISTS inventory_movements (
   CONSTRAINT fkInventoryMovementsFiscalEntry
     FOREIGN KEY (idFiscalEntry) REFERENCES fiscal_entries (idFiscalEntry)
     ON DELETE RESTRICT,
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Movimentos de estoque, custo anterior e custo posterior.';
 
 CREATE TABLE IF NOT EXISTS inventory_counts (
   idInventoryCount BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -509,7 +509,7 @@ CREATE TABLE IF NOT EXISTS inventory_counts (
   createdAtInventoryCount TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (idInventoryCount),
   KEY idxInventoryCountsDate (createdAtInventoryCount),
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Contagens físicas de estoque abertas, concluídas ou canceladas.';
 
 CREATE TABLE IF NOT EXISTS inventory_count_items (
   idInventoryCountItem BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -527,7 +527,7 @@ CREATE TABLE IF NOT EXISTS inventory_count_items (
   CONSTRAINT fkInventoryCountItemsProduct
     FOREIGN KEY (idProduct) REFERENCES products (idProduct)
     ON DELETE RESTRICT
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Itens e quantidades informados nas contagens físicas.';
 
 CREATE TABLE IF NOT EXISTS ncm_catalog (
   idNcm BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -538,7 +538,7 @@ CREATE TABLE IF NOT EXISTS ncm_catalog (
   updatedAtNcm TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (idNcm),
   UNIQUE KEY uqNcmCode (codeNcm)
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Catálogo persistido de códigos e descrições NCM.';
 
 CREATE TABLE IF NOT EXISTS cest_catalog (
   idCest BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -550,7 +550,7 @@ CREATE TABLE IF NOT EXISTS cest_catalog (
   updatedAtCest TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (idCest),
   UNIQUE KEY uqCestCode (codeCest)
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Catálogo persistido de códigos e descrições CEST.';
 
 CREATE TABLE IF NOT EXISTS ncm_cest_relations (
   idNcmCestRelation BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -562,7 +562,7 @@ CREATE TABLE IF NOT EXISTS ncm_cest_relations (
   KEY idxNcmCestRelationsCest (idCest),
   CONSTRAINT fkNcmCestRelationsNcm FOREIGN KEY (idNcm) REFERENCES ncm_catalog (idNcm) ON DELETE RESTRICT,
   CONSTRAINT fkNcmCestRelationsCest FOREIGN KEY (idCest) REFERENCES cest_catalog (idCest) ON DELETE RESTRICT
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Relações vigentes entre códigos NCM e CEST.';
 
 CREATE TABLE IF NOT EXISTS ncm_cest_updates (
   idNcmCestUpdate BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -576,7 +576,7 @@ CREATE TABLE IF NOT EXISTS ncm_cest_updates (
   startedAtNcmCestUpdate TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   completedAtNcmCestUpdate TIMESTAMP NULL,
   PRIMARY KEY (idNcmCestUpdate)
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Execuções e resultados das atualizações de catálogos fiscais.';
 
 CREATE TABLE IF NOT EXISTS payment_methods (
   idPaymentMethod BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -590,7 +590,7 @@ CREATE TABLE IF NOT EXISTS payment_methods (
   isActivePaymentMethod TINYINT(1) NOT NULL DEFAULT 1,
   PRIMARY KEY (idPaymentMethod),
   UNIQUE KEY uqPaymentMethodsNamePaymentMethod (namePaymentMethod)
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Formas de pagamento disponíveis no PDV.';
 
 INSERT INTO payment_methods
   (namePaymentMethod, cashFlowAccountPaymentMethod, termDaysPaymentMethod, isActivePaymentMethod)
@@ -609,7 +609,7 @@ CREATE TABLE IF NOT EXISTS operators (
   PRIMARY KEY (idOperator),
   UNIQUE KEY uqOperatorsUsername (usernameOperator),
   KEY idxOperatorsActiveRole (isActiveOperator, roleOperator)
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Operadores autenticados e seus perfis de acesso.';
 
 CREATE TABLE IF NOT EXISTS operator_sessions (
   idOperatorSession BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -623,7 +623,7 @@ CREATE TABLE IF NOT EXISTS operator_sessions (
   CONSTRAINT fkOperatorSessionsOperator
     FOREIGN KEY (idOperator) REFERENCES operators (idOperator)
     ON DELETE CASCADE
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Sessões autenticadas, expiração e atividade dos operadores.';
 
 CREATE TABLE IF NOT EXISTS margin_price_audits (
   idMarginPriceAudit BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -643,7 +643,7 @@ CREATE TABLE IF NOT EXISTS margin_price_audits (
     REFERENCES operators (idOperator) ON DELETE RESTRICT,
   CONSTRAINT chkMarginPriceAuditPreviousCmv CHECK (previousCmvPercentage IS NULL OR (previousCmvPercentage >= 0 AND previousCmvPercentage <= 100)),
   CONSTRAINT chkMarginPriceAuditNewCmv CHECK (newCmvPercentage IS NULL OR (newCmvPercentage >= 0 AND newCmvPercentage <= 100))
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Histórico de alterações realizadas pelos balizadores de margem.';
 
 CREATE TABLE IF NOT EXISTS cash_registers (
   idCashRegister SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -651,7 +651,7 @@ CREATE TABLE IF NOT EXISTS cash_registers (
   isActiveCashRegister TINYINT(1) NOT NULL DEFAULT 1,
   PRIMARY KEY (idCashRegister),
   UNIQUE KEY uqCashRegistersName (nameCashRegister)
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Caixas físicos configurados na operação.';
 
 INSERT INTO cash_registers (nameCashRegister, isActiveCashRegister)
 VALUES ('Caixa principal', 1)
@@ -681,7 +681,7 @@ CREATE TABLE IF NOT EXISTS cash_sessions (
   CONSTRAINT fkCashSessionsClosedOperator
     FOREIGN KEY (idOperatorClosed) REFERENCES operators (idOperator)
     ON DELETE RESTRICT
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Aberturas, fechamentos e valores das sessões de caixa.';
 
 CREATE TABLE IF NOT EXISTS suppliers (
   idSupplier BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -707,7 +707,7 @@ CREATE TABLE IF NOT EXISTS suppliers (
   PRIMARY KEY (idSupplier),
   UNIQUE KEY uqSuppliersDocumentType (documentSupplier, typeSupplier),
   KEY idxSuppliersTypeStatus (typeSupplier, isActiveSupplier)
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Cadastro de fornecedores da operação.';
 
 CREATE TABLE IF NOT EXISTS customers (
   idCustomer BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -723,7 +723,7 @@ CREATE TABLE IF NOT EXISTS customers (
   updatedAtCustomer TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (idCustomer),
   UNIQUE KEY uqCustomersDocument (documentCustomer)
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Consumidores identificados nas vendas.';
 
 CREATE TABLE IF NOT EXISTS consumers (
   idConsumer BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -738,7 +738,7 @@ CREATE TABLE IF NOT EXISTS consumers (
   PRIMARY KEY (idConsumer),
   UNIQUE KEY uqConsumersCustomer (idCustomer),
   CONSTRAINT fkConsumersCustomer FOREIGN KEY (idCustomer) REFERENCES customers (idCustomer) ON DELETE SET NULL
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Consumidores finais e dados opcionais de identificação.';
 
 CREATE TABLE IF NOT EXISTS customer_vouchers (
   idCustomerVoucher BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -751,7 +751,7 @@ CREATE TABLE IF NOT EXISTS customer_vouchers (
   PRIMARY KEY (idCustomerVoucher),
   KEY idxCustomerVouchersCustomer (idCustomer, statusCustomerVoucher),
   CONSTRAINT fkCustomerVouchersCustomer FOREIGN KEY (idCustomer) REFERENCES customers (idCustomer) ON DELETE RESTRICT
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Créditos e vouchers vinculados a consumidores.';
 
 CREATE TABLE IF NOT EXISTS printer_settings (
   idPrinterSetting TINYINT UNSIGNED NOT NULL,
@@ -760,7 +760,7 @@ CREATE TABLE IF NOT EXISTS printer_settings (
   receiptLayoutPrinterSetting JSON NULL,
   updatedAtPrinterSetting TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (idPrinterSetting)
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Configuração das impressoras e formatos de impressão.';
 
 CREATE TABLE IF NOT EXISTS general_settings (
   idGeneralSetting BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -772,7 +772,7 @@ CREATE TABLE IF NOT EXISTS general_settings (
   updatedAtGeneralSetting TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (idGeneralSetting),
   UNIQUE KEY uqGeneralSettingsKey (keyGeneralSetting)
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Configurações gerais persistidas da aplicação.';
 
 INSERT INTO general_settings
   (keyGeneralSetting, labelGeneralSetting, typeGeneralSetting, valueGeneralSetting)
@@ -833,7 +833,7 @@ CREATE TABLE IF NOT EXISTS company_settings (
   createdAtCompanySetting TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAtCompanySetting TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (idCompanySetting)
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Dados cadastrais e fiscais da empresa.';
 
 CREATE TABLE IF NOT EXISTS navigation_menus (
   idNavigationMenu SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -843,7 +843,7 @@ CREATE TABLE IF NOT EXISTS navigation_menus (
   isActiveNavigationMenu TINYINT(1) NOT NULL DEFAULT 1,
   PRIMARY KEY (idNavigationMenu),
   UNIQUE KEY uqNavigationMenusKey (keyNavigationMenu)
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Menus principais configuráveis da interface.';
 
 CREATE TABLE IF NOT EXISTS navigation_items (
   idNavigationItem BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -866,7 +866,7 @@ CREATE TABLE IF NOT EXISTS navigation_items (
   CONSTRAINT fkNavigationItemsParent
     FOREIGN KEY (idParentNavigationItem) REFERENCES navigation_items (idNavigationItem)
     ON DELETE CASCADE
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Itens e atalhos configuráveis dentro dos menus.';
 
 CREATE TABLE IF NOT EXISTS fiscal_operations (
   idFiscalOperation BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -896,7 +896,7 @@ CREATE TABLE IF NOT EXISTS fiscal_operations (
   PRIMARY KEY (idFiscalOperation),
   KEY idxFiscalOperationsCfopFiscalOperation (cfopFiscalOperation),
   KEY idxFiscalOperationsActiveDescription (isActiveFiscalOperation, descriptionFiscalOperation)
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Operações fiscais associadas a vendas e documentos.';
 
 CREATE TABLE IF NOT EXISTS fiscal_catalog_items (
   idFiscalCatalogItem BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -910,7 +910,7 @@ CREATE TABLE IF NOT EXISTS fiscal_catalog_items (
   PRIMARY KEY (idFiscalCatalogItem),
   UNIQUE KEY uqFiscalCatalogItemsCatalogCode (catalogFiscalCatalogItem, codeFiscalCatalogItem),
   KEY idxFiscalCatalogItemsCatalogActive (catalogFiscalCatalogItem, isActiveFiscalCatalogItem, descriptionFiscalCatalogItem)
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Catálogos auxiliares fiscais, como CFOP e situações.';
 
 INSERT INTO fiscal_catalog_items
   (catalogFiscalCatalogItem, codeFiscalCatalogItem, descriptionFiscalCatalogItem, valueFiscalCatalogItem)
@@ -945,7 +945,7 @@ CREATE TABLE IF NOT EXISTS sales (
   CONSTRAINT fkSalesCancelledOperator
     FOREIGN KEY (idOperatorCancelledSale) REFERENCES operators (idOperator)
     ON DELETE RESTRICT
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Vendas confirmadas, canceladas e seus dados operacionais.';
 
 CREATE TABLE IF NOT EXISTS sale_fiscal_documents (
   idSaleFiscalDocument BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -971,7 +971,7 @@ CREATE TABLE IF NOT EXISTS sale_fiscal_documents (
   CONSTRAINT fkSaleFiscalDocumentSale
     FOREIGN KEY (idSale) REFERENCES sales (idSale)
     ON DELETE RESTRICT
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Documentos fiscais emitidos ou vinculados às vendas.';
 
 CREATE TABLE IF NOT EXISTS sale_items (
   idSaleItem BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -989,7 +989,7 @@ CREATE TABLE IF NOT EXISTS sale_items (
   CONSTRAINT fkSaleItemsIdProduct
     FOREIGN KEY (idProduct) REFERENCES products (idProduct)
     ON DELETE RESTRICT
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Itens comercializados em cada venda.';
 
 CREATE TABLE IF NOT EXISTS sale_payments (
   idSalePayment BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -1004,7 +1004,7 @@ CREATE TABLE IF NOT EXISTS sale_payments (
   CONSTRAINT fkSalePaymentsIdPaymentMethod
     FOREIGN KEY (idPaymentMethod) REFERENCES payment_methods (idPaymentMethod)
     ON DELETE RESTRICT
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Pagamentos recebidos em cada venda.';
 
 CREATE TABLE IF NOT EXISTS cash_movements (
   idCashMovement BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -1027,4 +1027,4 @@ CREATE TABLE IF NOT EXISTS cash_movements (
   CONSTRAINT fkCashMovementsSale
     FOREIGN KEY (idSale) REFERENCES sales (idSale)
     ON DELETE RESTRICT
-) ENGINE=InnoDB;
+) ENGINE=InnoDB COMMENT='Movimentos financeiros vinculados às sessões de caixa.';

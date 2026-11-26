@@ -236,6 +236,13 @@ calculado pelo valor dos produtos dividido pela quantidade convertida para a
 unidade de estoque.
 _Evitar_: custo médio, preço de compra sem conversão.
 
+**Custo por embalagem**:
+Custo comercial calculado para a quantidade definida em Conteúdo por unidade
+quando uma entrada fiscal chega em uma unidade de embalagem ou caixa. O estoque
+continua registrado em sua unidade-base, mas o custo atual do Produto representa
+a unidade comercial completa.
+_Evitar_: custo por mililitro exibido como custo da embalagem.
+
 **Custo médio**:
 Política de custo que combina o custo atual e uma entrada usando média ponderada
 quando o saldo anterior é positivo. Com saldo zero ou negativo, o custo da

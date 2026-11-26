@@ -31,7 +31,9 @@ const getConversionFactor = ({ component, product, conversions }) => {
     }
     return Number(selected.factorUnitConversion) / packageQuantity;
   }
-  if (!culinaryUnitId || culinaryUnitId === productUnitId) return 1;
+  if (!culinaryUnitId || culinaryUnitId === productUnitId) {
+    return 1 / packageQuantity;
+  }
   const matches = [...conversions.values()].filter((conversion) =>
     String(conversion.idFromUnitConversion) === culinaryUnitId
     && String(conversion.idToUnitConversion) === productUnitId

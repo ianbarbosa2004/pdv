@@ -7,6 +7,34 @@ inicial do produto até o estado atual do workspace. Ele complementa o
 
 ## 0. Estado mais recente
 
+### Ficha Técnica, PDF e documentação do banco — 2026-11-26
+
+O cálculo da Formação passou a considerar embalagem e conversão culinária na
+persistência dos componentes. A recálculo dos dados existentes atualizou 41
+estruturas e manteve o custo de componentes como 30 ml de óleo em R$ 0,21.
+A unidade exibida passou a ser a unidade cadastrada no Produto, corrigindo
+`L - Mililitro` para `ML - Mililitro`.
+
+O PDF da Ficha Técnica passou a ser gerado diretamente pelo PDV com cabeçalho,
+tabela, total, rodapé e logotipo proporcional. O salvamento oferece pasta
+editável por árvore de diretórios, confirmação do arquivo e ações posteriores
+de Visualizar e Concluir.
+
+Todas as tabelas conhecidas receberam descrições em português no documento
+`docs/DATABASE-SCHEMA.md` e em `TABLE_DESCRIPTIONS`; a inicialização da API
+aplica os comentários no MariaDB existente e novas tabelas devem incluir
+`COMMENT` no `CREATE TABLE`.
+
+### Correção de custo por unidade comercial — 2026-11-25
+
+O cálculo fiscal passou a distinguir quantidade convertida para estoque e custo
+da unidade comercial. Quando o vínculo usa uma caixa ou embalagem maior, o
+`packageQuantityProduct` define quantas unidades-base integram o Produto
+comercial. A confirmação da entrada mantém o saldo em ML e atualiza o custo
+pela embalagem correspondente. Na validação do PDV 207, uma caixa de 20
+embalagens de 900 ml com total de R$ 125,80 resulta em custo de R$ 6,29 por
+embalagem. O script de recálculo usa a mesma regra em entradas confirmadas.
+
 ### Frente de Caixa, carrinho fracionado e publicação Windows — 2026-11-25
 
 A tela Balcão passou a apresentar Venda Atual à esquerda e Produtos à direita.

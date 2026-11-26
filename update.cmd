@@ -1,1 +1,1 @@
-npm ci && npm update && npm install @tauri-apps/cli@latest && npm install @tauri-apps/api@latest && npm install vite@latest --save-dev && cd src-tauri && cargo update && cd .. && rustup update
+npm ci && npm approve-scripts --all && npm ci && npm update && npm install @tauri-apps/cli@latest && npm install @tauri-apps/api@latest && npm install vite@latest --save-dev && cd src-tauri && cargo update && cd .. && rustup update

@@ -24,6 +24,19 @@ test("calcula quantidade convertida e custo unitário fiscal", () => {
   );
 });
 
+test("calcula custo por embalagem de 900 ml em caixa de 20 unidades", () => {
+  const impact = calculateFiscalItemImpact({
+    sourceQuantity: 1,
+    sourceTotal: 125.80,
+    conversionFactor: 18000,
+    packageQuantity: 900
+  });
+  assert.equal(impact.quantity, 18000);
+  assert.equal(impact.packageQuantity, 900);
+  assert.equal(impact.unitCost, 6.29);
+  assert.equal(impact.stockUnitCost, 125.80 / 18000);
+});
+
 test("usa último custo quando essa política está selecionada", () => {
   assert.deepEqual(
     calculateCostUpdate({

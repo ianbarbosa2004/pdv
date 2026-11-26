@@ -12,6 +12,7 @@ test("migração de custos reprocessa entradas confirmadas por política", async
   assert.match(source, /statusFiscalEntry = 'confirmed'/u);
   assert.match(source, /process\.argv\.includes\("--apply"\)/u);
   assert.match(source, /entryDateFiscalDocumentItem/u);
+  assert.match(source, /packageQuantityProduct/u);
 });
 
 test("migração de receitas usa perda e quantidade informada sem persistir quantidade útil", async () => {
